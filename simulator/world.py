@@ -29,7 +29,7 @@ class World:
             a.reset()
 
     def _calc_disturbance(self):
-        drone_positions = [a.state.pos for a in self.agents if a.params.kind == "drone"]
+        drone_positions = [a.state.pos for a in self.agents if a.params.agent_type == "drone"]
         drone_positions = np.array(drone_positions, dtype=float) if len(drone_positions) else None
 
         disturb = np.zeros(len(self.agents), dtype=float)

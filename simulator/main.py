@@ -18,20 +18,14 @@ def main():
     animal_lo[2] = 0.0
     animal_hi[2] = 0.0
 
-    animal_behaviours = [
-        BoundedRandomWalk(speed=1, change_prob=0.8, max_change_angle_rad=np.deg2rad(10), seed=42),
-    ]
-
     hist = []
      
-    for i in range(6):
-        beh = animal_behaviours[i % len(animal_behaviours)]
-        a = Agent(
-            name=f"animal_{i}",
-            params=AgentParams(max_speed=1, bounds_min=animal_lo, bounds_max=animal_hi, kind="animal"),
-            controller=beh,
-        )
-        world.add_agent(a)
+    animal = Agent(
+        name=f"animal",
+        params=AgentParams(max_speed=1, bounds_min=animal_lo, bounds_max=animal_hi, agent_type="animal"),
+        controller=BoundedRandomWalk(speed=1, change_prob=0.8, max_change_angle_rad=np.deg2rad(10), seed=42),
+    )
+    world.add_agent(animal)
 
     drone_lo = world_lo.copy()
     drone_hi = world_hi.copy()
@@ -40,19 +34,19 @@ def main():
 
     scripted_drone = Agent(
         name="drone_scripted",
-        params=AgentParams(max_speed=3.0, bounds_min=drone_lo, bounds_max=drone_hi, kind="drone"),
+        params=AgentParams(max_speed=3.0, bounds_min=drone_lo, bounds_max=drone_hi, agent_type="drone"),
         controller=RandomWalk(speed=2.0, change_prob=0.2, seed=10),
     )
     world.add_agent(scripted_drone)
 
     rl_drone = Agent(
         name="drone_rl",
-        params=AgentParams(max_speed=3.0, bounds_min=drone_lo, bounds_max=drone_hi, kind="drone"),
+        params=AgentParams(max_speed=3.0, bounds_min=drone_lo, bounds_max=drone_hi, agent_type="drone"),
         controller=None,  # external control
     )
     world.add_agent(rl_drone)
 
-    world.reset(seed=0)
+    world.reset(seed=None)
 
     for t in range(cfg.max_steps):
         external_actions = {
@@ -61,8 +55,8 @@ def main():
         world.step(external_actions=external_actions)
 
         if t % 50 == 0:
-            print(f"t={t:03d} | drone_rl pos={rl_drone.state.pos.round(2)} | animal_0 pos={world.agents[0].state.pos.round(2)}")
-        hist.append(world.agents[0].state.pos.round(2))
+            print(f"t={t:03d} | drone_rl pos={rl_drone.state.pos.round(2)} | animal_0 pos={animal.state.pos.round(2)}")
+        hist.append(animal.state.pos.round(2))
     print("Done.")
 
     import matplotlib.pyplot as plt

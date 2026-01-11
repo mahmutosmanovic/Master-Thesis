@@ -9,7 +9,7 @@ class AgentParams:
     max_speed: float
     bounds_min: np.ndarray  # (3,)
     bounds_max: np.ndarray  # (3,)
-    kind: str               # e.g. "animal" or "drone"
+    agent_type: str         # e.g. "animal" or "drone"
 
 
 @dataclass
