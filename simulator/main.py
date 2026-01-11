@@ -3,12 +3,12 @@ import numpy as np
 from config import default_config
 from world import World
 from agent import Agent, AgentParams
-from controllers import RandomWalk
+from controllers import RandomWalk, BoundedRandomWalk
 
 
 def main():
     cfg = default_config()
-    world = World(cfg, seed=42)
+    world = World(cfg, seed=43)
 
     world_lo = np.array(cfg.bounds_min, dtype=float)
     world_hi = np.array(cfg.bounds_max, dtype=float)
@@ -19,14 +19,16 @@ def main():
     animal_hi[2] = 0.0
 
     animal_behaviours = [
-        RandomWalk(speed=0.9, change_prob=0.2, seed=1),
+        BoundedRandomWalk(speed=1, change_prob=0.8, max_change_angle_rad=np.deg2rad(10), seed=42),
     ]
 
+    hist = []
+     
     for i in range(6):
         beh = animal_behaviours[i % len(animal_behaviours)]
         a = Agent(
             name=f"animal_{i}",
-            params=AgentParams(max_speed=1.2, bounds_min=animal_lo, bounds_max=animal_hi, kind="animal"),
+            params=AgentParams(max_speed=1, bounds_min=animal_lo, bounds_max=animal_hi, kind="animal"),
             controller=beh,
         )
         world.add_agent(a)
@@ -39,7 +41,7 @@ def main():
     scripted_drone = Agent(
         name="drone_scripted",
         params=AgentParams(max_speed=3.0, bounds_min=drone_lo, bounds_max=drone_hi, kind="drone"),
-        controller=RandomWalk(speed=2.0, change_prob=0.1, seed=10),
+        controller=RandomWalk(speed=2.0, change_prob=0.2, seed=10),
     )
     world.add_agent(scripted_drone)
 
@@ -60,9 +62,15 @@ def main():
 
         if t % 50 == 0:
             print(f"t={t:03d} | drone_rl pos={rl_drone.state.pos.round(2)} | animal_0 pos={world.agents[0].state.pos.round(2)}")
-
+        hist.append(world.agents[0].state.pos.round(2))
     print("Done.")
 
+    import matplotlib.pyplot as plt
+    x = [pos[0] for pos in hist]
+    y = [pos[1] for pos in hist]
+
+    plt.scatter(x, y)
+    plt.show()
 
 if __name__ == "__main__":
     main()
