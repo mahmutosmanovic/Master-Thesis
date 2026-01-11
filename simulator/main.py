@@ -4,7 +4,7 @@ from config import default_config
 from world import World
 from agent import Agent, AgentParams
 from controllers import RandomWalk, BoundedRandomWalk
-
+from renderer import Renderer3D
 
 def main():
     cfg = default_config()
@@ -48,16 +48,22 @@ def main():
 
     world.reset(seed=None)
 
+    renderer = Renderer3D(world, title="Wildlife Monitoring Sim")
+
     for t in range(cfg.max_steps):
         external_actions = {
             "drone_rl": np.random.uniform(-1, 1, size=3) * 3.0
         }
         world.step(external_actions=external_actions)
 
+        renderer.render(t)
+
         if t % 50 == 0:
             print(f"t={t:03d} | drone_rl pos={rl_drone.state.pos.round(2)} | animal_0 pos={animal.state.pos.round(2)}")
         hist.append(animal.state.pos.round(2))
     print("Done.")
+
+    renderer.close()
 
     import matplotlib.pyplot as plt
     x = [pos[0] for pos in hist]
