@@ -28,9 +28,7 @@ class World:
             a.state.vel = np.zeros(3, dtype=float)
             a.reset()
 
-    def step(self, external_actions: Optional[Dict[str, np.ndarray]] = None) -> None:
-        external_actions = external_actions or {}
-
+    def _calc_disturbance(self):
         drone_positions = [a.state.pos for a in self.agents if a.params.kind == "drone"]
         drone_positions = np.array(drone_positions, dtype=float) if len(drone_positions) else None
 
@@ -49,6 +47,13 @@ class World:
                     av += w * (dvec / d)
                 disturb[i] = tot
                 avoid_vecs[i] = av
+        
+        return disturb, avoid_vecs
+
+    def step(self, external_actions: Optional[Dict[str, np.ndarray]] = None) -> None:
+        external_actions = external_actions or {}
+
+        disturb, avoid_vecs = self._calc_disturbance()
 
         for i, a in enumerate(self.agents):
             obs = AgentObs(
@@ -60,7 +65,7 @@ class World:
                 extras={
                     "disturb": float(disturb[i]),
                     "avoid_vec": avoid_vecs[i].copy(),
-                    "rng": self.rng,  # optional; controllers can ignore
+                    "rng": self.rng,
                 },
             )
 

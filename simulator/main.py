@@ -8,7 +8,7 @@ from controllers import RandomWalk, BoundedRandomWalk
 
 def main():
     cfg = default_config()
-    world = World(cfg, seed=43)
+    world = World(cfg, seed=42)
 
     world_lo = np.array(cfg.bounds_min, dtype=float)
     world_hi = np.array(cfg.bounds_max, dtype=float)
