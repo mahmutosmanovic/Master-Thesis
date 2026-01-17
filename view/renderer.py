@@ -9,7 +9,7 @@ import pyray as pr  # type: ignore
 # --------------------------------------------------
 CSV_PATH = "logs/simulations/test_jackal_random_single.csv"
 
-MODEL_PATH = "view/assets/source/model.glb"
+MODEL_PATH = "view/assets/source/pigeon.glb"
 TEXTURE_PATH = "view/assets/textures/gltf_embedded_0.jpeg"
 
 FLOOR_TEXTURE_PATH = "view/assets/textures/green.png"
