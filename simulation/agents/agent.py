@@ -27,21 +27,16 @@ class Agent:
         self.move(dt)
         return angular_velocity, accel
 
-    def apply_control(self, angular_velocity, accel, dt):
-        angular_velocity = np.clip(
-            angular_velocity, -self.max_turn, self.max_turn
-        )
+    def apply_control(self, turn_angle, accel, dt):
+        max_turn_angle = self.max_turn * dt
+        turn_angle = np.clip(turn_angle, -max_turn_angle, max_turn_angle)
+
         accel = np.clip(accel, -self.max_accel, self.max_accel)
 
-        angle = angular_velocity * dt
-        c, s = np.cos(angle), np.sin(angle)
-
+        c, s = np.cos(turn_angle), np.sin(turn_angle)
         x, y, _ = self.direction
         self.direction = np.array([c*x - s*y, s*x + c*y, 0.0])
         self.direction /= np.linalg.norm(self.direction)
 
-        self.speed = np.clip(
-            self.speed + accel * dt, 0, self.max_speed
-        )
-
+        self.speed = np.clip(self.speed + accel * dt, 0, self.max_speed)
 

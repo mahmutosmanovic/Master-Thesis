@@ -5,7 +5,7 @@ world = World.random_world(seed=1)
 
 dt = TIME_STEP
 
-for step in range(50):
+for step in range(500):
     world.step(dt)
 
     for i, a in enumerate(world.agents):
