@@ -30,6 +30,7 @@ class Animal(Agent):
     def _select_poi_idx(self, obs):
         pois = obs.get("pois", [])
 
+        # Random initial target
         if self.poi_idx is None:
             return int(np.random.randint(0, len(pois)))
 
@@ -44,7 +45,7 @@ class Animal(Agent):
             print("No points of interest!")
             raise ValueError
 
-        # choose / keep target
+        # Select initial target
         if self.poi_idx is None:
             self.poi_idx = self._select_poi_idx(obs)
 
@@ -54,7 +55,7 @@ class Animal(Agent):
 
         dist = float(np.linalg.norm(to_target[:2]))
 
-        # if reached: optionally switch target
+        # Arrived at point
         if dist < POI_REACHED_EPS and POI_SWITCH_ON_REACH and len(pois) > 1:
             self.poi_idx = self._select_poi_idx(obs)
             target = pois[self.poi_idx]
@@ -62,21 +63,20 @@ class Animal(Agent):
             to_target[2] = 0.0
             dist = float(np.linalg.norm(to_target[:2]))
 
+        # Calculate desired angle and error
         desired_dir = to_target / (np.linalg.norm(to_target) + 1e-12)
 
         cur = self.direction.copy()
         cur[2] = 0.0
         cur /= (np.linalg.norm(cur) + 1e-12)
 
-        # signed angle error from cur -> desired (2D)
-        # angle = atan2(cross, dot)
         cross = cur[0] * desired_dir[1] - cur[1] * desired_dir[0]
         dot = cur[0] * desired_dir[0] + cur[1] * desired_dir[1]
         angle_error = float(np.arctan2(cross, dot))
 
+        # Set control parameters
         noise = np.random.normal(0.0, self.turn_noise) * POI_NOISE_SCALE
         turn_angle = POI_TURN_GAIN * angle_error + noise
-
         accel = POI_ACCEL_GAIN * (self.max_speed - self.speed)
 
         return turn_angle, accel
