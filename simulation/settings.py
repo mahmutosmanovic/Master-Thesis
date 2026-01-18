@@ -7,14 +7,14 @@ from random import randint, uniform, choice
 MAP_HEIGHT = 100
 MAP_WIDTH = 100
 
+JACKAL_COUNT = 1
+JACKAL_MODE = 'path_follow'
+
 EAGLE_COUNT = 0
 EAGLE_MODE = 'random' # unused...
 
-JACKAL_COUNT = 1
-JACKAL_MODE = 'random' # unused...
-
 PIGEON_COUNT = 0
-PIGEON_MODE = 'random' # unused...
+PIGEON_MODE = 'random'
 
 # POI settings
 POI_COUNT = 3                               # number of points if generating randomly
@@ -27,3 +27,4 @@ POI_SWITCH_ON_REACH = True                  # if True, pick next target when rea
 POI_TURN_GAIN = 1.0                         # higher -> turns more aggressively toward POI
 POI_ACCEL_GAIN = 1.0                        # higher -> speed matches desired speed faster
 POI_NOISE_SCALE = 0.5                       # scale turn
+
