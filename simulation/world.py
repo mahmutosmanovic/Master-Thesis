@@ -12,6 +12,8 @@ class World:
         self.log = []
         self.t = 0.0
 
+        self.pois = self._init_pois()
+
     @classmethod
     def random_world(cls, seed=None):
         world = cls(seed)
@@ -24,23 +26,35 @@ class World:
             uniform(0, MAP_HEIGHT),
             0.0
         ])
+    
+    def _init_pois(self):
+        # Priority: config['pois'] -> settings.POI_POINTS -> random POI_COUNT
+        if self.config is not None and "pois" in self.config and self.config["pois"] is not None:
+            pts = self.config["pois"]
+        elif POI_POINTS is not None:
+            pts = POI_POINTS
+        else:
+            pts = [(uniform(0, MAP_WIDTH), uniform(0, MAP_HEIGHT), 0.0) for _ in range(POI_COUNT)]
+
+        return [np.array(p, dtype=float) for p in pts]
 
     def spawn_random(self):
         for _ in range(EAGLE_COUNT):
-            self.agents.append(Eagle(self.random_position()))
+            self.agents.append(Eagle(self.random_position(), mode="poi")) # Placeholder update with path following spawn logic
 
         for _ in range(JACKAL_COUNT):
-            self.agents.append(Jackal(self.random_position()))
+            self.agents.append(Jackal(self.random_position(), mode="poi")) # Placeholder update with path following spawn logic
 
         for _ in range(PIGEON_COUNT):
-            self.agents.append(Pigeon(self.random_position()))
+            self.agents.append(Pigeon(self.random_position(), mode="poi")) # Placeholder update with path following spawn logic
 
     def get_observation(self, agent):
         return {
             "pos": agent.pos.copy(),
             "speed": agent.speed,
             "direction": agent.direction,
-            "rng": np.random.normal()
+            "rng": np.random.normal(),
+            "pois": [p.copy() for p in self.pois]
         }
 
     def step(self, dt):
