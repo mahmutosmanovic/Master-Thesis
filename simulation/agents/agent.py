@@ -11,8 +11,11 @@ class Agent:
         self.speed = 0.0
         self.direction = self.random_direction()
 
-    def l2_norm(self, v): # unit length
-        return v / np.linalg.norm(v)
+    def l2_norm(self, v):
+        n = np.linalg.norm(v)
+        if n < 1e-8:
+            return np.array([1.0, 0.0, 0.0])
+        return v / n
 
     def random_direction(self):
         v = np.random.normal(size=3)

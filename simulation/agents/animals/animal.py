@@ -1,11 +1,19 @@
 from ..agent import Agent
 import numpy as np
 
+
 class Animal(Agent):
     def __init__(self, pos, mode="random"):
         super().__init__(pos)
         self.mode = mode
 
+        # path following
+        self.path = None
+        self.s = 0.0               # path parameter
+        self.s_speed = 0.5         # how fast we move along the path
+        self.epsilon = 0.05        # deviation probability
+
+    # Policy dispatch
     def policy(self, obs):
         if self.mode == "random":
             return self.random_policy(obs)
@@ -18,60 +26,128 @@ class Animal(Agent):
 
         elif self.mode == "learning_based":
             return self.model_based_policy(obs)
-        
+
+        # fallback
+        return self.random_policy(obs)
+
+    # Policies
     def random_policy(self, obs):
         turn_angle = np.random.normal(0.0, self.turn_noise)
         accel = np.random.normal(0.0, 5.0)
         return turn_angle, accel
 
+    def path_follow_policy(self, obs):
+        if self.path is None:
+            return self.random_policy(obs)
+
+        pos = obs["pos"]
+        direction = obs["direction"]
+
+        center = self.path.center
+        radius = self.path.radius
+
+        # vector from center to agent
+        rel = pos - center
+        rel[2] = 0.0
+        dist = np.linalg.norm(rel)
+
+        if dist < 1e-6:
+            return 0.0, 0.0
+
+        # closest point on the circle
+        radial_dir = rel / dist
+        closest_point = center + radius * radial_dir
+
+        # tangent direction (CCW)
+        tangent = np.array([
+            -radial_dir[1],
+            radial_dir[0],
+            0.0
+        ])
+
+        # path attraction
+        to_path = closest_point - pos
+        Kp = 1.0
+
+        desired = tangent + Kp * to_path
+        desired /= np.linalg.norm(desired)
+
+        # heading error
+        cross = direction[0] * desired[1] - direction[1] * desired[0]
+        dot = np.dot(direction[:2], desired[:2])
+        turn_angle = np.arctan2(cross, dot)
+
+        # mild epsilon disturbance
+        if np.random.rand() < self.epsilon:
+            turn_angle += np.random.normal(0.0, self.turn_noise * 0.3)
+
+        desired_speed = 0.7 * self.max_speed
+        accel = desired_speed - obs["speed"]
+
+        return turn_angle, accel
+
+
+# Species
 class Eagle(Animal):
     def __init__(self, pos, mode="random"):
         super().__init__(pos, mode)
+        
+        # path following
+        self.epsilon = 0.3
+
         # movement limits
-        self.max_speed = 30.0      # m/s   (fast flight)
-        self.max_turn  = 8.0       # rad/s (smooth, wide turns)
-        self.max_accel = 8.0       # m/s^2 (powerful takeoff)
+        self.max_speed = 30.0
+        self.max_turn  = 8.0
+        self.max_accel = 8.0
 
         # perception & cognition
-        self.vision = 250.0        # m     (long-range vision)
-        self.turn_noise = 2.5     # rad/s (very stable heading)
-        self.memory_decay = 0.995  # unitless (slow forgetting)
-        
+        self.vision = 250.0
+        self.turn_noise = 2.5
+        self.memory_decay = 0.995
+
     def __repr__(self):
         x, y, z = self.pos
         return f"{type(self).__name__}([{round(x,1)}, {round(y,1)}, {round(z,1)}], mode={self.mode})"
+
 
 class Jackal(Animal):
     def __init__(self, pos, mode="random"):
         super().__init__(pos, mode)
 
-        # movement limits
-        self.max_speed = 12.0      # m/s   (running speed)
-        self.max_turn  = 4.0      # rad/s (body inertia)
-        self.max_accel = 4.0       # m/s^2 (ground acceleration)
+        # path following
+        self.epsilon = 0.6
 
-        # perception & cognition 
-        self.vision = 100.0        # m     (horizontal vision)
-        self.turn_noise = 1.5     # rad/s (moderate variability)
-        self.memory_decay = 0.98   # unitless (good spatial memory)
+        # movement limits
+        self.max_speed = 6.0
+        self.max_turn  = 4.0
+        self.max_accel = 4.0
+
+        # perception & cognition
+        self.vision = 100.0
+        self.turn_noise = 1.5
+        self.memory_decay = 0.98
 
     def __repr__(self):
         x, y, z = self.pos
         return f"{type(self).__name__}([{round(x,1)}, {round(y,1)}, {round(z,1)}], mode={self.mode})"
 
+
 class Pigeon(Animal):
-    def __init__(self, pos):
-        super().__init__(pos)
+    def __init__(self, pos, mode="random"):
+        super().__init__(pos, mode)
+        
+        # path following
+        self.epsilon = 0.8
 
         # movement limits
-        self.max_speed = 15.0      # m/s   (typical cruising speed)
-        self.max_turn  = 16.0       # rad/s (high maneuverability)
-        self.max_accel = 6.0       # m/s^2 (quick bursts)
+        self.max_speed = 15.0
+        self.max_turn  = 16.0
+        self.max_accel = 6.0
 
         # perception & cognition
-        self.vision = 80.0         # m     (local perception)
-        self.turn_noise = 3.25     # rad/s (exploratory jitter)
-        self.memory_decay = 0.97   # unitless (faster forgetting)
+        self.vision = 80.0
+        self.turn_noise = 3.25
+        self.memory_decay = 0.97
 
     def __repr__(self):
         x, y, z = self.pos
