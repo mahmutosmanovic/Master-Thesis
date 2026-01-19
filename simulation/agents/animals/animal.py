@@ -1,75 +1,80 @@
 import numpy as np
 from ..agent import Agent
 
+from dataclasses import dataclass
+@dataclass
+class AnimalParams:
+   # metadata
+   name: str
+
+   # geometry
+   is_planar: bool
+
+   # movement
+   max_speed: float
+   max_turn: float
+   max_accel: float
+
+   # noise / behavior
+   turn_noise: float
+   epsilon: float
+
 class Animal(Agent):
-    def __init__(self, pos, behaviour):
-        super().__init__(pos)
+    def __init__(self, pos, params, behaviour, seed):
+        super().__init__(pos, seed)
+        self.params = params
+
+        self.max_speed = params.max_speed
+        self.max_turn = params.max_turn
+        self.max_accel = params.max_accel
+        self.turn_noise = params.turn_noise
+        self.epsilon = params.epsilon
+        self.is_planar = params.is_planar
+    
         self.behaviour = behaviour
+
+    def load_params(self, param_path):
+        pass
 
     # Policy dispatch
     def policy(self, obs):
-        return self.behaviour.act(obs, self._get_params())
-    
-    def _get_params(self):
-        params = {"epsilon": self.epsilon,
-                  "max_speed": self.max_speed,
-                  "max_turn": self.max_turn,
-                  "max_accel": self.max_accel,
-                  "vision": self.vision,
-                  "turn_noise": self.turn_noise,
-                  "memory_decay": self.memory_decay,}
-        return params
+        return self.behaviour.act(obs, self.params)
 
     def __repr__(self):
         x, y, z = self.pos
-        return f"{type(self).__name__}([{round(x,1)}, {round(y,1)}, {round(z,1)}], mode={type(self.behaviour).__name__})"
+        return f"{self.params.name}([{round(x,1)}, {round(y,1)}, {round(z,1)}], behaviour={type(self.behaviour).__name__}, id={self.agent_id})"
 
-# Species
-class Eagle(Animal):
-    def __init__(self, pos, behaviour):
-        super().__init__(pos, behaviour)
-        # path following
-        self.epsilon = 0.3
+def jackal_params():
+    return AnimalParams(
+        name="jackal",
+        is_planar=True,
+        max_speed=12.0,
+        max_turn=4.0,
+        max_accel=4.0,
+        turn_noise=1.5,
+        epsilon=0.05,
+    )
 
-        # movement limits
-        self.max_speed = 30.0
-        self.max_turn  = 8.0
-        self.max_accel = 8.0
+def eagle_params():
+   return AnimalParams(
+       name="eagle",
+       is_planar=False,
+       max_speed=30.0,
+       max_turn=8.0,
+       max_accel=8.0,
+       turn_noise=2.5,
+       epsilon=0.03,
+   )
 
-        # perception & cognition
-        self.vision = 250.0
-        self.turn_noise = 2.5
-        self.memory_decay = 0.995
+def pigeon_params():
+    return AnimalParams(
+        name="pigeon",
+        is_planar = False,
+        max_speed = 15.0,
+        max_turn  = 16.0,
+        max_accel = 6.0,
+        turn_noise = 3.25,
+        epsilon = 0.8,
+    )
 
-class Jackal(Animal):
-    def __init__(self, pos, behaviour):
-        super().__init__(pos, behaviour)
-        # path following
-        self.epsilon = 0.6
-
-        # movement limits
-        self.max_speed = 6.0
-        self.max_turn  = 4.0
-        self.max_accel = 4.0
-
-        # perception & cognition
-        self.vision = 100.0
-        self.turn_noise = 1.5
-        self.memory_decay = 0.98
-
-class Pigeon(Animal):
-    def __init__(self, pos, behaviour):
-        super().__init__(pos, behaviour)
-        # path following
-        self.epsilon = 0.8
-
-        # movement limits
-        self.max_speed = 15.0
-        self.max_turn  = 16.0
-        self.max_accel = 6.0
-
-        # perception & cognition
-        self.vision = 80.0
-        self.turn_noise = 3.25
-        self.memory_decay = 0.97
         

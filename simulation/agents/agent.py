@@ -3,9 +3,11 @@ import numpy as np
 class Agent:
     _next_id = 0
 
-    def __init__(self, pos):
+    def __init__(self, pos, seed):
         self.agent_id = Agent._next_id
         Agent._next_id += 1
+
+        self.rng = np.random.default_rng(seed)
 
         self.pos = np.array(pos) # 3d
         self.speed = 0.0
@@ -18,7 +20,7 @@ class Agent:
         return v / n
 
     def random_direction(self):
-        v = np.random.normal(size=3)
+        v = self.rng.normal(size=3)
         return self.l2_norm(v)
 
     def move(self, dt):

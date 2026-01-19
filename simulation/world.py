@@ -4,14 +4,14 @@ import numpy as np
 from random import uniform
 
 from simulation.settings import *
-from simulation.agents.animals import Eagle, Jackal, Pigeon
+from simulation.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
 from simulation.agents.behaviour import RandomWalk, PathFollow, POI
 from simulation.paths import CirclePath
 
 
 class World:
     def __init__(self, seed=None):
-        self.seed_seq = np.random.SeedSequence(seed)
+        self.seed_seq = np.random.SeedSequence(42)
         self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
 
         self.agents = []
@@ -24,9 +24,9 @@ class World:
     def spawn(self):
         path = self._create_path_if_needed()
 
-        self._spawn_species(Jackal, JACKAL_COUNT, JACKAL_MODE, path)
-        self._spawn_species(Eagle,  EAGLE_COUNT,  EAGLE_MODE,  path)
-        self._spawn_species(Pigeon, PIGEON_COUNT, PIGEON_MODE, path)
+        self._spawn_animal(jackal_params, JACKAL_COUNT, JACKAL_MODE, path)
+        self._spawn_animal(pigeon_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
+        self._spawn_animal(eagle_params, PIGEON_COUNT, PIGEON_MODE, path)
 
     def _create_path_if_needed(self):
         if not self._any_path_following():
@@ -45,7 +45,7 @@ class World:
             PIGEON_MODE,
         ))
 
-    def _spawn_species(self, cls, count, mode, path):
+    def _spawn_animal(self, animal_params_fn, count, mode, path):
         for _ in range(count):
             match mode:
                 case "random":
@@ -55,14 +55,18 @@ class World:
                 case "poi":
                     behaviour = POI(self.pois, self.seed_seq.spawn(1)[0])
 
-            agent = cls(self.random_position(), behaviour=behaviour)
+            agent = Animal(pos=self.random_position(),
+                           params=animal_params_fn(),
+                           behaviour=behaviour,
+                           seed=self.seed_seq.spawn(1)[0])
+            
             self.agents.append(agent)
 
     # Simulation
     def random_position(self):
         return np.array([
-            uniform(0, MAP_WIDTH),
-            uniform(0, MAP_HEIGHT),
+            self.rng.uniform(0, MAP_WIDTH),
+            self.rng.uniform(0, MAP_HEIGHT),
             0.0
         ])
     

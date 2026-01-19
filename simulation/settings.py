@@ -7,7 +7,7 @@ from random import randint, uniform, choice
 MAP_HEIGHT = 100
 MAP_WIDTH = 100
 
-JACKAL_COUNT = 1
+JACKAL_COUNT = 2
 JACKAL_MODE = 'poi'
 
 EAGLE_COUNT = 0
@@ -24,7 +24,8 @@ POI_REACHED_EPS = 3.0                       # meters, considered "arrived"
 POI_SWITCH_ON_REACH = True                  # if True, pick next target when reached
 
 # Proportional control parameters
-TURN_GAIN = 1.0                         # higher -> turns more aggressively toward desired direction
+YAW_GAIN = 1.0
+PITCH_GAIN = 1.0                         # higher -> turns more aggressively toward desired direction
 ACCEL_GAIN = 1.0                        # higher -> speed matches desired speed faster
 NOISE_SCALE = 0.5                       # scale turn
 

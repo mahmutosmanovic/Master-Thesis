@@ -22,7 +22,7 @@ class RandomWalk(Behaviour):
         super().__init__(seed)
     
     def act(self, obs, params):
-        turn_angle = self.rng.normal(0.0, params["turn_noise"])
+        turn_angle = self.rng.normal(0.0, params.turn_noise)
         accel = self.rng.normal(0.0, 5.0)
         return turn_angle, accel
 
@@ -76,10 +76,10 @@ class PathFollow(Behaviour):
         turn_angle = np.arctan2(cross, dot)
 
         # mild epsilon disturbance
-        if self.rng.random() < params["epsilon"]:
-            turn_angle += self.rng.normal(0.0, params["turn_noise"] * 0.3)
+        if self.rng.random() < params.epsilon:
+            turn_angle += self.rng.normal(0.0, params.turn_noise * 0.3)
 
-        desired_speed = 0.7 * params["max_speed"]
+        desired_speed = 0.7 * params.max_speed
         accel = desired_speed - obs["speed"]
 
         return turn_angle, accel
@@ -135,8 +135,8 @@ class POI(Behaviour):
         angle_error = float(np.arctan2(cross, dot))
 
         # Set control parameters
-        noise = self.rng.normal(0.0, params["turn_noise"]) * NOISE_SCALE
-        turn_angle = TURN_GAIN * angle_error + noise
-        accel = ACCEL_GAIN * (params["max_speed"] - obs["speed"])
+        noise = self.rng.normal(0.0, params.turn_noise) * NOISE_SCALE
+        turn_angle = YAW_GAIN * angle_error + noise
+        accel = ACCEL_GAIN * (params.max_speed - obs["speed"])
 
         return turn_angle, accel
