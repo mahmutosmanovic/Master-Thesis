@@ -5,13 +5,14 @@ from random import uniform
 
 from simulation.settings import *
 from simulation.agents.animals import Eagle, Jackal, Pigeon
+from simulation.agents.behaviour import RandomWalk, PathFollow, POI
 from simulation.paths import CirclePath
 
 
 class World:
     def __init__(self, seed=None):
-        if seed is not None:
-            np.random.seed(seed)
+        self.seed_seq = np.random.SeedSequence(seed)
+        self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
 
         self.agents = []
         self.log = []
@@ -46,11 +47,15 @@ class World:
 
     def _spawn_species(self, cls, count, mode, path):
         for _ in range(count):
-            agent = cls(self.random_position(), mode=mode)
+            match mode:
+                case "random":
+                    behaviour = RandomWalk(self.seed_seq.spawn(1)[0])
+                case "path_follow":
+                    behaviour = PathFollow(path, self.seed_seq.spawn(1)[0])
+                case "poi":
+                    behaviour = POI(self.pois, self.seed_seq.spawn(1)[0])
 
-            if mode == "path_follow":
-                agent.path = path
-
+            agent = cls(self.random_position(), behaviour=behaviour)
             self.agents.append(agent)
 
     # Simulation
@@ -62,13 +67,10 @@ class World:
         ])
     
     def _init_pois(self):
-        # Priority: config['pois'] -> settings.POI_POINTS -> random POI_COUNT
-        if self.config is not None and "pois" in self.config and self.config["pois"] is not None:
-            pts = self.config["pois"]
-        elif POI_POINTS is not None:
+        if POI_POINTS is not None:
             pts = POI_POINTS
         else:
-            pts = [(uniform(0, MAP_WIDTH), uniform(0, MAP_HEIGHT), 0.0) for _ in range(POI_COUNT)]
+            pts = [(self.rng.uniform(0, MAP_WIDTH), self.rng.uniform(0, MAP_HEIGHT), 0.0) for _ in range(POI_COUNT)]
 
         return [np.array(p, dtype=float) for p in pts]
 
@@ -77,8 +79,7 @@ class World:
             "pos": agent.pos.copy(),
             "speed": agent.speed,
             "direction": agent.direction,
-            "rng": np.random.normal(),
-            "pois": [p.copy() for p in self.pois]
+            "rng": self.rng.normal(),
         }
 
     def step(self, dt):
@@ -102,7 +103,7 @@ class World:
             "t": self.t,
             "agent_id": agent.agent_id,
             "species": type(agent).__name__,
-            "mode": agent.mode,
+            "mode": type(agent.behaviour).__name__,
 
             "x": agent.pos[0],
             "y": agent.pos[1],
