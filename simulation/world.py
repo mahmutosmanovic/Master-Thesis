@@ -106,7 +106,7 @@ class World:
         self.log.append({
             "t": self.t,
             "agent_id": agent.agent_id,
-            "species": type(agent).__name__,
+            "species": agent.params.name,
             "mode": type(agent.behaviour).__name__,
 
             "x": agent.pos[0],
