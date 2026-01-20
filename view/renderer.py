@@ -14,7 +14,7 @@ EAGLE_MODEL_PATH = "view/assets/source/eagle.glb"
 JACKAL_MODEL_PATH = "view/assets/source/jackal.glb"
 TEXTURE_PATH = "view/assets/textures/gltf_embedded_0.jpeg"
 
-FLOOR_TEXTURE_PATH = "view/assets/textures/green.png"
+FLOOR_TEXTURE_PATH = "view/assets/textures/light.png"
 
 SCREEN_W = 1280
 SCREEN_H = 720
@@ -191,7 +191,7 @@ class Jackal:
         # Draw movement trail
         for i, pos in enumerate(self.trail):
             alpha = int(255 * (1.0 - i / MAX_TRAIL_POINTS))
-            color = pr.Color(230, 230, 230, alpha)
+            color = pr.Color(152,119,76, alpha)
 
             trail_pos = pr.Vector3(
                 pos.x,
