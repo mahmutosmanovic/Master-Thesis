@@ -1,7 +1,8 @@
 from .settings import *
 from simulation import World
 
-world = World.random_world(seed=1)
+world = World(seed=42)
+world.spawn()
 
 dt = TIME_STEP
 

@@ -9,10 +9,12 @@ import pyray as pr  # type: ignore
 # --------------------------------------------------
 CSV_PATH = "logs/simulations/test_jackal_random_single.csv"
 
-MODEL_PATH = "view/assets/source/pigeon.glb"
+PIGEON_MODEL_PATH = "view/assets/source/pigeon.glb"
+EAGLE_MODEL_PATH = "view/assets/source/eagle.glb"
+JACKAL_MODEL_PATH = "view/assets/source/jackal.glb"
 TEXTURE_PATH = "view/assets/textures/gltf_embedded_0.jpeg"
 
-FLOOR_TEXTURE_PATH = "view/assets/textures/green.png"
+FLOOR_TEXTURE_PATH = "view/assets/textures/light.png"
 
 SCREEN_W = 1280
 SCREEN_H = 720
@@ -189,7 +191,7 @@ class Jackal:
         # Draw movement trail
         for i, pos in enumerate(self.trail):
             alpha = int(255 * (1.0 - i / MAX_TRAIL_POINTS))
-            color = pr.Color(230, 230, 230, alpha)
+            color = pr.Color(152,119,76, alpha)
 
             trail_pos = pr.Vector3(
                 pos.x,
@@ -242,7 +244,9 @@ cam_pitch = 0.4
 cam_roll = 0.0
 
 floor = Floor(FLOOR_TEXTURE_PATH, x0, z0)
-jackal = Jackal(MODEL_PATH, TEXTURE_PATH, initial_position)
+eagle = Jackal(EAGLE_MODEL_PATH, TEXTURE_PATH, initial_position)
+jackal = Jackal(JACKAL_MODEL_PATH, TEXTURE_PATH, initial_position)
+pigeon = Jackal(PIGEON_MODEL_PATH, TEXTURE_PATH, initial_position)
 
 sim_time = times[0]
 time_index = 0
