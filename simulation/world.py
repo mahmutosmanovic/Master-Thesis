@@ -89,8 +89,8 @@ class World:
     def step(self, dt):
         for agent in self.agents:
             obs = self.get_observation(agent)
-            angular_velocity, accel = agent.update(dt, obs)
-            self.log_agent_state(agent, angular_velocity, accel)
+            yaw_rate, pitch_rate, accel = agent.update(dt, obs)
+            self.log_agent_state(agent, yaw_rate, pitch_rate, accel)
 
         self.t += dt
 
@@ -100,7 +100,7 @@ class World:
         self.t = 0.0
 
     # Logging
-    def log_agent_state(self, agent, angular_velocity, accel):
+    def log_agent_state(self, agent, yaw_rate, pitch_rate, accel):
         vx, vy, vz = agent.direction * agent.speed
 
         self.log.append({
@@ -118,7 +118,8 @@ class World:
             "vz": vz,
 
             "speed": agent.speed,
-            "angular_velocity": angular_velocity,
+            "yaw_rate": yaw_rate,
+            "pitch_rate": pitch_rate,
             "accel": accel,
         })
 

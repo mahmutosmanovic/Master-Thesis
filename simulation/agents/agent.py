@@ -34,7 +34,7 @@ class Agent:
         yaw_rate, pitch_rate, accel = self.policy(observation)
         self.apply_control(yaw_rate, pitch_rate, accel, dt)
         self.move(dt)
-        return yaw_rate, accel
+        return yaw_rate, pitch_rate, accel
 
     def apply_control(self, yaw_rate, pitch_rate, accel, dt):
         # Clip controls
