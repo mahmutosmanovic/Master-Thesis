@@ -11,7 +11,7 @@ from simulation.paths import CirclePath
 
 class World:
     def __init__(self, seed=None):
-        self.seed_seq = np.random.SeedSequence(42)
+        self.seed_seq = np.random.SeedSequence(seed)
         self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
 
         self.agents = []
@@ -34,7 +34,7 @@ class World:
 
         # default path (circle)
         return CirclePath(
-            center=[MAP_WIDTH / 6, MAP_HEIGHT / 6, 20.0],
+            center=[0, 0, 20.0],
             radius=min(MAP_WIDTH, MAP_HEIGHT) * 0.8
         )
 

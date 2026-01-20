@@ -37,8 +37,8 @@ class Animal(Agent):
         pass
 
     # Policy dispatch
-    def policy(self, obs):
-        return self.behaviour.act(obs, self.params)
+    def policy(self, obs, dt):
+        return self.behaviour.act(obs, self.params, dt)
 
     def __repr__(self):
         x, y, z = self.pos

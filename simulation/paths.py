@@ -26,12 +26,11 @@ class CirclePath(ParametricPath):
         ])
 
     def tangent(self, s):
-        t = np.array([
-            -np.sin(s),
-             np.cos(s),
+        return np.array([
+            -self.radius * np.sin(s),
+             self.radius * np.cos(s),
              0.0
         ])
-        return t / np.linalg.norm(t)
 
 class FigureEightPath(ParametricPath):
     def position(self, s):
@@ -45,4 +44,4 @@ class FigureEightPath(ParametricPath):
         dx = np.cos(s)
         dy = np.cos(2*s)
         t = np.array([dx, dy, 0.0])
-        return t / np.linalg.norm(t)
+        return t

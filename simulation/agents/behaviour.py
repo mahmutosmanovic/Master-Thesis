@@ -22,7 +22,7 @@ class Behaviour(ABC):
         self.rng = np.random.default_rng(seed)
 
     @abstractmethod
-    def act(self, obs, params):
+    def act(self, obs, params, dt):
         raise NotImplementedError
     
     # for when we have behaviour state, (memory etc.)
@@ -36,7 +36,7 @@ class RandomWalk(Behaviour):
     def __init__(self, seed):
         super().__init__(seed)
     
-    def act(self, obs, params):
+    def act(self, obs, params, dt):
         yaw_rate = self.rng.normal(0.0, params.turn_noise)
         pitch_rate = self.rng.normal(0.0, params.turn_noise)
         accel = self.rng.normal(0.0, 5.0)
@@ -46,53 +46,48 @@ class PathFollow(Behaviour):
     def __init__(self, path, seed):
         super().__init__(seed)
         self.path = path
-        self.s = 0.0              # path parameter
-        self.s_speed = 0.5        # how fast to move along path
-        self.epsilon = 0.05
+        self.s = 0.0
+        self.s_speed = 1.0     # dimensionless now
+        self.Kp = 2.0          # ~ 1/m
 
-        self.Kp = 1.0             # attraction strength to path
-    
-    def act(self, obs, params):
-        if self.path is None:
-            raise NotImplementedError
-
+    def act(self, obs, params, dt):
         pos = obs["pos"]
         cur = obs["direction"]
 
-        # path reference
         p = self.path.position(self.s)
-        t = self.path.tangent(self.s)
 
-        # attraction to path
+        dp = self.path.tangent(self.s)
+        dp_norm = np.linalg.norm(dp)
+
+        if dp_norm < 1e-6:
+            t_hat = np.array([1.0, 0.0, 0.0])
+        else:
+            t_hat = dp / dp_norm
+
         to_path = p - pos
-
-        desired = t + self.Kp * to_path
+        e_ct = to_path - np.dot(to_path, t_hat) * t_hat
+        desired = t_hat + self.Kp * e_ct
         desired /= np.linalg.norm(desired) + 1e-12
 
-        # yaw
         yaw_error = signed_yaw_error(cur, desired)
         yaw_rate = yaw_error
 
-        # pitch
         cur_pitch = elevation_angle(cur)
         des_pitch = elevation_angle(desired)
         pitch_rate = des_pitch - cur_pitch
 
-        # exploration noise
         if self.rng.random() < params.epsilon:
             yaw_rate += self.rng.normal(0.0, params.turn_noise * 0.3)
             pitch_rate += self.rng.normal(0.0, params.turn_noise * 0.3)
 
-        # speed
         desired_speed = 0.7 * params.max_speed
         accel = desired_speed - obs["speed"]
 
-        # advance path parameter (in alignment with tangent)
-        t = self.path.tangent(self.s)
         v = obs["direction"] * obs["speed"]
+        v_tan = np.dot(v, t_hat)
+        v_tan = max(0.0, v_tan)
 
-        ds = max(0.0, np.dot(v, t))
-        self.s += self.s_speed * ds
+        self.s += self.s_speed * (v_tan / (dp_norm + 1e-12)) * dt
 
         return yaw_rate, pitch_rate, accel
 
@@ -109,7 +104,7 @@ class POI(Behaviour):
         choices.remove(self.poi_idx)
         return int(self.rng.choice(choices))
 
-    def act(self, obs, params):
+    def act(self, obs, params, dt):
         if not self.pois:
             raise ValueError("No points of interest!")
 

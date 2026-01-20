@@ -31,7 +31,7 @@ class Agent:
             self.pos[2] = 0.0
 
     def update(self, dt, observation):
-        yaw_rate, pitch_rate, accel = self.policy(observation)
+        yaw_rate, pitch_rate, accel = self.policy(observation, dt)
         self.apply_control(yaw_rate, pitch_rate, accel, dt)
         self.move(dt)
         return yaw_rate, pitch_rate, accel
