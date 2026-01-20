@@ -25,8 +25,8 @@ class World:
         path = self._create_path_if_needed()
 
         self._spawn_animal(jackal_params, JACKAL_COUNT, JACKAL_MODE, path)
-        self._spawn_animal(pigeon_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
-        self._spawn_animal(eagle_params, PIGEON_COUNT, PIGEON_MODE, path)
+        self._spawn_animal(eagle_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
+        self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
 
     def _create_path_if_needed(self):
         if not self._any_path_following():
@@ -34,7 +34,7 @@ class World:
 
         # default path (circle)
         return CirclePath(
-            center=[MAP_WIDTH / 2, MAP_HEIGHT / 2, 0.0],
+            center=[MAP_WIDTH / 6, MAP_HEIGHT / 6, 20.0],
             radius=min(MAP_WIDTH, MAP_HEIGHT) * 0.8
         )
 

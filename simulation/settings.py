@@ -7,18 +7,18 @@ from random import randint, uniform, choice
 MAP_HEIGHT = 100
 MAP_WIDTH = 100
 
-JACKAL_COUNT = 2
+JACKAL_COUNT = 0
 JACKAL_MODE = 'poi'
 
 EAGLE_COUNT = 0
 EAGLE_MODE = 'random'
 
-PIGEON_COUNT = 0
-PIGEON_MODE = 'random'
+PIGEON_COUNT = 1
+PIGEON_MODE = 'path_follow'
 
 # POI settings
 POI_COUNT = 3                               # number of points if generating randomly
-POI_POINTS = [(30,0,0), (0,0,0), (0,30,0)]  # explicit list like [(10,20,0), (80,60,0)] overrides POI_COUNT
+POI_POINTS = [(30,0,0), (0,0,0), (0,30,30)]  # explicit list like [(10,20,0), (80,60,0)] overrides POI_COUNT
  
 POI_REACHED_EPS = 3.0                       # meters, considered "arrived"
 POI_SWITCH_ON_REACH = True                  # if True, pick next target when reached
