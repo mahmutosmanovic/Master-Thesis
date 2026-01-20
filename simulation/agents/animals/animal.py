@@ -52,7 +52,7 @@ def jackal_params():
         max_turn=4.0,
         max_accel=4.0,
         turn_noise=1.5,
-        epsilon=0.05,
+        epsilon=0.8,
     )
 
 def eagle_params():

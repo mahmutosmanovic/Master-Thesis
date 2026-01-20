@@ -12,6 +12,17 @@ class ParametricPath:
         First derivative (direction of motion)
         """
         raise NotImplementedError
+    
+    def project_s(self, pos, s, iters=4, max_ds=0.2):
+        for _ in range(iters):
+            p  = self.position(s)
+            dp = self.tangent(s)
+            r  = p - pos
+            denom = np.dot(dp, dp) + 1e-12
+            ds = -np.dot(r, dp) / denom
+            ds = np.clip(ds, -max_ds, max_ds)
+            s += ds
+        return s
 
 class CirclePath(ParametricPath):
     def __init__(self, center, radius):

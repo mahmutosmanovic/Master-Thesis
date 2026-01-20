@@ -53,6 +53,7 @@ class PathFollow(Behaviour):
     def act(self, obs, params, dt):
         pos = obs["pos"]
         cur = obs["direction"]
+        self.s = self.path.project_s(pos, self.s, iters=2)
 
         p = self.path.position(self.s)
 
@@ -70,18 +71,18 @@ class PathFollow(Behaviour):
         desired /= np.linalg.norm(desired) + 1e-12
 
         yaw_error = signed_yaw_error(cur, desired)
-        yaw_rate = yaw_error
+        yaw_rate = YAW_GAIN * yaw_error
 
         cur_pitch = elevation_angle(cur)
         des_pitch = elevation_angle(desired)
-        pitch_rate = des_pitch - cur_pitch
+        pitch_rate = PITCH_GAIN * (des_pitch - cur_pitch)
 
         if self.rng.random() < params.epsilon:
             yaw_rate += self.rng.normal(0.0, params.turn_noise * 0.3)
             pitch_rate += self.rng.normal(0.0, params.turn_noise * 0.3)
 
         desired_speed = 0.7 * params.max_speed
-        accel = desired_speed - obs["speed"]
+        accel = ACCEL_GAIN * (desired_speed - obs["speed"])
 
         v = obs["direction"] * obs["speed"]
         v_tan = np.dot(v, t_hat)

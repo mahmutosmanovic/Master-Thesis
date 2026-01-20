@@ -35,7 +35,7 @@ class World:
         # default path (circle)
         return CirclePath(
             center=[0, 0, 20.0],
-            radius=min(MAP_WIDTH, MAP_HEIGHT) * 0.8
+            radius=min(MAP_WIDTH, MAP_HEIGHT) * 0.4
         )
 
     def _any_path_following(self):
