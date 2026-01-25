@@ -38,14 +38,14 @@ class Agent:
 
     def apply_control(self, yaw_rate, pitch_rate, accel, dt):
         # Clip controls
-        yaw_rate   = np.clip(yaw_rate,   -self.max_turn, self.max_turn)
-        pitch_rate = np.clip(pitch_rate, -self.max_turn, self.max_turn)
-        accel      = np.clip(accel,      -self.max_accel, self.max_accel)
+        yaw_rate   = np.clip(yaw_rate,   -self.params.max_turn, self.params.max_turn)
+        pitch_rate = np.clip(pitch_rate, -self.params.max_turn, self.params.max_turn)
+        accel      = np.clip(accel,      -self.params.max_accel, self.params.max_accel)
 
         d = self.direction
 
         # Planar constraint
-        if self.is_planar:
+        if self.params.is_planar:
             pitch_rate = 0.0
             d = np.array([d[0], d[1], 0.0])
             d /= np.linalg.norm(d) + 1e-12
@@ -73,4 +73,4 @@ class Agent:
             )
 
         self.direction = d / (np.linalg.norm(d) + 1e-12)
-        self.speed = np.clip(self.speed + accel * dt, 0.0, self.max_speed)
+        self.speed = np.clip(self.speed + accel * dt, 0.0, self.params.max_speed)

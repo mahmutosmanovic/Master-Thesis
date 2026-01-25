@@ -4,6 +4,7 @@ import numpy as np
 from random import randint, uniform, choice
 
 # World settings
+DT = 0.1
 MAP_HEIGHT = 100
 MAP_WIDTH = 100
 
@@ -29,3 +30,9 @@ PITCH_GAIN = 1.0                         # higher -> turns more aggressively tow
 ACCEL_GAIN = 1.0                        # higher -> speed matches desired speed faster
 NOISE_SCALE = 0.5                       # scale turn
 
+# Drones
+DRONE_COUNT = 1
+
+# RL AGENT
+EPISODES_TRAIN_ROBOTS = 10_000
+EPISODES_TRAIN_ANIMALS = 1_000

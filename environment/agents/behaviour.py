@@ -1,5 +1,5 @@
 import numpy as np
-from simulation.settings import *
+from environment.settings import *
 from abc import ABC, abstractmethod
 
 def elevation_angle(v):

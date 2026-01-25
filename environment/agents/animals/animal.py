@@ -1,7 +1,21 @@
 import numpy as np
 from ..agent import Agent
-
 from dataclasses import dataclass
+
+class Animal(Agent):
+    def __init__(self, pos, params, behaviour, seed):
+        super().__init__(pos, seed)
+        self.params = params
+        self.behaviour = behaviour
+
+    # Behavior
+    def policy(self, obs, dt):
+        return self.behaviour.act(obs, self.params, dt)
+
+    def __repr__(self):
+        x, y, z = self.pos
+        return f"{self.params.name}([{round(x,1)}, {round(y,1)}, {round(z,1)}], behaviour={type(self.behaviour).__name__}, id={self.agent_id})"
+
 @dataclass
 class AnimalParams:
    # metadata
@@ -18,31 +32,6 @@ class AnimalParams:
    # noise / behavior
    turn_noise: float
    epsilon: float
-
-class Animal(Agent):
-    def __init__(self, pos, params, behaviour, seed):
-        super().__init__(pos, seed)
-        self.params = params
-
-        self.max_speed = params.max_speed
-        self.max_turn = params.max_turn
-        self.max_accel = params.max_accel
-        self.turn_noise = params.turn_noise
-        self.epsilon = params.epsilon
-        self.is_planar = params.is_planar
-    
-        self.behaviour = behaviour
-
-    def load_params(self, param_path):
-        pass
-
-    # Policy dispatch
-    def policy(self, obs, dt):
-        return self.behaviour.act(obs, self.params, dt)
-
-    def __repr__(self):
-        x, y, z = self.pos
-        return f"{self.params.name}([{round(x,1)}, {round(y,1)}, {round(z,1)}], behaviour={type(self.behaviour).__name__}, id={self.agent_id})"
 
 def jackal_params():
     return AnimalParams(

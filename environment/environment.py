@@ -3,13 +3,14 @@ import csv
 import numpy as np
 from random import uniform
 
-from simulation.settings import *
-from simulation.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
-from simulation.agents.behaviour import RandomWalk, PathFollow, POI
-from simulation.paths import CirclePath
+from environment.settings import *
+from environment.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
+from environment.agents.behaviour import RandomWalk, PathFollow, POI
+from environment.paths import CirclePath
+from environment.agents.drones.drone import Drone, drone_params
 
 
-class World:
+class Environment:
     def __init__(self, seed=None):
         self.seed_seq = np.random.SeedSequence(seed)
         self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
@@ -28,6 +29,8 @@ class World:
         self._spawn_animal(eagle_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
         self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
 
+        self._spawn_drone(drone_params, DRONE_COUNT)
+    
     def _create_path_if_needed(self):
         if not self._any_path_following():
             return None
@@ -62,6 +65,13 @@ class World:
             
             self.agents.append(agent)
 
+    def _spawn_drone(self, drone_params_fn, count):
+        for _ in range(count):
+            agent = Drone(pos=self.random_position(), 
+                          params=drone_params_fn(),
+                          seed=self.seed_seq.spawn(1)[0])
+            self.agents.append(agent)
+
     # Simulation
     def random_position(self):
         return np.array([
@@ -86,13 +96,23 @@ class World:
             "rng": self.rng.normal(),
         }
 
-    def step(self, dt):
+    def step(self, action):
+
+        observations = []
         for agent in self.agents:
             obs = self.get_observation(agent)
-            yaw_rate, pitch_rate, accel = agent.update(dt, obs)
+            observations.append(obs)
+            if type(agent) == Drone:
+                yaw_rate, pitch_rate, accel = agent.update(DT, obs)
+            else:
+                yaw_rate, pitch_rate, accel = agent.update(DT, obs)
             self.log_agent_state(agent, yaw_rate, pitch_rate, accel)
 
-        self.t += dt
+        self.t += DT
+
+        reward = (np.random.random() - 0.5)*2
+        done = False
+        return observations, reward, done
 
     def reset(self):
         self.agents.clear()
