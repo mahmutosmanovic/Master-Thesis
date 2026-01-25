@@ -2,8 +2,8 @@ from ..agent import Agent
 from dataclasses import dataclass
 
 class Drone(Agent):
-    def __init__(self, pos, params, seed):
-        super().__init__(pos, seed)
+    def __init__(self, pos, params, seed, mode=None):
+        super().__init__(pos, seed, mode)
         self.params = params
         self.pos = pos
 

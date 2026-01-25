@@ -30,6 +30,12 @@ class Environment:
         self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
 
         self._spawn_drone(drone_params, DRONE_COUNT)
+
+        observation = []
+        info = {"drone_ids": [agent.agent_id for agent in self.agents if type(agent) == Drone],
+                "animal_ids": [agent.agent_id for agent in self.agents if type(agent) == Animal]}
+        
+        return observation, info
     
     def _create_path_if_needed(self):
         if not self._any_path_following():
@@ -61,7 +67,8 @@ class Environment:
             agent = Animal(pos=self.random_position(),
                            params=animal_params_fn(),
                            behaviour=behaviour,
-                           seed=self.seed_seq.spawn(1)[0])
+                           seed=self.seed_seq.spawn(1)[0],
+                           mode=mode)
             
             self.agents.append(agent)
 
@@ -69,7 +76,8 @@ class Environment:
         for _ in range(count):
             agent = Drone(pos=self.random_position(), 
                           params=drone_params_fn(),
-                          seed=self.seed_seq.spawn(1)[0])
+                          seed=self.seed_seq.spawn(1)[0],
+                          mode="external")
             self.agents.append(agent)
 
     # Simulation
@@ -96,23 +104,29 @@ class Environment:
             "rng": self.rng.normal(),
         }
 
-    def step(self, action):
+    def step(self, external_actions):
 
         observations = []
         for agent in self.agents:
             obs = self.get_observation(agent)
             observations.append(obs)
             if type(agent) == Drone:
-                yaw_rate, pitch_rate, accel = agent.update(DT, obs)
+                action = external_actions[agent.agent_id]
+                yaw_rate, pitch_rate, accel = agent.update(action, DT)
+            elif type(agent) == Animal:
+                action = agent.policy(obs, DT)
+                yaw_rate, pitch_rate, accel = agent.update(action, DT)
             else:
-                yaw_rate, pitch_rate, accel = agent.update(DT, obs)
+                raise NotImplementedError
+            
             self.log_agent_state(agent, yaw_rate, pitch_rate, accel)
 
         self.t += DT
 
         reward = (np.random.random() - 0.5)*2
         done = False
-        return observations, reward, done
+        info = {}
+        return observations, reward, done, info
 
     def reset(self):
         self.agents.clear()
@@ -127,7 +141,7 @@ class Environment:
             "t": self.t,
             "agent_id": agent.agent_id,
             "species": agent.params.name,
-            "mode": type(agent.behaviour).__name__,
+            "mode": agent.mode,
 
             "x": agent.pos[0],
             "y": agent.pos[1],

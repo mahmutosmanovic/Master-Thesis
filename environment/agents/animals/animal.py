@@ -3,8 +3,8 @@ from ..agent import Agent
 from dataclasses import dataclass
 
 class Animal(Agent):
-    def __init__(self, pos, params, behaviour, seed):
-        super().__init__(pos, seed)
+    def __init__(self, pos, params, behaviour, seed, mode=None):
+        super().__init__(pos, seed, mode)
         self.params = params
         self.behaviour = behaviour
 

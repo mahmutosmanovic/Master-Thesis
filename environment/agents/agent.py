@@ -3,7 +3,7 @@ import numpy as np
 class Agent:
     _next_id = 0
 
-    def __init__(self, pos, seed):
+    def __init__(self, pos, seed, mode=None):
         self.agent_id = Agent._next_id
         Agent._next_id += 1
 
@@ -12,6 +12,8 @@ class Agent:
         self.pos = np.array(pos) # 3d
         self.speed = 0.0
         self.direction = self.random_direction()
+
+        self.mode = mode
 
     def l2_norm(self, v):
         n = np.linalg.norm(v)
@@ -30,8 +32,8 @@ class Agent:
         if self.pos[2] < 0.0:
             self.pos[2] = 0.0
 
-    def update(self, dt, observation):
-        yaw_rate, pitch_rate, accel = self.policy(observation, dt)
+    def update(self, action, dt):
+        yaw_rate, pitch_rate, accel = action
         self.apply_control(yaw_rate, pitch_rate, accel, dt)
         self.move(dt)
         return yaw_rate, pitch_rate, accel

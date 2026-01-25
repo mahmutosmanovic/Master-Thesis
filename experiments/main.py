@@ -2,14 +2,15 @@ from environment import Environment
 from model.model import Model
 
 env = Environment(seed=42)
-observation = env.spawn()
-
+observation, info = env.spawn()
+agents = info["drone_ids"]
+print(info)
 ppo = Model() 
 
 rewards = 0
 for step in range(5):
-    action = ppo.policy(observation)
-    observation, reward, done = env.step(action)
+    action = {drone_id: ppo.policy(observation) for drone_id in agents}
+    observation, reward, done, info = env.step(action)
 
     # rewards += reward 
 
