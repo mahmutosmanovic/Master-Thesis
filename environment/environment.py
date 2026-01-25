@@ -8,6 +8,7 @@ from environment.agents.animals.animal import Animal, jackal_params, pigeon_para
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.paths import CirclePath
 from environment.agents.drones.drone import Drone, drone_params
+from environment.disturbance import DisturbanceField
 
 
 class Environment:
@@ -21,6 +22,11 @@ class Environment:
 
         self.pois = self._init_pois()
 
+        self.disturbance = DisturbanceField()
+
+        self.drone_ids = None
+        self.animal_ids = None
+
     # Spawning
     def spawn(self):
         path = self._create_path_if_needed()
@@ -32,8 +38,12 @@ class Environment:
         self._spawn_drone(drone_params, DRONE_COUNT)
 
         observation = []
-        info = {"drone_ids": [agent.agent_id for agent in self.agents if type(agent) == Drone],
-                "animal_ids": [agent.agent_id for agent in self.agents if type(agent) == Animal]}
+
+        self.drone_ids = [agent.agent_id for agent in self.agents if type(agent) == Drone]
+        self.animal_ids = [agent.agent_id for agent in self.agents if type(agent) == Animal]
+
+        info = {"drone_ids": self.drone_ids,
+                "animal_ids": self.animal_ids}
         
         return observation, info
     
@@ -101,7 +111,6 @@ class Environment:
             "pos": agent.pos.copy(),
             "speed": agent.speed,
             "direction": agent.direction,
-            "rng": self.rng.normal(),
         }
 
     def step(self, external_actions):
@@ -112,18 +121,32 @@ class Environment:
             observations.append(obs)
             if type(agent) == Drone:
                 action = external_actions[agent.agent_id]
-                yaw_rate, pitch_rate, accel = agent.update(action, DT)
             elif type(agent) == Animal:
                 action = agent.policy(obs, DT)
-                yaw_rate, pitch_rate, accel = agent.update(action, DT)
             else:
                 raise NotImplementedError
+            
+            yaw_rate, pitch_rate, accel = agent.update(action, DT)
             
             self.log_agent_state(agent, yaw_rate, pitch_rate, accel)
 
         self.t += DT
 
-        reward = (np.random.random() - 0.5)*2
+        animal_disturbance = {}
+        for agent in self.agents:
+            if type(agent) == Animal:
+                disturbance = {drone_id: self.disturbance.disturbance_at(agent, self.agents[drone_id], external_actions[drone_id][2]) for drone_id in self.drone_ids}
+                animal_disturbance[agent.agent_id] = disturbance
+        
+        drone_disturbance = {}
+        for drone_id in self.drone_ids:
+            total = 0
+            for animal in animal_disturbance.values():
+                total += animal[drone_id]
+            drone_disturbance[drone_id] = total
+
+        reward = {drone_id: -drone_disturbance[drone_id] for drone_id in self.drone_ids}
+
         done = False
         info = {}
         return observations, reward, done, info

@@ -1,150 +1,109 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+from environment.agents.agent import Agent
 
 class DisturbanceField:
     """
-    Combined disturbance model based on:
-    - Altitude
-    - Horizontal distance
-    - Approach angle (gain field)
+    3D disturbance model based on:
+    - Altitude (z)
+    - Horizontal distance (sqrt(x² + y²))
+    - Approach angle
+    - Speed & acceleration gains
     """
-
-    def __init__(self, size=100):
-        self.size = size
-
 
     # -------------------------
     # Altitude component
     # -------------------------
-    def altitude(self, y):
+    def altitude(self, z):
+        z = np.asarray(z, dtype=float)
+        out = np.zeros_like(z)
 
-        y = np.array(y, dtype=float)
+        m1 = (z >= 0) & (z <= 20)
+        out[m1] = 1.0
 
-        z = np.zeros_like(y)
+        m2 = (z > 20) & (z <= 40)
+        out[m2] = 1 - 0.6 * (z[m2] - 20) / 20
 
-        m1 = (y >= 0) & (y <= 20)
-        z[m1] = 1.0
+        m3 = (z > 40) & (z <= 110)
+        out[m3] = 0.4 * (1 - (z[m3] - 40) / 70)
 
-        m2 = (y > 20) & (y <= 40)
-        z[m2] = 1 - 0.6*(y[m2]-20)/20
-
-        m3 = (y > 40) & (y <= 110)
-        z[m3] = 0.4*(1 - (y[m3]-40)/70)
-
-        z[y > 110] = 0
-
-        return z
+        return out
 
 
     # -------------------------
     # Horizontal distance
     # -------------------------
-    def horizontal(self, x):
+    def horizontal(self, d):
+        d = np.asarray(d, dtype=float)
+        out = np.zeros_like(d)
 
-        x = np.array(x, dtype=float)
+        out[d <= 20] = 1.0
 
-        z = np.zeros_like(x)
+        m1 = (d > 20) & (d <= 50)
+        out[m1] = 1 - 0.2 * (d[m1] - 20) / 30
 
-        z[x <= 20] = 1.0
+        m2 = (d > 50) & (d <= 110)
+        out[m2] = 0.8 * (1 - (d[m2] - 50) / 60)
 
-        m1 = (x > 20) & (x <= 50)
-        z[m1] = 1 - 0.2*(x[m1]-20)/30
-
-        m2 = (x > 50) & (x <= 110)
-        z[m2] = 0.8*(1 - (x[m2]-50)/60)
-
-        z[x > 110] = 0
-
-        return z
+        return out
 
 
     # -------------------------
-    # Angle gain
+    # Angle gain (3D)
     # -------------------------
-    def angle_gain(self, x, y):
+    def angle_gain(self, horizontal_dist, z):
+        """
+        Angle between horizontal plane and line of sight
+        """
+        theta = np.degrees(np.arctan2(z, horizontal_dist))
+        G = np.ones_like(theta)
 
-        x = np.array(x, dtype=float)
-        y = np.array(y, dtype=float)
+        # -90° – 20°
+        m1 = (theta >= -90) & (theta <= 20)
+        G[m1] = 1.5 + (1.0 - 1.5) * (theta[m1] + 90) / 110
 
-        x_sym = np.abs(x)
-
-        theta = np.degrees(np.arctan2(y, x_sym))
-        a = theta
-
-        G = np.ones_like(a)
-
-        # -90° – 20° : 1.5 -> 1.0
-        m1 = (a >= -90) & (a <= 20)
-        G[m1] = 1.5 + (1.0 - 1.5) * (a[m1] + 90) / 110
-
-        # 20° – 60° : flat at 1.0
-        m2 = (a > 20) & (a <= 60)
+        # 20° – 60°
+        m2 = (theta > 20) & (theta <= 60)
         G[m2] = 1.0
 
-        # 60° – 90° : 1.0 -> 2.0
-        m3 = (a > 60) & (a <= 90)
-        G[m3] = 1.0 + (2.0 - 1.0) * (a[m3] - 60) / 30
+        # 60° – 90°
+        m3 = (theta > 60) & (theta <= 90)
+        G[m3] = 1.0 + (2.0 - 1.0) * (theta[m3] - 60) / 30
 
         return G
 
+
     # -------------------------
-    # Total disturbance
+    # Motion gains
     # -------------------------
-    def total_field(self):
-
-        s = self.size
-
-        x = np.arange(-s, s+1, 1)
-        y = np.arange(-s, s+1, 1)
-
-        X, Y = np.meshgrid(x, y)
-
-        Z_alt = self.altitude(np.abs(Y))
-        Z_hor = self.horizontal(np.abs(X))
-        G_ang = self.angle_gain(X, Y)
-
-        Z = Z_alt * Z_hor * G_ang
-
-        return X, Y, Z
-        
     def speed_gain(self, v, v_safe=5.0):
+        return 1.0 if v <= v_safe else 1.0 + (v - v_safe) / v_safe
 
-        v = max(v, 0)
+    def accel_gain(self, a, a_safe=2.0):
+        return 1.0 if a <= a_safe else 1.0 + (a - a_safe) / a_safe
 
-        if v <= v_safe:
-            G = 1
-        else:
-            G = 1.0 + (v - v_safe)/(v_safe)
 
-        return G
-    
-    def accel_gain(self, a, a_safe=2):
-
-        a = max(a, 0)
-
-        if a <= a_safe:
-            G = 1
-        else:
-            G = 1.0 + (a - a_safe)/(a_safe)
-
-        return G
-    
-    def disturbance_at(self, x, y, v=0.0, a=0.0):
+    # -------------------------
+    # Disturbance between agents
+    # -------------------------
+    def disturbance_at(self, animal: Agent, drone: Agent, drone_accel):
         """
-        Disturbance at a single point with motion state
+        Disturbance experienced by the animal caused by the drone
         """
 
-        z_alt = self.altitude(abs(y))
-        z_hor = self.horizontal(abs(x))
-        g_ang = self.angle_gain(x, y)
+        horizontal_dist = np.linalg.norm(drone.pos[0:2] - animal.pos[0:2])
+        dz = abs(drone.pos[2] - animal.pos[2])
 
-        g_speed = self.speed_gain(abs(v))
-        g_accel = self.accel_gain(abs(a))
+        z_alt = self.altitude(dz)
+        z_hor = self.horizontal(horizontal_dist)
+        g_ang = self.angle_gain(horizontal_dist, dz)
+
+        g_speed = self.speed_gain(drone.speed)
+        g_accel = self.accel_gain(drone_accel)
 
         Z = z_alt * z_hor * g_ang * g_speed * g_accel
 
-        return Z
+        return float(Z)
 
     # -------------------------
     # Visualization
