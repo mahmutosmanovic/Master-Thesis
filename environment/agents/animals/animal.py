@@ -40,8 +40,8 @@ def jackal_params():
         max_speed=12.0,
         max_turn=4.0,
         max_accel=4.0,
-        turn_noise=1.5,
-        epsilon=0.8,
+        turn_noise=0.4,
+        epsilon=1,
     )
 
 def eagle_params():
@@ -51,7 +51,7 @@ def eagle_params():
        max_speed=30.0,
        max_turn=8.0,
        max_accel=8.0,
-       turn_noise=2.5,
+       turn_noise=0.4,
        epsilon=0.03,
    )
 
@@ -62,7 +62,7 @@ def pigeon_params():
         max_speed = 15.0,
         max_turn  = 16.0,
         max_accel = 6.0,
-        turn_noise = 3.25,
+        turn_noise = 0.6,
         epsilon = 0.8,
     )
 

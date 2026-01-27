@@ -1,4 +1,5 @@
 import numpy as np
+from utils.vec_utils import *
 
 class Agent:
     _next_id = 0
@@ -26,53 +27,59 @@ class Agent:
         return self.l2_norm(v)
 
     def move(self, dt):
-        self.pos += self.direction * self.speed * dt
+        self.pos = self.pos + (self.direction * self.speed) * float(dt)
 
-        # cant move underground
-        if self.pos[2] < 0.0:
+        if self.params.is_planar:
             self.pos[2] = 0.0
+        else:
+            self.pos[2] = max(self.pos[2], 0.0)
 
     def update(self, action, dt):
-        yaw_rate, pitch_rate, accel = action
-        self.apply_control(yaw_rate, pitch_rate, accel, dt)
+        direction, speed = action
+        self.apply_control(direction, speed, dt)
         self.move(dt)
-        return yaw_rate, pitch_rate, accel
 
-    def apply_control(self, yaw_rate, pitch_rate, accel, dt):
-        # Clip controls
-        yaw_rate   = np.clip(yaw_rate,   -self.params.max_turn, self.params.max_turn)
-        pitch_rate = np.clip(pitch_rate, -self.params.max_turn, self.params.max_turn)
-        accel      = np.clip(accel,      -self.params.max_accel, self.params.max_accel)
+    def apply_control(self, direction, speed, dt):
+        direction = np.asarray(direction, dtype=float)
 
-        d = self.direction
-
-        # Planar constraint
         if self.params.is_planar:
-            pitch_rate = 0.0
-            d = np.array([d[0], d[1], 0.0])
-            d /= np.linalg.norm(d) + 1e-12
+            direction[2] = 0.0
 
-        # Local frame (no roll)
-        world_up = np.array([0.0, 0.0, 1.0])
-        right = np.cross(d, world_up)
-        if np.linalg.norm(right) < 1e-6:
-            right = np.array([1.0, 0.0, 0.0])
+        d_current = self.direction
+        norm = np.linalg.norm(direction)
+
+        if norm < 1e-8:
+            self.direction = d_current
         else:
-            right /= np.linalg.norm(right)
+            d_desired = direction / norm
 
-        up = np.cross(right, d)
+            # Enforce max turn, may not be neccesary after fit, or, estimate from data ???
+            theta = angle_between(d_current, d_desired)
+            theta_max = self.params.max_turn * float(dt)
 
-        omega = yaw_rate * up + pitch_rate * right
-        ang = np.linalg.norm(omega)
+            if theta > theta_max: 
+                t = theta_max / theta
+                self.direction = slerp(d_current, d_desired, t)
+            else:
+                self.direction = d_desired
 
-        if ang > 1e-8:
-            axis = omega / ang
-            theta = ang * dt
-            d = (
-                d * np.cos(theta)
-                + np.cross(axis, d) * np.sin(theta)
-                + axis * np.dot(axis, d) * (1 - np.cos(theta))
-            )
+        self.speed = float(speed)
 
-        self.direction = d / (np.linalg.norm(d) + 1e-12)
-        self.speed = np.clip(self.speed + accel * dt, 0.0, self.params.max_speed)
+    def to_dict(self):
+        vx, vy, vz = self.direction * self.speed
+        return {
+            "agent_id": self.agent_id,
+            "species": self.params.name,
+            "mode": self.mode,
+
+            "x": self.pos[0],
+            "y": self.pos[1],
+            "z": self.pos[2],
+
+            "vx": vx,
+            "vy": vy,
+            "vz": vz,
+
+            "speed": self.speed,
+        }
+

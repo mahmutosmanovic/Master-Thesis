@@ -8,6 +8,7 @@ from environment.agents.animals.animal import Animal, jackal_params, pigeon_para
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.paths import CirclePath
 from environment.agents.drones.drone import Drone, drone_params
+from environment.agents.drones.sensor import Camera
 from environment.disturbance import DisturbanceField
 
 
@@ -83,11 +84,15 @@ class Environment:
             self.agents.append(agent)
 
     def _spawn_drone(self, drone_params_fn, count):
+        cam = Camera(np.deg2rad(90), np.deg2rad(56))
         for _ in range(count):
-            agent = Drone(pos=self.random_position(), 
+            pos = self.random_position()
+            pos[2] = 25
+            agent = Drone(pos=pos, 
                           params=drone_params_fn(),
                           seed=self.seed_seq.spawn(1)[0],
                           mode="external")
+            agent.add_sensor(cam)
             self.agents.append(agent)
 
     # Simulation
@@ -114,7 +119,7 @@ class Environment:
         }
 
     def step(self, external_actions):
-
+        # Update agent states
         observations = []
         for agent in self.agents:
             obs = self.get_observation(agent)
@@ -126,17 +131,20 @@ class Environment:
             else:
                 raise NotImplementedError
             
-            yaw_rate, pitch_rate, accel = agent.update(action, DT)
+            agent.update(action, DT)
             
-            self.log_agent_state(agent, yaw_rate, pitch_rate, accel)
+            self.log_agent_state(agent)
 
         self.t += DT
 
+        for drone_id in self.drone_ids:
+            res = self.agents[drone_id].sense([self.agents[animal_id].pos.copy() for animal_id in self.animal_ids])
+            print(res)
+
         animal_disturbance = {}
-        for agent in self.agents:
-            if type(agent) == Animal:
-                disturbance = {drone_id: self.disturbance.disturbance_at(agent, self.agents[drone_id], external_actions[drone_id][2]) for drone_id in self.drone_ids}
-                animal_disturbance[agent.agent_id] = disturbance
+        for animal_id in self.animal_ids:
+            disturbance = {drone_id: self.disturbance.disturbance_at(self.agents[animal_id], self.agents[drone_id]) for drone_id in self.drone_ids}
+            animal_disturbance[self.agents[animal_id].agent_id] = disturbance
         
         drone_disturbance = {}
         for drone_id in self.drone_ids:
@@ -157,38 +165,27 @@ class Environment:
         self.t = 0.0
 
     # Logging
-    def log_agent_state(self, agent, yaw_rate, pitch_rate, accel):
-        vx, vy, vz = agent.direction * agent.speed
-
+    def log_agent_state(self, agent):
         self.log.append({
             "t": self.t,
-            "agent_id": agent.agent_id,
-            "species": agent.params.name,
-            "mode": agent.mode,
-
-            "x": agent.pos[0],
-            "y": agent.pos[1],
-            "z": agent.pos[2],
-
-            "vx": vx,
-            "vy": vy,
-            "vz": vz,
-
-            "speed": agent.speed,
-            "yaw_rate": yaw_rate,
-            "pitch_rate": pitch_rate,
-            "accel": accel,
+            **agent.to_dict(),
         })
+
+    def _get_log_fieldnames(self):
+        keys = set()
+        for row in self.log:
+            keys.update(row.keys())
+        return sorted(keys)
 
     def save_log_csv(self, path):
         if not self.log:
             print("Warning: log is empty, nothing to save.")
             return
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fieldnames = self._get_log_fieldnames()
 
         with open(path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=self.log[0].keys())
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(self.log)
 

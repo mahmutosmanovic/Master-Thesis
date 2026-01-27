@@ -9,7 +9,7 @@ MAP_HEIGHT = 100
 MAP_WIDTH = 100
 
 JACKAL_COUNT = 1
-JACKAL_MODE = 'path_follow'
+JACKAL_MODE = 'poi'
 
 EAGLE_COUNT = 0
 EAGLE_MODE = 'random'

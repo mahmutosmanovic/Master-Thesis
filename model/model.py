@@ -5,8 +5,16 @@ class Model:
         ...
 
     def policy(self, observation):
-        yaw = (np.random.random() - 0.5)*2
-        pitch = 0
-        accel = (np.random.random() - 0.5)*2
+        # direction = (np.random.random(3) - 0.5)*2
+        direction = np.array([1,0,0])
+        n = np.linalg.norm(direction)
+        if n < 1e-8:
+            direction /= np.linalg.norm(direction)
+        else:
+            direction = np.zeros(3, dtype=float)
 
-        return yaw, pitch, accel
+        # speed = (np.random.random() - 0.5)*2
+        speed = float(1)
+        camera_yaw = float(1)
+
+        return direction, speed, camera_yaw

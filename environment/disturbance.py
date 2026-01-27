@@ -86,7 +86,7 @@ class DisturbanceField:
     # -------------------------
     # Disturbance between agents
     # -------------------------
-    def disturbance_at(self, animal: Agent, drone: Agent, drone_accel):
+    def disturbance_at(self, animal: Agent, drone: Agent):
         """
         Disturbance experienced by the animal caused by the drone
         """
@@ -99,9 +99,9 @@ class DisturbanceField:
         g_ang = self.angle_gain(horizontal_dist, dz)
 
         g_speed = self.speed_gain(drone.speed)
-        g_accel = self.accel_gain(drone_accel)
+        # g_accel = self.accel_gain(drone_accel)
 
-        Z = z_alt * z_hor * g_ang * g_speed * g_accel
+        Z = z_alt * z_hor * g_ang * g_speed# * g_accel
 
         return float(Z)
 
