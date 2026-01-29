@@ -4,11 +4,17 @@ import numpy as np
 from random import randint, uniform, choice
 
 # World settings
-MAP_HEIGHT = 100
-MAP_WIDTH = 100
+DT = 1
+MAX_T = 1000
+MAP_HEIGHT = 200
+MAP_WIDTH = 200
+MAP_ALTITUDE = 100
+
+DIST_PENALTY_SCALE = 1.5
+POS_NORM = np.array([MAP_WIDTH, MAP_HEIGHT, MAP_ALTITUDE], dtype=np.float32)
 
 JACKAL_COUNT = 1
-JACKAL_MODE = 'path_follow'
+JACKAL_MODE = 'random'
 
 EAGLE_COUNT = 0
 EAGLE_MODE = 'random'
@@ -29,3 +35,9 @@ PITCH_GAIN = 1.0                         # higher -> turns more aggressively tow
 ACCEL_GAIN = 1.0                        # higher -> speed matches desired speed faster
 NOISE_SCALE = 0.5                       # scale turn
 
+# Drones
+DRONE_COUNT = 1
+
+# RL AGENT
+EPISODES_TRAIN_ROBOTS = 10_000
+EPISODES_TRAIN_ANIMALS = 1_000
