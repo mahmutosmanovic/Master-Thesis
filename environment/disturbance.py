@@ -29,7 +29,14 @@ class DisturbanceField:
 
         return out
 
-
+    # def altitude(self, z):
+    #     z = np.asarray(z, dtype=float)
+    #     # Smooth decay instead of flat plateau
+    #     # At z=0, val=1.0. At z=20, val=0.36. At z=100, val=0.0
+    #     # The '1.0 -' ensures high penalty at low altitude
+    #     # Adjust scale (e.g., 20.0) to control falloff speed
+    #     return np.exp(- (z / 60.0)**2)
+    
     # -------------------------
     # Horizontal distance
     # -------------------------
@@ -46,6 +53,12 @@ class DisturbanceField:
         out[m2] = 0.8 * (1 - (d[m2] - 50) / 60)
 
         return out
+
+    # def horizontal(self, d):
+    #     d = np.asarray(d, dtype=float)
+    #     # Similar smooth decay. 
+    #     # Even at d=5 vs d=10, the agent sees a difference now.
+    #     return np.exp(- (d / 100.0)**2)
 
 
     # -------------------------

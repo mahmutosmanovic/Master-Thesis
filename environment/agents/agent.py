@@ -2,11 +2,8 @@ import numpy as np
 from utils.vec_utils import *
 
 class Agent:
-    _next_id = 0
-
-    def __init__(self, pos, seed, mode=None):
-        self.agent_id = Agent._next_id
-        Agent._next_id += 1
+    def __init__(self, agent_id, pos, seed, mode=None):
+        self.agent_id = agent_id
 
         self.rng = np.random.default_rng(seed)
 

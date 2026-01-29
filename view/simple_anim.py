@@ -171,10 +171,10 @@ def animate_simulation_csv_3d(
     if ortho:
         ax.set_proj_type("ortho")
 
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title("Simulation (animated)")
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
+    ax.set_title("Simulation With PPO Drone Policy animal RW")
 
     # Fix limits + equal scaling for stable animation
     ax.set_xlim3d(xlim)
@@ -279,12 +279,12 @@ def animate_simulation_csv_3d(
 
 if __name__ == "__main__":
     animate_simulation_csv_3d(
-        "logs/simulations/test_jackal_random_single.csv",
+        "logs/simulations/ppo_rollout.csv",
         hfov_deg=90,
         vfov_deg=60,
         frustum_depth=15,
-        interval_ms=50,
+        interval_ms=100,
         trail=200,
-        show_frustum=True,
+        show_frustum=False,
         ortho=True,
     )
