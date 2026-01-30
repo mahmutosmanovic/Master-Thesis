@@ -1,25 +1,20 @@
-import argparse
+from settings import *
+from utils import *
+from view import *
 
-from experiments.train_animals import train_animals
-from experiments.train_robots import train_robots
-from view.settings import run_viewer
+@dataclass
+class PigeonConfig:
+    epsilon: float = 0.05
+    max_speed: float = 10.0
+    vision_range: float = 100.0
+    learning_rate: float = 0.01
+
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode",
-                        choices=["train_animals", "train_robots", "view"],
-                        required=True)
+    df = pd.read_csv("data/pigeon/animal_01.csv")
+    df = transform_to_epsg32636(df)
+    draw_trail_3D(df, interval=150)
 
-    args = parser.parse_args()
-
-    if args.mode == "train_animals":
-        train_animals()
-
-    elif args.mode == "train_robots":
-        train_robots()
-
-    elif args.mode == "view":
-        run_viewer()
 
 if __name__ == "__main__":
     main()
