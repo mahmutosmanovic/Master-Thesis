@@ -56,7 +56,6 @@ def main():
     env = Environment(seed=args.seed)
     obs_dict, info = env.reset(seed=args.seed)
     drone_ids = info["drone_ids"]
-    print("info:", info)
 
     # --- Load checkpoint + build PPO ---
     ckpt = torch.load(args.ckpt, map_location=args.device)
@@ -79,7 +78,6 @@ def main():
 
             a = act_deterministic(agent, obs)  # shape (5,)
             external_actions[did] = decode_action(a, env.agents[did])
-
         obs_dict, reward_dict, done, info_step = env.step(external_actions)
 
         for did, r in reward_dict.items():

@@ -10,6 +10,7 @@ from environment.paths import CirclePath
 from environment.agents.drones.drone import Drone, drone_params
 from environment.agents.drones.sensor import Camera, GPSSensor
 from environment.disturbance import DisturbanceField
+from utils.vec_utils import *
 
 
 class Environment:
@@ -121,17 +122,26 @@ class Environment:
             self.agents.append(agent)
 
     def _spawn_drone(self, drone_params_fn, count):
-        # sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=100)
-        sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
+        sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=5)
+        # sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
+
+        target = self.agents[0].pos.copy() # HARDCODED, change this
 
         for _ in range(count):
-            pos = self.random_position()
-            pos[2] = 60
+            angle = self.rng.uniform(0, 2*np.pi)
+            distance = 120
+            altitude = 60
+            offset = np.array([distance * np.cos(angle), distance * np.sin(angle), altitude], dtype=float)
+            pos = target + offset
+            yaw = np.arctan2(target[1] - pos[1], target[0] - pos[0])
+
             agent = Drone(agent_id=len(self.agents),
                           pos=pos, 
                           params=drone_params_fn(),
                           seed=self.seed_seq.spawn(1)[0],
-                          mode="external")
+                          mode="external",
+                          yaw=yaw)
+            
             agent.add_sensor(sensor)
             self.agents.append(agent)
 

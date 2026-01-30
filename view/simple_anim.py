@@ -37,7 +37,7 @@ def _frustum_segments(pos, view_dir, hfov, vfov, depth):
     world_up = np.array([0.0, 0.0, 1.0])
 
     # Right in XY plane (no roll)
-    right = np.cross(world_up, forward)
+    right = np.cross(forward, world_up)
     rn = np.linalg.norm(right)
     if rn < 1e-8:
         right = np.array([1.0, 0.0, 0.0])
@@ -45,7 +45,7 @@ def _frustum_segments(pos, view_dir, hfov, vfov, depth):
         right /= rn
 
     # Up completes basis
-    up = np.cross(forward, right)
+    up = np.cross(right, forward)
     un = np.linalg.norm(up)
     if un < 1e-8:
         return []
@@ -81,8 +81,8 @@ def animate_simulation_csv_3d(
     hfov_deg=90.0,
     vfov_deg=60.0,
     frustum_depth=15.0,
-    interval_ms=50,
-    trail=200,              # how many past points to show per agent
+    interval_ms=12.5,
+    trail=800,              # how many past points to show per agent
     show_frustum=True,
     ortho=True,
 ):
@@ -281,10 +281,10 @@ if __name__ == "__main__":
     animate_simulation_csv_3d(
         "logs/simulations/ppo_rollout.csv",
         hfov_deg=90,
-        vfov_deg=60,
+        vfov_deg=56,
         frustum_depth=15,
         interval_ms=100,
-        trail=200,
-        show_frustum=False,
+        trail=20,
+        show_frustum=True,
         ortho=True,
     )

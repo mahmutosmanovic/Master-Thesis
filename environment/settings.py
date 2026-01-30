@@ -4,7 +4,7 @@ import numpy as np
 from random import randint, uniform, choice
 
 # World settings
-DT = 1
+DT = 0.2
 MAX_T = 1000
 MAP_HEIGHT = 200
 MAP_WIDTH = 200
