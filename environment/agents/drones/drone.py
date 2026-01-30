@@ -32,10 +32,10 @@ class Drone(Agent):
     def obs_dim(self) -> int:
         return self.state_obs_dim + sum(s.obs_dim for s in self.sensors)
 
-    def get_obs(self, world) -> np.ndarray:
+    def get_obs(self, animals) -> np.ndarray:
         parts = [] #[self.get_state_obs()]
         for s in self.sensors:  # list order is deterministic
-            parts.append(s.get_obs(self, world).astype(np.float32))
+            parts.append(s.get_obs(self, animals).astype(np.float32))
         obs = np.concatenate(parts, axis=0).astype(np.float32)
 
         # optional sanity check in debug mode

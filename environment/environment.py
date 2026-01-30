@@ -57,8 +57,8 @@ class Environment:
 
         self.calc_animal_disturbance()
 
-        animal_positions = np.array([self.agents[aid].pos.copy() for aid in self.animal_ids])
-        drone_observations = {did: self.agents[did].get_obs(animal_positions) for did in self.drone_ids}
+        animals = [self.agents[animal_id] for animal_id in self.animal_ids]
+        drone_observations = {did: self.agents[did].get_obs(animals) for did in self.drone_ids}
 
         return drone_observations, info
     
@@ -122,7 +122,7 @@ class Environment:
 
     def _spawn_drone(self, drone_params_fn, count):
         # sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=100)
-        sensor = GPSSensor(1, reward_scale=5)
+        sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
 
         for _ in range(count):
             pos = self.random_position()
@@ -185,7 +185,7 @@ class Environment:
         self.t += DT
 
         self.calc_animal_disturbance()
-        animal_positions = np.array([self.agents[animal_id].pos.copy() for animal_id in self.animal_ids])
+        animals = [self.agents[animal_id] for animal_id in self.animal_ids]
 
         reward = {}
         drone_observations = {}
@@ -193,11 +193,11 @@ class Environment:
             disturbances = np.array([animal[drone_id]["val"] for animal in self.animal_disturbance.values()], dtype=np.float32)
 
             # calculate total reward
-            reward[drone_id] = self.agents[drone_id].sensors[0].reward(self.agents[drone_id], animal_positions) # hard coded sensor for now
+            reward[drone_id] = self.agents[drone_id].sensors[0].reward(self.agents[drone_id], animals) # hard coded sensor for now
             reward[drone_id] -= DIST_PENALTY_SCALE * float(np.mean(disturbances))
 
             # assign observation
-            drone_observations[drone_id] = self.agents[drone_id].get_obs(animal_positions)
+            drone_observations[drone_id] = self.agents[drone_id].get_obs(animals)
 
         if self.t > self.max_t:
             done = True

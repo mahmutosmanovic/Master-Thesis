@@ -20,7 +20,8 @@ class Camera(Sensor):
     def obs_dim(self) -> int:
         return self.K * 4  # [u,v,z_norm,mask] per slot
 
-    def get_obs(self, drone, points) -> np.ndarray:
+    def get_obs(self, drone, animals) -> np.ndarray:
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
         # assumes world.animals_pos is (N,3) array
         inside, cam_xyz = self.sense(drone, points)
         vis = cam_xyz[inside]
@@ -109,14 +110,6 @@ class Camera(Sensor):
         return inside, cam_xyz
 
 class GPSSensor(Sensor):
-    """
-    GPS tracker observation:
-      per slot: [dx_norm, dy_norm, dz_norm, mask]
-
-    Reward:
-      gaussian around target_dist for nearest target (no log1p compression)
-    """
-
     def __init__(
         self,
         max_targets: int,
@@ -133,13 +126,15 @@ class GPSSensor(Sensor):
 
     @property
     def obs_dim(self) -> int:
-        return self.max_targets * 4  # [dx,dy,dz,mask] per slot
+        return self.max_targets * 7  # [dx,dy,dz,vx,vy,vz,mask] per slot
 
-    def get_obs(self, drone, points) -> np.ndarray:
-        obs = np.zeros((self.max_targets, 4), dtype=np.float32)
+    def get_obs(self, drone, animals) -> np.ndarray:
+        obs = np.zeros((self.max_targets, 7), dtype=np.float32)
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+        dirs = np.array([animal.direction for animal in animals], dtype=float)
 
         if len(points) == 0:
-            return obs.reshape(-1)
+            raise ValueError("No observable animals")
 
         # distances to drone
         dists = np.linalg.norm(points - drone.pos, axis=1)
@@ -153,21 +148,25 @@ class GPSSensor(Sensor):
 
         # relative vectors (target - drone)
         rel = nearest - drone.pos.astype(np.float32)
+        dirs = dirs[idx]
 
         # normalize (supports scalar or (3,) vector)
         rel = rel / (self.pos_scale + 1e-8)
+        # vels = vels[nearest] should be normalized
 
         obs[:k, 0:3] = rel
-        obs[:k, 3] = 1.0  # mask
+        obs[:k, 3:6] = dirs
+        obs[:k, 6] = 1.0  # mask
 
         return obs.reshape(-1)
 
     def sense(self, drone, points):
         return True, points
 
-    def reward(self, drone, points, sigma=250.0):
-        if len(points) == 0:
-            return 0.0
+    def reward(self, drone, animals, sigma=250.0):
+        if len(animals) == 0:
+            raise ValueError("No observable animals")
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
 
         # nearest distance only
         dists = np.linalg.norm(points - drone.pos, axis=1)
