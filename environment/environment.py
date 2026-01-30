@@ -122,7 +122,7 @@ class Environment:
 
     def _spawn_drone(self, drone_params_fn, count):
         # sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=100)
-        sensor = GPSSensor(1)
+        sensor = GPSSensor(1, reward_scale=5)
 
         for _ in range(count):
             pos = self.random_position()
@@ -156,7 +156,7 @@ class Environment:
             "pos": agent.pos.copy(),
             "speed": agent.speed,
             "direction": agent.direction,
-            "disturbance": self.animal_disturbance[agent.agent_id]
+            "disturbance_info": self.animal_disturbance[agent.agent_id],
         }
 
     def calc_animal_disturbance(self):
@@ -190,7 +190,7 @@ class Environment:
         reward = {}
         drone_observations = {}
         for drone_id in self.drone_ids:
-            disturbances = np.array([animal[drone_id] for animal in self.animal_disturbance.values()], dtype=np.float32)
+            disturbances = np.array([animal[drone_id]["val"] for animal in self.animal_disturbance.values()], dtype=np.float32)
 
             # calculate total reward
             reward[drone_id] = self.agents[drone_id].sensors[0].reward(self.agents[drone_id], animal_positions) # hard coded sensor for now

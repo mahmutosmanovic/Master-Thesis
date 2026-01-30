@@ -56,7 +56,6 @@ class Camera(Sensor):
 
         center = np.exp(-(u*u + v*v) / (sigma_center**2 + 1e-8))
         rng    = np.exp(-((z - z_opt)**2) / (sigma_z**2 + 1e-8))
-
         score = center * rng
         return float(np.log1p(np.sum(score)))
 
@@ -166,15 +165,15 @@ class GPSSensor(Sensor):
     def sense(self, drone, points):
         return True, points
 
-    def reward(self, drone, points, target_dist=30.0, sigma=20.0):
+    def reward(self, drone, points, sigma=250.0):
         if len(points) == 0:
             return 0.0
 
-        # nearest distance only (align reward with observation)
+        # nearest distance only
         dists = np.linalg.norm(points - drone.pos, axis=1)
         d = float(np.min(dists))
 
-        # base: gaussian around target_dist in [0,1]
-        base = np.exp(-((d - target_dist) ** 2) / (2.0 * (sigma ** 2) + 1e-8))
+        # linear reward: closer is better
+        base = max(0.0, 1.0 - d / (sigma + 1e-8))
 
         return float(self.reward_scale * base)
