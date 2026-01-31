@@ -61,7 +61,7 @@ def main():
 
         # drones
         drones=[
-            dict(params=drone_params(), count=1, sensor="camera"),
+            dict(params=drone_params(), count=3, sensor="camera"),
         ],
 
         # reward
