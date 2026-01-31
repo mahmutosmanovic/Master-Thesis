@@ -37,6 +37,7 @@ NOISE_SCALE = 0.5                       # scale turn
 
 # Drones
 DRONE_COUNT = 1
+DRONE_SENSOR = "camera"
 
 # RL AGENT
 EPISODES_TRAIN_ROBOTS = 10_000

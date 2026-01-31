@@ -81,7 +81,7 @@ def animate_simulation_csv_3d(
     hfov_deg=90.0,
     vfov_deg=60.0,
     frustum_depth=15.0,
-    interval_ms=12.5,
+    interval_ms=50,
     trail=800,              # how many past points to show per agent
     show_frustum=True,
     ortho=True,

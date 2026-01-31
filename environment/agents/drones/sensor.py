@@ -7,7 +7,7 @@ class Sensor:
     def obs_dim(self):
         raise NotImplementedError
     
-    def get_obs(self, drone, animals):
+    def observe(self, drone, animals):
         raise NotImplementedError
     
     def reward(self, drone, animals):
@@ -33,7 +33,7 @@ class Camera(Sensor):
     def obs_dim(self) -> int:
         return self.K * 4  # [u,v,z_norm,mask]
 
-    def get_obs(self, drone, animals) -> np.ndarray:
+    def observe(self, drone, animals) -> np.ndarray:
         points = np.array([animal.pos.copy() for animal in animals], dtype=float)
 
         inside, cam_xyz = self.points_in_view_frustum(
@@ -137,7 +137,7 @@ class GPSSensor(Sensor):
     def obs_dim(self) -> int:
         return self.max_targets * 7  # [dx,dy,dz,vx,vy,vz,mask] per slot
 
-    def get_obs(self, drone, animals) -> np.ndarray:
+    def observe(self, drone, animals) -> np.ndarray:
         obs = np.zeros((self.max_targets, 7), dtype=np.float32)
         points = np.array([animal.pos.copy() for animal in animals], dtype=float)
         dirs = np.array([animal.direction for animal in animals], dtype=float)

@@ -19,7 +19,6 @@ class Model:
 
         return direction, speed, camera_yaw
     
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -54,20 +53,16 @@ class ActorCritic(nn.Module):
         return mu, std, v
 
 def tanh_gaussian_sample(mu, std):
-    # Reparameterized sample
     eps = torch.randn_like(mu)
     pre_tanh = mu + std * eps
     a = torch.tanh(pre_tanh)
     return a, pre_tanh
 
 def tanh_gaussian_logprob(mu, std, pre_tanh, a):
-    # Log prob of the raw gaussian
     var = std.pow(2)
     logp = -0.5 * (((pre_tanh - mu).pow(2) / (var + 1e-8)) + 2*torch.log(std + 1e-8) + np.log(2*np.pi))
     logp = logp.sum(-1)
 
-    # Tanh correction: log(1 - tanh(x)^2)
-    # We use the actual 'a' value for stability in the derivative
     correction = torch.log(1 - a.pow(2) + 1e-6).sum(-1)
     return logp - correction
 
@@ -79,17 +74,11 @@ class RolloutBuffer:
 
     def reset(self):
         self.ptr = 0
-        # We need lists to append or pre-allocate. Pre-allocation is faster.
-        # But we must be careful with shapes.
-        # For simplicity in this fix, I'll keep your pre-alloc style.
 
-    # Re-initialize storage in constructor/reset if you want to change sizes dynamically
-    # But assuming fixed sizes:
         self.obs = torch.zeros((self.T, 0), device=self.device) # Placeholder init
         self.act = torch.zeros((self.T, 0), device=self.device)
     
     def init_storage(self, obs_dim, act_dim):
-        # Helper to ensure correct dims on first run
         if self.obs.shape[1] != obs_dim:
             self.obs = torch.zeros((self.T, obs_dim), device=self.device)
             self.act = torch.zeros((self.T, act_dim), device=self.device)
@@ -137,7 +126,7 @@ class PPO:
         lam=0.95,
         clip=0.2,
         vf_coef=0.5,
-        ent_coef=0.01, # Increased slightly to prevent premature convergence
+        ent_coef=0.01,
         max_grad_norm=0.5,
         device="cpu",
     ):
@@ -158,8 +147,7 @@ class PPO:
         mu, std, v = self.ac(obs)
         a, pre_tanh = tanh_gaussian_sample(mu, std)
         logp = tanh_gaussian_logprob(mu, std, pre_tanh, a)
-        
-        # Return raw pre_tanh as well
+
         return (
             a.squeeze(0).cpu().numpy(), 
             pre_tanh.squeeze(0).cpu().numpy(), 
@@ -175,7 +163,7 @@ class PPO:
 
         obs = buf.obs
         act = buf.act
-        raw_act = buf.raw_act # <--- Retrieve raw actions
+        raw_act = buf.raw_act
         old_logp = buf.logp
         old_val = buf.val
 
@@ -189,22 +177,14 @@ class PPO:
 
                 mu, std, v = self.ac(obs[mb])
                 
-                # --- FIX START ---
-                # Use stored raw_act (pre_tanh) directly. 
-                # We do NOT try to invert tanh(act).
                 curr_logp = tanh_gaussian_logprob(mu, std, raw_act[mb], act[mb])
-                # --- FIX END ---
 
                 ratio = torch.exp(curr_logp - old_logp[mb])
                 surr1 = ratio * adv[mb]
                 surr2 = torch.clamp(ratio, 1.0 - self.clip, 1.0 + self.clip) * adv[mb]
                 pi_loss = -(torch.min(surr1, surr2)).mean()
 
-                # --- FIX START ---
-                # Removed Value Clipping. 
-                # If rewards are > 1.0, clipping value updates to 0.2 prevents learning.
                 vf_loss = 0.5 * (v - ret[mb]).pow(2).mean() 
-                # --- FIX END ---
 
                 ent = (0.5 + 0.5*np.log(2*np.pi) + torch.log(std + 1e-8)).sum(-1).mean()
                 

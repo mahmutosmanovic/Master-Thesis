@@ -1,7 +1,6 @@
 import os
 import csv
 import numpy as np
-from random import uniform
 
 from environment.settings import *
 from environment.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
@@ -28,8 +27,8 @@ class Environment:
         self.disturbance = DisturbanceField()
         self.animal_disturbance = None
 
-        self.drone_ids = None
-        self.animal_ids = None
+        self.drone_ids = []
+        self.animal_ids = []
 
     def reset(self, seed=None):
         # Optional reseed
@@ -39,6 +38,8 @@ class Environment:
 
         self.agents.clear()
         self.log.clear()
+        self.drone_ids.clear()
+        self.animal_ids.clear()
         self.t = 0.0
 
         self.pois = self._init_pois()
@@ -49,41 +50,16 @@ class Environment:
         self._spawn_animal(eagle_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
         self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
 
-        self._spawn_drone(drone_params, DRONE_COUNT)
-
-        self.drone_ids = np.array([agent.agent_id for agent in self.agents if type(agent) == Drone])
-        self.animal_ids = np.array([agent.agent_id for agent in self.agents if type(agent) == Animal])
+        self._spawn_drone(drone_params, DRONE_COUNT, DRONE_SENSOR)
 
         info = {"drone_ids": self.drone_ids, "animal_ids": self.animal_ids}
 
         self.calc_animal_disturbance()
 
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
-        drone_observations = {did: self.agents[did].get_obs(animals) for did in self.drone_ids}
+        drone_observations = {drone_id: self.agents[drone_id].observe(animals) for drone_id in self.drone_ids}
 
         return drone_observations, info
-    
-    # Spawning
-    def spawn(self):
-        path = self._create_path_if_needed()
-
-        self._spawn_animal(jackal_params, JACKAL_COUNT, JACKAL_MODE, path)
-        self._spawn_animal(eagle_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
-        self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
-
-        self._spawn_drone(drone_params, DRONE_COUNT)
-
-        observation = []
-
-        self.drone_ids = [agent.agent_id for agent in self.agents if type(agent) == Drone]
-        self.animal_ids = [agent.agent_id for agent in self.agents if type(agent) == Animal]
-
-        info = {"drone_ids": self.drone_ids,
-                "animal_ids": self.animal_ids}
-        
-        self.calc_animal_disturbance()
-
-        return observation, info
     
     def _create_path_if_needed(self):
         if not self._any_path_following():
@@ -119,21 +95,20 @@ class Environment:
                            seed=self.seed_seq.spawn(1)[0],
                            mode=mode)
             
+            self.animal_ids.append(agent.agent_id)
             self.agents.append(agent)
 
-    def _spawn_drone(self, drone_params_fn, count):
-        sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=5)
-        # sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
-
-        target = self.agents[0].pos.copy() # HARDCODED, change this
+    def _spawn_drone(self, drone_params_fn, count, sensor):
+        match sensor:
+            case "camera":
+                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=5)
+            case "gps":
+                sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
 
         for _ in range(count):
-            angle = self.rng.uniform(0, 2*np.pi)
-            distance = 120
-            altitude = 60
-            offset = np.array([distance * np.cos(angle), distance * np.sin(angle), altitude], dtype=float)
-            pos = target + offset
-            yaw = np.arctan2(target[1] - pos[1], target[0] - pos[0])
+            target_id = self.rng.choice(self.animal_ids)
+            target_pos = self.agents[target_id].pos.copy()
+            pos, yaw = self.position_on_circle(target_pos)
 
             agent = Drone(agent_id=len(self.agents),
                           pos=pos, 
@@ -142,6 +117,7 @@ class Environment:
                           mode="external",
                           yaw=yaw)
             
+            self.drone_ids.append(agent.agent_id)
             agent.add_sensor(sensor)
             self.agents.append(agent)
 
@@ -152,6 +128,14 @@ class Environment:
             self.rng.uniform(0, MAP_HEIGHT),
             0.0
         ])
+    
+    def position_on_circle(self, target_pos, distance=120, altitude=60):
+        angle = self.rng.uniform(0, 2*np.pi)
+        offset = np.array([distance * np.cos(angle), distance * np.sin(angle), altitude], dtype=float)
+        pos = target_pos + offset
+        yaw = np.arctan2(target_pos[1] - pos[1], target_pos[0] - pos[0])
+
+        return pos, yaw
     
     def _init_pois(self):
         if POI_POINTS is not None:
@@ -200,14 +184,15 @@ class Environment:
         reward = {}
         drone_observations = {}
         for drone_id in self.drone_ids:
+            # per drone disturbance
             disturbances = np.array([animal[drone_id]["val"] for animal in self.animal_disturbance.values()], dtype=np.float32)
 
             # calculate total reward
-            reward[drone_id] = self.agents[drone_id].sensors[0].reward(self.agents[drone_id], animals) # hard coded sensor for now
-            reward[drone_id] -= DIST_PENALTY_SCALE * float(np.mean(disturbances))
+            reward[drone_id] = self.agents[drone_id].reward(animals)              # Observation reward
+            reward[drone_id] -= DIST_PENALTY_SCALE * float(np.mean(disturbances)) # Disturbance penalty
 
             # assign observation
-            drone_observations[drone_id] = self.agents[drone_id].get_obs(animals)
+            drone_observations[drone_id] = self.agents[drone_id].observe(animals)
 
         if self.t > self.max_t:
             done = True

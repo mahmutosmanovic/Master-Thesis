@@ -36,6 +36,13 @@ class Animal(Agent):
         if self.params.is_planar:
             mean_disturbance_dir[2] == 0
         return -unit(mean_disturbance_dir)
+    
+    def to_dict(self):
+        return{
+            **super().to_dict(),
+            "behaviour_state": self.state,
+            # Add aditional things to log
+        }
 
     def __repr__(self):
         x, y, z = self.pos

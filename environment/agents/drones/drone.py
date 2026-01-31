@@ -18,31 +18,27 @@ class Drone(Agent):
         ])
 
     @property
-    def state_obs_dim(self):
-        return 3
+    def obs_dim(self) -> int:
+        return self.state_obs_dim + sum(s.obs_dim for s in self.sensors)
 
-    def get_state_obs(self) -> np.ndarray:
-        return self.view_dir
-        # return np.concatenate([
+    def observe(self, animals) -> np.ndarray:
+        # full_state = np.concatenate([
         #     self.pos / POS_SCALE,
         #     (self.direction * self.speed) / self.params.max_speed,
         #     self.view_dir
         # ]).astype(np.float32)
 
-    @property
-    def obs_dim(self) -> int:
-        return self.state_obs_dim + sum(s.obs_dim for s in self.sensors)
-
-    def get_obs(self, animals) -> np.ndarray:
-        parts = [self.get_state_obs()]
-        for s in self.sensors:  # list order is deterministic
-            parts.append(s.get_obs(self, animals).astype(np.float32))
+        parts = [self.view_dir]
+        for sensor in self.sensors:  # list order is deterministic
+            parts.append(sensor.observe(self, animals).astype(np.float32))
         obs = np.concatenate(parts, axis=0).astype(np.float32)
-
-        # optional sanity check in debug mode
-        # assert obs.shape[0] == self.obs_dim
-
         return obs
+    
+    def reward(self, animals):
+        reward = 0
+        for sensor in self.sensors:
+            reward += sensor.reward(self, animals)
+        return reward
     
     def add_sensor(self, sensor):
         self.sensors.append(sensor)
