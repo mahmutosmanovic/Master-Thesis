@@ -182,9 +182,9 @@ class Environment:
             
             agent.update(action, self.cfg.dt)
             
-            self.log_agent_state(agent)
-
         self.t += self.cfg.dt
+
+        for agent in self.agents: self.log_agent_state(agent)
 
         self.calc_animal_disturbance()
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
@@ -202,13 +202,17 @@ class Environment:
             # assign observation
             drone_observations[drone_id] = self.agents[drone_id].observe(animals)
 
+        info = {}
         if self.t > self.max_t:
             done = True
         else:
             done = False
 
-        info = {}
         return drone_observations, reward, done, info
+
+    def episode_statistics(self):
+        # Calculate episode statistics from self.log
+        pass
 
     # Logging
     def log_agent_state(self, agent):
