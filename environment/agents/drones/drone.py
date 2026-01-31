@@ -19,7 +19,7 @@ class Drone(Agent):
 
     @property
     def obs_dim(self) -> int:
-        return self.state_obs_dim + sum(s.obs_dim for s in self.sensors)
+        return 3 + sum(s.obs_dim for s in self.sensors)
 
     def observe(self, animals) -> np.ndarray:
         # full_state = np.concatenate([
