@@ -18,7 +18,7 @@ class Animal(Agent):
         if disturbance > 0.95: # Flee !!! hardcoded atm
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
             self.state = "flee"
-            return mean_disturbance_dir, self.params.max_speed
+            return mean_disturbance_dir, 1
         elif disturbance > 0.6: # Avoid ! hardcoded atm
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
 
