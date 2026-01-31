@@ -174,7 +174,7 @@ def animate_simulation_csv_3d(
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
-    ax.set_title("Simulation With PPO Drone Policy animal RW")
+    ax.set_title("Simulation With 3 PPO Drones and 3 animals (rw, poi, path)")
 
     ax.set_xlim3d(xlim)
     ax.set_ylim3d(ylim)

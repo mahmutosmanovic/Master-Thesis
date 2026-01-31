@@ -38,7 +38,7 @@ class Agent:
 
     def apply_control(self, direction, speed, dt):
         direction = np.asarray(direction, dtype=float)
-        speed
+
         if self.params.is_planar:
             direction[2] = 0.0
 

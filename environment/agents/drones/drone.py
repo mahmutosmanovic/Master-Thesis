@@ -51,6 +51,7 @@ class Drone(Agent):
     
     def apply_view_yaw(self, view_yaw_rate, dt):
         # Clamp yaw rate
+        view_yaw_rate *= self.params.max_view_yaw
         view_yaw_rate = np.clip(
             view_yaw_rate,
             -self.params.max_view_yaw,
