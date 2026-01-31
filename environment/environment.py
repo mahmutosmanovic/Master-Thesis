@@ -2,7 +2,6 @@ import os
 import csv
 import numpy as np
 
-from environment.settings import *
 from environment.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.paths import CirclePath
@@ -13,14 +12,17 @@ from utils.vec_utils import *
 
 
 class Environment:
-    def __init__(self, seed=None):
-        self.seed_seq = np.random.SeedSequence(seed)
-        self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
+    def __init__(self, config):
+        self.cfg = config
+        self.seed_seq = None
+        self.rng = None
+
+        self.pos_scale = np.array([self.cfg.map_width, self.cfg.map_height, self.cfg.map_altitude])
 
         self.agents = []
         self.log = []
         self.t = 0.0
-        self.max_t = MAX_T
+        self.max_t = config.max_t
 
         self.pois = self._init_pois()
 
@@ -46,11 +48,20 @@ class Environment:
 
         path = self._create_path_if_needed()
 
-        self._spawn_animal(jackal_params, JACKAL_COUNT, JACKAL_MODE, path)
-        self._spawn_animal(eagle_params,  EAGLE_COUNT,  EAGLE_MODE,  path)
-        self._spawn_animal(pigeon_params, PIGEON_COUNT, PIGEON_MODE, path)
+        for group in self.cfg.animals:
+            self._spawn_animal(
+                group["params"],
+                group["count"],
+                group["mode"],
+                path
+            )
 
-        self._spawn_drone(drone_params, DRONE_COUNT, DRONE_SENSOR)
+        for group in self.cfg.drones:
+            self._spawn_drone(
+                group["params"],
+                group["count"],
+                group["sensor"],
+            )
 
         info = {"drone_ids": self.drone_ids, "animal_ids": self.animal_ids}
 
@@ -68,17 +79,13 @@ class Environment:
         # default path (circle)
         return CirclePath(
             center=[0, 0, 20.0],
-            radius=min(MAP_WIDTH, MAP_HEIGHT) * 0.4
+            radius=min(self.cfg.map_width, self.cfg.map_height) * 0.4
         )
 
     def _any_path_following(self):
-        return any(mode == "path_follow" for mode in (
-            JACKAL_MODE,
-            EAGLE_MODE,
-            PIGEON_MODE,
-        ))
+        return any(group.get("mode") == "path_follow" for group in self.cfg.animals)
 
-    def _spawn_animal(self, animal_params_fn, count, mode, path):
+    def _spawn_animal(self, animal_params, count, mode, path):
         for _ in range(count):
             match mode:
                 case "random":
@@ -90,7 +97,7 @@ class Environment:
 
             agent = Animal(agent_id=len(self.agents),
                            pos=self.random_position(),
-                           params=animal_params_fn(),
+                           params=animal_params,
                            behaviour=behaviour,
                            seed=self.seed_seq.spawn(1)[0],
                            mode=mode)
@@ -98,12 +105,12 @@ class Environment:
             self.animal_ids.append(agent.agent_id)
             self.agents.append(agent)
 
-    def _spawn_drone(self, drone_params_fn, count, sensor):
+    def _spawn_drone(self, drone_params, count, sensor):
         match sensor:
             case "camera":
-                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=5)
+                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=self.cfg.reward_scale)
             case "gps":
-                sensor = GPSSensor(1, reward_scale=5, pos_scale=POS_SCALE)
+                sensor = GPSSensor(1, reward_scale=self.cfg.reward_scale, pos_scale=self.pos_scale)
 
         for _ in range(count):
             target_id = self.rng.choice(self.animal_ids)
@@ -112,10 +119,11 @@ class Environment:
 
             agent = Drone(agent_id=len(self.agents),
                           pos=pos, 
-                          params=drone_params_fn(),
+                          params=drone_params,
                           seed=self.seed_seq.spawn(1)[0],
                           mode="external",
-                          yaw=yaw)
+                          yaw=yaw,
+                          pos_scale=self.pos_scale)
             
             self.drone_ids.append(agent.agent_id)
             agent.add_sensor(sensor)
@@ -124,8 +132,8 @@ class Environment:
     # Simulation
     def random_position(self):
         return np.array([
-            self.rng.uniform(0, MAP_WIDTH),
-            self.rng.uniform(0, MAP_HEIGHT),
+            self.rng.uniform(0, self.cfg.map_width),
+            self.rng.uniform(0, self.cfg.map_height),
             0.0
         ])
     
@@ -138,10 +146,10 @@ class Environment:
         return pos, yaw
     
     def _init_pois(self):
-        if POI_POINTS is not None:
-            pts = POI_POINTS
+        if self.cfg.poi_points is not None:
+            pts = self.cfg.poi_points
         else:
-            pts = [(self.rng.uniform(0, MAP_WIDTH), self.rng.uniform(0, MAP_HEIGHT), 0.0) for _ in range(POI_COUNT)]
+            pts = [(self.rng.uniform(0, self.cfg.map_width), self.rng.uniform(0, self.cfg.map_height), 0.0) for _ in range(self.cfg.poi_count)]
 
         return [np.array(p, dtype=float) for p in pts]
 
@@ -168,15 +176,15 @@ class Environment:
                 action = external_actions[agent.agent_id]
             elif type(agent) == Animal:
                 obs = self.get_animal_observation(agent)
-                action = agent.policy(obs, DT)
+                action = agent.policy(obs, self.cfg.dt)
             else:
                 raise NotImplementedError
             
-            agent.update(action, DT)
+            agent.update(action, self.cfg.dt)
             
             self.log_agent_state(agent)
 
-        self.t += DT
+        self.t += self.cfg.dt
 
         self.calc_animal_disturbance()
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
@@ -189,7 +197,7 @@ class Environment:
 
             # calculate total reward
             reward[drone_id] = self.agents[drone_id].reward(animals)              # Observation reward
-            reward[drone_id] -= DIST_PENALTY_SCALE * float(np.mean(disturbances)) # Disturbance penalty
+            reward[drone_id] -= self.cfg.penalty_scale * float(np.mean(disturbances)) # Disturbance penalty
 
             # assign observation
             drone_observations[drone_id] = self.agents[drone_id].observe(animals)

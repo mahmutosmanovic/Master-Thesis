@@ -6,6 +6,9 @@ import torch
 
 from utils.utils import decode_action
 from environment.environment import Environment
+from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
+from environment.agents.drones.drone import DroneParams, drone_params
+from environment.config import EnvConfig
 from model.model import PPO
 
 @torch.no_grad()
@@ -30,7 +33,43 @@ def main():
     args = parser.parse_args()
 
     # --- Env ---
-    env = Environment(seed=args.seed)
+
+    cfg = EnvConfig(
+        # simulation
+        dt=0.2,
+        max_t=1000.0,
+
+        # map
+        map_width=200.0,
+        map_height=200.0,
+        map_altitude=100.0,
+
+        # POIs
+        poi_count=3,
+        poi_points=[
+            (30.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 30.0, 30.0),
+        ],
+
+        # animals
+        animals=[
+            dict(params=jackal_params(), count=1, mode="random"),
+            dict(params=eagle_params(),  count=1, mode="poi"),
+            dict(params=pigeon_params(), count=1, mode="path_follow"),
+        ],
+
+        # drones
+        drones=[
+            dict(params=drone_params(), count=1, sensor="camera"),
+        ],
+
+        # reward
+        penalty_scale=2.5,
+        reward_scale=5.0,
+    )
+    
+    env = Environment(cfg)
     obs_dict, info = env.reset(seed=args.seed)
     drone_ids = info["drone_ids"]
 

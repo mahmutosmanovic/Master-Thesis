@@ -1,6 +1,5 @@
 import numpy as np
 from utils.vec_utils import *
-from environment.settings import *
 
 class Sensor:
     @property
@@ -123,7 +122,7 @@ class GPSSensor(Sensor):
         self,
         max_targets: int,
         noise_pos: float = 0.0,
-        pos_scale=1.0,          # scalar or (3,) array; used to normalize relative vectors
+        pos_scale=np.array([1.0, 1.0, 1.0]),          # scalar or (3,) array; used to normalize relative vectors
         reward_scale: float = 5.0,   # boosts signal vs disturbance penalty
         seed=None,
     ):

@@ -5,6 +5,9 @@ import torch
 
 from utils.utils import decode_action
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
+from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
+from environment.agents.drones.drone import DroneParams, drone_params
+from environment.config import EnvConfig
 from environment.environment import Environment 
 
 def train(
@@ -125,7 +128,42 @@ if __name__ == "__main__":
     parser.add_argument("--save", type=str, default="checkpoints/ppo_drone.pt")
     args = parser.parse_args()
 
-    env = Environment(seed=args.seed)
+    cfg = EnvConfig(
+        # simulation
+        dt=0.2,
+        max_t=1000.0,
+
+        # map
+        map_width=200.0,
+        map_height=200.0,
+        map_altitude=100.0,
+
+        # POIs
+        poi_count=3,
+        poi_points=[
+            (30.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 30.0, 30.0),
+        ],
+
+        # animals
+        animals=[
+            dict(params=jackal_params(), count=1, mode="path_follow"),
+            dict(params=eagle_params(),  count=1, mode="random"),
+            dict(params=pigeon_params(), count=1, mode="path_follow"),
+        ],
+
+        # drones
+        drones=[
+            dict(params=drone_params(), count=1, sensor="camera"),
+        ],
+
+        # reward
+        penalty_scale=2.5,
+        reward_scale=5.0,
+    )
+
+    env = Environment(config=cfg)
 
     train(
         env=env,

@@ -3,13 +3,13 @@ from ..agent import Agent
 from dataclasses import dataclass
 from utils.vec_utils import *
 from environment.agents.drones.sensor import Sensor
-from environment.settings import *
 
 class Drone(Agent):
-    def __init__(self, agent_id, pos, params, seed, mode=None, yaw=0.0):
+    def __init__(self, agent_id, pos, params, seed, mode=None, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):
         super().__init__(agent_id, pos, seed, mode)
         self.params = params
         self.pos = pos
+        self.pos_scale = pos_scale
         self.sensors = []
         self.view_dir = np.array([ # Used by camera, drone facing direction
             np.cos(self.params.camera_pitch) * np.cos(yaw),
@@ -23,7 +23,7 @@ class Drone(Agent):
 
     def observe(self, animals) -> np.ndarray:
         # full_state = np.concatenate([
-        #     self.pos / POS_SCALE,
+        #     self.pos / self.pos_scale,
         #     (self.direction * self.speed) / self.params.max_speed,
         #     self.view_dir
         # ]).astype(np.float32)
