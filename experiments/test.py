@@ -4,29 +4,20 @@ import argparse
 import numpy as np
 import torch
 
+from utils.vec_utils import unit
 from environment.environment import Environment
 from model.model import PPO
 
-
-def decode_action(a: np.ndarray, drone):
-    """
-    PPO action in [-1,1]^5 -> (direction vec, speed, view_yaw_rate)
-    """
+def decode_action(a: np.ndarray):
     a = np.asarray(a, dtype=np.float32)
 
-    # direction
-    d = a[:3]
-    n = float(np.linalg.norm(d))
-    if n < 1e-8:
-        direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    else:
-        direction = (d / n).astype(np.float32)
+    direction = unit(a[:3])
 
-    # speed: [-1,1] -> [0, max_speed]
-    speed = float((a[3] + 1.0) * 0.5 * drone.params.max_speed)
+    # speed: [0,1]
+    speed = float((a[3] + 1.0) * 0.5)
 
-    # yaw rate: [-1,1] -> [-max_view_yaw, +max_view_yaw]
-    view_yaw_rate = float(a[4] * drone.params.max_view_yaw)
+    # yaw rate: [-1,1]
+    view_yaw_rate = float(a[4])
 
     return (direction, speed, view_yaw_rate)
 
@@ -77,7 +68,7 @@ def main():
             obs = np.asarray(obs_dict[did], dtype=np.float32)
 
             a = act_deterministic(agent, obs)  # shape (5,)
-            external_actions[did] = decode_action(a, env.agents[did])
+            external_actions[did] = decode_action(a)
         obs_dict, reward_dict, done, info_step = env.step(external_actions)
 
         for did, r in reward_dict.items():

@@ -3,28 +3,20 @@ import os
 import numpy as np
 import torch
 
+from utils.vec_utils import unit
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
 from environment.environment import Environment 
 
-def decode_action(a: np.ndarray, drone):
-    """
-    PPO action in [-1,1]^5 -> (direction vec, speed, view_yaw_rate)
-    """
+def decode_action(a: np.ndarray):
     a = np.asarray(a, dtype=np.float32)
 
-    # direction
-    d = a[:3]
-    n = np.linalg.norm(d)
-    if n < 1e-8:
-        direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    else:
-        direction = (d / n).astype(np.float32)
+    direction = unit(a[:3])
 
-    # speed: [-1,1] -> [0, max_speed]
-    speed = float((a[3] + 1.0) * 0.5 * drone.params.max_speed)
+    # speed: [-1,1]
+    speed = float((a[3] + 1.0) * 0.5)
 
-    # yaw rate: [-1,1] -> [-max_view_yaw, +max_view_yaw]
-    view_yaw_rate = float(a[4] * drone.params.max_view_yaw)
+    # yaw rate: [-1,1]
+    view_yaw_rate = float(a[4])
 
     return (direction, speed, view_yaw_rate)
 
@@ -68,7 +60,7 @@ def train(
             for did in drone_ids:
                 drone = env.agents[did]
                 if did == train_id:
-                    external_actions[did] = decode_action(a, drone)
+                    external_actions[did] = decode_action(a)
                 else:
                     external_actions[did] = (
                         np.array([1.0, 0.0, 0.0], dtype=np.float32),

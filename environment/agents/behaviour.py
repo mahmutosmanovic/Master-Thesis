@@ -31,9 +31,9 @@ class RandomWalk(Behaviour):
         desired_dir = unit(desired_dir)
 
         # Random-ish speed around mid range
-        target_speed = 0.5 * params.max_speed
-        desired_speed = target_speed + self.rng.normal(0.0, 0.2 * params.max_speed)
-        desired_speed = float(np.clip(desired_speed, 0.0, params.max_speed))
+        target_speed = 0.5
+        desired_speed = target_speed + self.rng.normal(0.0, 0.2)
+        desired_speed = float(np.clip(desired_speed, 0.0, 1))
 
         return desired_dir, desired_speed
 
@@ -67,7 +67,7 @@ class PathFollow(Behaviour):
         if self.rng.random() < params.epsilon:
             desired_dir = unit(desired_dir + self.rng.normal(0.0, params.turn_noise * 0.3, size=3))
 
-        desired_speed = float(0.7 * params.max_speed)
+        desired_speed = 0.7
 
         # Advance path parameter based on current tangential speed
         v = cur_dir * cur_speed
@@ -118,6 +118,6 @@ class POI(Behaviour):
         noise = self.rng.normal(0.0, params.turn_noise, size=3) * NOISE_SCALE
         desired_dir = unit(desired_dir + noise)
 
-        desired_speed = float(params.max_speed)
+        desired_speed = 0.7
 
         return desired_dir, desired_speed
