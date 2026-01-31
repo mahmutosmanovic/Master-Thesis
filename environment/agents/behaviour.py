@@ -1,5 +1,4 @@
 import numpy as np
-from environment.settings import *
 from utils.vec_utils import *
 from abc import ABC, abstractmethod
 
@@ -31,9 +30,9 @@ class RandomWalk(Behaviour):
         desired_dir = unit(desired_dir)
 
         # Random-ish speed around mid range
-        target_speed = 0.5 * params.max_speed
-        desired_speed = target_speed + self.rng.normal(0.0, 0.2 * params.max_speed)
-        desired_speed = float(np.clip(desired_speed, 0.0, params.max_speed))
+        target_speed = 0.5
+        desired_speed = target_speed + self.rng.normal(0.0, 0.2)
+        desired_speed = float(np.clip(desired_speed, 0.0, 1))
 
         return desired_dir, desired_speed
 
@@ -67,7 +66,7 @@ class PathFollow(Behaviour):
         if self.rng.random() < params.epsilon:
             desired_dir = unit(desired_dir + self.rng.normal(0.0, params.turn_noise * 0.3, size=3))
 
-        desired_speed = float(0.7 * params.max_speed)
+        desired_speed = 0.7
 
         # Advance path parameter based on current tangential speed
         v = cur_dir * cur_speed
@@ -77,10 +76,11 @@ class PathFollow(Behaviour):
         return desired_dir, desired_speed
 
 class POI(Behaviour):
-    def __init__(self, pois, seed):
+    def __init__(self, pois, seed, poi_reached_eps=3.0):
         super().__init__(seed)
         self.pois = [np.asarray(p, dtype=float) for p in pois]
         self.poi_idx = None
+        self.poi_reached_eps = poi_reached_eps
 
     def _select_poi_idx(self):
         if self.poi_idx is None:
@@ -106,7 +106,7 @@ class POI(Behaviour):
 
         dist = float(np.linalg.norm(to_target))
 
-        if dist < POI_REACHED_EPS and POI_SWITCH_ON_REACH and len(self.pois) > 1:
+        if dist < self.poi_reached_eps and len(self.pois) > 1:
             self.poi_idx = self._select_poi_idx()
             target = self.pois[self.poi_idx]
             to_target = target - pos
@@ -115,9 +115,9 @@ class POI(Behaviour):
         desired_dir = unit(to_target)
 
         # Add a bit of directional noise (simple)
-        noise = self.rng.normal(0.0, params.turn_noise, size=3) * NOISE_SCALE
+        noise = self.rng.normal(0.0, params.turn_noise, size=3)
         desired_dir = unit(desired_dir + noise)
 
-        desired_speed = float(params.max_speed)
+        desired_speed = 0.7
 
         return desired_dir, desired_speed

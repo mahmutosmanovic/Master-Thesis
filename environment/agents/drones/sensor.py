@@ -2,31 +2,64 @@ import numpy as np
 from utils.vec_utils import *
 
 class Sensor:
-    def sense(self, drone, animals):
+    def __init__(self, seed=None):
+        self.rng = np.random.default_rng(seed)
+
+    @property
+    def obs_dim(self):
+        raise NotImplementedError
+    
+    def observe(self, drone, animals):
+        raise NotImplementedError
+    
+    def reward(self, drone, animals):
         raise NotImplementedError
 
 class Camera(Sensor):
-    def __init__(self, hfov_rad, vfov_rad, near=0.0, far=float("inf"), K=5):
+    def __init__(
+            self,
+            hfov_rad,
+            vfov_rad,
+            near=0.0,
+            far=float("inf"),
+            K=1,
+            reward_scale=5.0,
+            sigma=250,
+            center_penalty_scale=1.0,
+            center_sigma=0.35,
+            seed=None
+        ):
+        super().__init__(seed)
+        
         self.hfov = hfov_rad
         self.vfov = vfov_rad
         self.near = near
         self.far = far
         self.K = K
 
+        self.reward_scale = float(reward_scale)
+        self.sigma = float(sigma)
+        self.center_penalty_scale = float(center_penalty_scale)
+        self.center_sigma = float(center_sigma)
+
         self.tan_h = np.tan(hfov_rad * 0.5)
         self.tan_v = np.tan(vfov_rad * 0.5)
 
     @property
     def obs_dim(self) -> int:
-        return self.K * 4  # [u,v,z_norm,mask] per slot
+        return self.K * 4  # [u,v,z_norm,mask]
 
-    def get_obs(self, drone, points) -> np.ndarray:
-        # assumes world.animals_pos is (N,3) array
-        inside, cam_xyz = self.sense(drone, points)
+    def observe(self, drone, animals) -> np.ndarray:
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+
+        inside, cam_xyz = self.points_in_view_frustum(
+            points, drone.pos, drone.view_dir
+        )
+
         vis = cam_xyz[inside]
 
         if vis.shape[0] > 0:
-            vis = vis[np.argsort(vis[:, 2])]  # sort by z
+            vis = vis[np.argsort(vis[:, 2])]  # sort by depth
 
         feats = np.zeros((self.K, 4), dtype=np.float32)
         m = min(self.K, vis.shape[0])
@@ -40,67 +73,58 @@ class Camera(Sensor):
             feats[:m, 0] = u
             feats[:m, 1] = v
             feats[:m, 2] = z_norm
-            feats[:m, 3] = 1.0  # mask
+            feats[:m, 3] = 1.0
 
         return feats.reshape(-1)
-    
-    def reward(self, inside, cam_xyz, z_opt=10.0, sigma_center=0.6, sigma_z=6.0, empty_penalty=0.0):
-        vis = cam_xyz[inside]  # (M,3)
-        if vis.shape[0] == 0:
-            return float(empty_penalty)
 
-        x, y, z = vis[:, 0], vis[:, 1], vis[:, 2]
+    def reward(self, drone, animals):
+        if len(animals) == 0:
+            return 0.0
 
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+
+        inside, cam_xyz = self.points_in_view_frustum(
+            points, drone.pos, drone.view_dir
+        )
+
+        if not np.any(inside):
+            return 0.0
+
+        vis = cam_xyz[inside]
+        d = np.linalg.norm(vis, axis=1)
+        i = np.argmin(d)
+        d = d[i]
+        base = max(0.0, 1.0 - d / (self.sigma + 1e-8))
+        distance_reward = float(self.reward_scale * base)
+        
+        x, y, z = float(vis[i, 0]), float(vis[i, 1]), float(vis[i, 2])
         u = x / (z * self.tan_h + 1e-8)
         v = y / (z * self.tan_v + 1e-8)
 
-        center = np.exp(-(u*u + v*v) / (sigma_center**2 + 1e-8))
-        rng    = np.exp(-((z - z_opt)**2) / (sigma_z**2 + 1e-8))
+        center_dist = float(np.sqrt(u*u + v*v))
+        penalty = self.center_penalty_scale * center_dist
 
-        score = center * rng
-        return float(np.log1p(np.sum(score)))
-
-    def sense(self, drone, points):
-        inside, cam_xyz = self.points_in_view_frustum(
-            points=points,
-            cam_pos=drone.pos,
-            view_dir=drone.view_dir,
-        )
-
-        return inside, cam_xyz
+        return distance_reward - penalty
 
     def points_in_view_frustum(self, points, cam_pos, view_dir):
-        # Normalize forward
         forward = unit(view_dir)
 
-        # Right is constrained to XY plane
         right = np.cross(WORLD_UP, forward)
-        right_norm = np.linalg.norm(right)
+        n = np.linalg.norm(right)
+        right = right / n if n > 1e-8 else np.array([1.0, 0.0, 0.0])
 
-        if right_norm < 1e-8:
-            # Looking straight up/down -> arbitrary right in XY plane
-            right = np.array([1.0, 0.0, 0.0])
-        else:
-            right /= right_norm
+        up = np.cross(right, forward)
 
-        # Complete orthonormal basis
-        up = np.cross(forward, right)
+        v = points - cam_pos
 
-        # Vector from camera to points
-        v = points - cam_pos  # (N, 3)
-
-        # Project into camera space
         x = np.dot(v, right)
         y = np.dot(v, up)
         z = np.dot(v, forward)
 
         cam_xyz = np.stack([x, y, z], axis=1)
 
-        # Reject points behind camera
-        valid = z > 0.0
-
         inside = (
-            valid &
+            (z > 0.0) &
             (z >= self.near) &
             (z <= self.far) &
             (np.abs(x) <= z * self.tan_h) &
@@ -109,38 +133,34 @@ class Camera(Sensor):
 
         return inside, cam_xyz
 
+
 class GPSSensor(Sensor):
-    """
-    GPS tracker observation:
-      per slot: [dx_norm, dy_norm, dz_norm, mask]
-
-    Reward:
-      gaussian around target_dist for nearest target (no log1p compression)
-    """
-
     def __init__(
         self,
         max_targets: int,
         noise_pos: float = 0.0,
-        pos_scale=1.0,          # scalar or (3,) array; used to normalize relative vectors
+        pos_scale=np.array([1.0, 1.0, 1.0]),          # scalar or (3,) array; used to normalize relative vectors
         reward_scale: float = 5.0,   # boosts signal vs disturbance penalty
         seed=None,
     ):
+        super().__init__(seed)
+
         self.max_targets = max_targets
         self.noise_pos = noise_pos
         self.pos_scale = np.asarray(pos_scale, dtype=np.float32)
         self.reward_scale = float(reward_scale)
-        self.rng = np.random.default_rng(seed)
 
     @property
     def obs_dim(self) -> int:
-        return self.max_targets * 4  # [dx,dy,dz,mask] per slot
+        return self.max_targets * 7  # [dx,dy,dz,vx,vy,vz,mask] per slot
 
-    def get_obs(self, drone, points) -> np.ndarray:
-        obs = np.zeros((self.max_targets, 4), dtype=np.float32)
+    def observe(self, drone, animals) -> np.ndarray:
+        obs = np.zeros((self.max_targets, 7), dtype=np.float32)
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+        dirs = np.array([animal.direction for animal in animals], dtype=float)
 
         if len(points) == 0:
-            return obs.reshape(-1)
+            raise ValueError("No observable animals")
 
         # distances to drone
         dists = np.linalg.norm(points - drone.pos, axis=1)
@@ -154,27 +174,28 @@ class GPSSensor(Sensor):
 
         # relative vectors (target - drone)
         rel = nearest - drone.pos.astype(np.float32)
+        dirs = dirs[idx]
 
         # normalize (supports scalar or (3,) vector)
         rel = rel / (self.pos_scale + 1e-8)
+        # vels = vels[nearest] should be normalized
 
         obs[:k, 0:3] = rel
-        obs[:k, 3] = 1.0  # mask
+        obs[:k, 3:6] = dirs
+        obs[:k, 6] = 1.0  # mask
 
         return obs.reshape(-1)
 
-    def sense(self, drone, points):
-        return True, points
+    def reward(self, drone, animals, sigma=250.0):
+        if len(animals) == 0:
+            raise ValueError("No observable animals")
+        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
 
-    def reward(self, drone, points, target_dist=30.0, sigma=20.0):
-        if len(points) == 0:
-            return 0.0
-
-        # nearest distance only (align reward with observation)
+        # nearest distance only
         dists = np.linalg.norm(points - drone.pos, axis=1)
         d = float(np.min(dists))
 
-        # base: gaussian around target_dist in [0,1]
-        base = np.exp(-((d - target_dist) ** 2) / (2.0 * (sigma ** 2) + 1e-8))
+        # linear reward: closer is better
+        base = max(0.0, 1.0 - d / (sigma + 1e-8))
 
-        return float(self.reward_scale * base)
+        return self.reward_scale * base

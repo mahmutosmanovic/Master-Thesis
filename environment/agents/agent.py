@@ -24,7 +24,7 @@ class Agent:
         return self.l2_norm(v)
 
     def move(self, dt):
-        self.pos = self.pos + (self.direction * self.speed) * float(dt)
+        self.pos = self.pos + (self.direction * self.speed * self.params.max_speed) * float(dt)
 
         if self.params.is_planar:
             self.pos[2] = 0.0

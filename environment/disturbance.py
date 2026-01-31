@@ -85,6 +85,45 @@ class DisturbanceField:
 
         return G
 
+    def heading_gain_hard(self, drone_vel, diff):
+        """
+        Gain:
+        2.0 -> straight toward
+        1.0 -> parallel
+        1.0 -> straight away
+        """
+        v = np.asarray(drone_vel, dtype=float)
+        d = np.asarray(diff, dtype=float)
+
+        v_norm = np.linalg.norm(v)
+        d_norm = np.linalg.norm(d)
+
+        if v_norm < 1e-8 or d_norm < 1e-8:
+            return 1.0
+
+        cos_theta = np.dot(v, d) / (v_norm * d_norm)
+
+        return 1.0 + max(0.0, cos_theta)
+
+    def heading_gain_soft(self, drone_vel, diff):
+        """
+        Gain:
+        2.0 -> straight toward
+        1.5 -> parallel
+        1.0 -> straight away
+        """
+        v = np.asarray(drone_vel, dtype=float)
+        d = np.asarray(diff, dtype=float)
+
+        v_norm = np.linalg.norm(v)
+        d_norm = np.linalg.norm(d)
+
+        if v_norm < 1e-8 or d_norm < 1e-8:
+            return 1.5
+
+        cos_theta = np.dot(v, d) / (v_norm * d_norm)
+
+        return 1.5 + 0.5 * cos_theta
 
     # -------------------------
     # Motion gains
@@ -103,20 +142,23 @@ class DisturbanceField:
         """
         Disturbance experienced by the animal caused by the drone
         """
-
-        horizontal_dist = np.linalg.norm(drone.pos[0:2] - animal.pos[0:2])
-        dz = abs(drone.pos[2] - animal.pos[2])
+        diff = drone.pos - animal.pos
+        horizontal_dist = np.linalg.norm(diff[0:2])
+        dz = abs(diff[2])
 
         z_alt = self.altitude(dz)
         z_hor = self.horizontal(horizontal_dist)
         g_ang = self.angle_gain(horizontal_dist, dz)
 
         g_speed = self.speed_gain(drone.speed)
+
+        # g_heading = self.heading_gain_soft(drone.direction, diff)
+        g_heading = self.heading_gain_hard(drone.direction, diff)
         # g_accel = self.accel_gain(drone_accel)
 
-        Z = z_alt * z_hor * g_ang * g_speed# * g_accel
+        Z = z_alt * z_hor * g_ang * g_speed * g_heading# * g_accel
 
-        return float(Z)
+        return {"val": float(Z), "dir": diff}
 
     # -------------------------
     # Visualization

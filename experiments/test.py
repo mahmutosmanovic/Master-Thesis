@@ -4,32 +4,12 @@ import argparse
 import numpy as np
 import torch
 
+from utils.utils import decode_action
 from environment.environment import Environment
+from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
+from environment.agents.drones.drone import DroneParams, drone_params
+from environment.config import EnvConfig
 from model.model import PPO
-
-
-def decode_action(a: np.ndarray, drone):
-    """
-    PPO action in [-1,1]^5 -> (direction vec, speed, view_yaw_rate)
-    """
-    a = np.asarray(a, dtype=np.float32)
-
-    # direction
-    d = a[:3]
-    n = float(np.linalg.norm(d))
-    if n < 1e-8:
-        direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    else:
-        direction = (d / n).astype(np.float32)
-
-    # speed: [-1,1] -> [0, max_speed]
-    speed = float((a[3] + 1.0) * 0.5 * drone.params.max_speed)
-
-    # yaw rate: [-1,1] -> [-max_view_yaw, +max_view_yaw]
-    view_yaw_rate = float(a[4] * drone.params.max_view_yaw)
-
-    return (direction, speed, view_yaw_rate)
-
 
 @torch.no_grad()
 def act_deterministic(agent: PPO, obs: np.ndarray):
@@ -53,10 +33,45 @@ def main():
     args = parser.parse_args()
 
     # --- Env ---
-    env = Environment(seed=args.seed)
+
+    cfg = EnvConfig(
+        # simulation
+        dt=0.2,
+        max_t=1000.0,
+
+        # map
+        map_width=200.0,
+        map_height=200.0,
+        map_altitude=100.0,
+
+        # POIs
+        poi_count=3,
+        poi_points=[
+            (150.0, 0.0, 20.0),
+            (0.0, 0.0, 20.0),
+            (0.0, 150.0, 30.0),
+        ],
+
+        # animals
+        animals=[
+            dict(params=jackal_params(), count=1, mode="random"),
+            dict(params=eagle_params(),  count=1, mode="poi"),
+            dict(params=pigeon_params(), count=1, mode="path_follow"),
+        ],
+
+        # drones
+        drones=[
+            dict(params=drone_params(), count=3, sensor="camera"),
+        ],
+
+        # reward
+        penalty_scale=2.5,
+        reward_scale=5.0,
+    )
+    
+    env = Environment(cfg)
     obs_dict, info = env.reset(seed=args.seed)
     drone_ids = info["drone_ids"]
-    print("info:", info)
 
     # --- Load checkpoint + build PPO ---
     ckpt = torch.load(args.ckpt, map_location=args.device)
@@ -78,8 +93,7 @@ def main():
             obs = np.asarray(obs_dict[did], dtype=np.float32)
 
             a = act_deterministic(agent, obs)  # shape (5,)
-            external_actions[did] = decode_action(a, env.agents[did])
-
+            external_actions[did] = decode_action(a)
         obs_dict, reward_dict, done, info_step = env.step(external_actions)
 
         for did, r in reward_dict.items():

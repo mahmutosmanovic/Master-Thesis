@@ -3,30 +3,12 @@ import os
 import numpy as np
 import torch
 
+from utils.utils import decode_action
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
+from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
+from environment.agents.drones.drone import DroneParams, drone_params
+from environment.config import EnvConfig
 from environment.environment import Environment 
-
-def decode_action(a: np.ndarray, drone):
-    """
-    PPO action in [-1,1]^5 -> (direction vec, speed, view_yaw_rate)
-    """
-    a = np.asarray(a, dtype=np.float32)
-
-    # direction
-    d = a[:3]
-    n = np.linalg.norm(d)
-    if n < 1e-8:
-        direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    else:
-        direction = (d / n).astype(np.float32)
-
-    # speed: [-1,1] -> [0, max_speed]
-    speed = float((a[3] + 1.0) * 0.5 * drone.params.max_speed)
-
-    # yaw rate: [-1,1] -> [-max_view_yaw, +max_view_yaw]
-    view_yaw_rate = float(a[4] * drone.params.max_view_yaw)
-
-    return (direction, speed, view_yaw_rate)
 
 def train(
     env: Environment,
@@ -68,7 +50,7 @@ def train(
             for did in drone_ids:
                 drone = env.agents[did]
                 if did == train_id:
-                    external_actions[did] = decode_action(a, drone)
+                    external_actions[did] = decode_action(a)
                 else:
                     external_actions[did] = (
                         np.array([1.0, 0.0, 0.0], dtype=np.float32),
@@ -146,7 +128,42 @@ if __name__ == "__main__":
     parser.add_argument("--save", type=str, default="checkpoints/ppo_drone.pt")
     args = parser.parse_args()
 
-    env = Environment(seed=args.seed)
+    cfg = EnvConfig(
+        # simulation
+        dt=0.2,
+        max_t=1000.0,
+
+        # map
+        map_width=200.0,
+        map_height=200.0,
+        map_altitude=100.0,
+
+        # POIs
+        poi_count=3,
+        poi_points=[
+            (30.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 30.0, 30.0),
+        ],
+
+        # animals
+        animals=[
+            dict(params=jackal_params(), count=1, mode="path_follow"),
+            dict(params=eagle_params(),  count=1, mode="random"),
+            dict(params=pigeon_params(), count=1, mode="path_follow"),
+        ],
+
+        # drones
+        drones=[
+            dict(params=drone_params(), count=1, sensor="camera"),
+        ],
+
+        # reward
+        penalty_scale=2.5,
+        reward_scale=5.0,
+    )
+
+    env = Environment(config=cfg)
 
     train(
         env=env,

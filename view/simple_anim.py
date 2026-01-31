@@ -37,7 +37,7 @@ def _frustum_segments(pos, view_dir, hfov, vfov, depth):
     world_up = np.array([0.0, 0.0, 1.0])
 
     # Right in XY plane (no roll)
-    right = np.cross(world_up, forward)
+    right = np.cross(forward, world_up)
     rn = np.linalg.norm(right)
     if rn < 1e-8:
         right = np.array([1.0, 0.0, 0.0])
@@ -45,7 +45,7 @@ def _frustum_segments(pos, view_dir, hfov, vfov, depth):
         right /= rn
 
     # Up completes basis
-    up = np.cross(forward, right)
+    up = np.cross(right, forward)
     un = np.linalg.norm(up)
     if un < 1e-8:
         return []
@@ -82,7 +82,7 @@ def animate_simulation_csv_3d(
     vfov_deg=60.0,
     frustum_depth=15.0,
     interval_ms=50,
-    trail=200,              # how many past points to show per agent
+    trail=800,              # how many past points to show per agent
     show_frustum=True,
     ortho=True,
 ):
@@ -174,15 +174,13 @@ def animate_simulation_csv_3d(
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
-    ax.set_title("Simulation With PPO Drone Policy animal RW")
+    ax.set_title("Simulation With 3 PPO Drones and 3 animals (rw, poi, path)")
 
-    # Fix limits + equal scaling for stable animation
     ax.set_xlim3d(xlim)
     ax.set_ylim3d(ylim)
     ax.set_zlim3d(zlim)
     set_axes_equal(ax, xlim, ylim, zlim)
 
-    # Create one line per agent (trajectory trail) + one scatter per agent (current position)
     traj_lines = []
     curr_pts = []
 
@@ -198,19 +196,24 @@ def animate_simulation_csv_3d(
         traj_lines.append(line)
         curr_pts.append(pt)
 
-    # Frustum lines for each drone (we'll create a fixed number of line objects)
-    # Max segments = 8 (4 rays + 4 plane edges)
+    drone_idxs = [id_to_idx[aid] for aid in agent_ids if agent_species[aid] == "drone"]
+
     frustum_lines = []
     if show_frustum:
-        for _ in range(8):
-            ln, = ax.plot([], [], [], color=species_colors.get("drone", "blue"), alpha=0.25)
-            frustum_lines.append(ln)
+        for _ in drone_idxs:
+            drone_lines = []
+            for _ in range(8):  # 8 segments per frustum
+                ln, = ax.plot(
+                    [], [], [],
+                    color=species_colors.get("drone", "blue"),
+                    alpha=0.25,
+                    linewidth=1.2
+                )
+                drone_lines.append(ln)
+            frustum_lines.append(drone_lines)
 
     hfov = np.deg2rad(hfov_deg)
     vfov = np.deg2rad(vfov_deg)
-
-    # Identify drone agents (by species == "drone")
-    drone_idxs = [id_to_idx[aid] for aid in agent_ids if agent_species[aid] == "drone"]
 
     def init():
         for line in traj_lines:
@@ -218,9 +221,10 @@ def animate_simulation_csv_3d(
             line.set_3d_properties([])
         for pt in curr_pts:
             pt._offsets3d = ([], [], [])
-        for ln in frustum_lines:
-            ln.set_data([], [])
-            ln.set_3d_properties([])
+        for drone_lines in frustum_lines:
+            for ln in drone_lines:
+                ln.set_data([], [])
+                ln.set_3d_properties([])
         return traj_lines + curr_pts + frustum_lines
 
     def update(frame_idx):
@@ -241,27 +245,26 @@ def animate_simulation_csv_3d(
                 traj_lines[ai].set_3d_properties([])
                 curr_pts[ai]._offsets3d = ([], [], [])
 
-        # Update frustum for the first drone (or extend to multiple drones if you want)
-        if show_frustum and drone_idxs:
-            di = drone_idxs[0]  # draw frustum for drone 0; easy to extend to multiple
-            p = pos[frame_idx, di, :]
-            v = view[frame_idx, di, :]
+        if show_frustum:
+            for d, di in enumerate(drone_idxs):
+                p = pos[frame_idx, di, :]
+                v = view[frame_idx, di, :]
 
-            segs = []
-            if not (np.any(np.isnan(p)) or np.any(np.isnan(v))):
-                segs = _frustum_segments(p, v, hfov, vfov, frustum_depth)
+                segs = []
+                if not (np.any(np.isnan(p)) or np.any(np.isnan(v))):
+                    segs = _frustum_segments(p, v, hfov, vfov, frustum_depth)
 
-            # Write segs into fixed line artists
-            for i, ln in enumerate(frustum_lines):
-                if i < len(segs):
-                    xs, ys, zs = segs[i]
-                    ln.set_data(xs, ys)
-                    ln.set_3d_properties(zs)
-                else:
-                    ln.set_data([], [])
-                    ln.set_3d_properties([])
+                drone_lines = frustum_lines[d]
+                for i, ln in enumerate(drone_lines):
+                    if i < len(segs):
+                        xs, ys, zs = segs[i]
+                        ln.set_data(xs, ys)
+                        ln.set_3d_properties(zs)
+                    else:
+                        ln.set_data([], [])
+                        ln.set_3d_properties([])
 
-        return traj_lines + curr_pts + frustum_lines
+        return traj_lines + curr_pts + [ln for drone in frustum_lines for ln in drone]
 
     anim = FuncAnimation(
         fig,
@@ -281,10 +284,10 @@ if __name__ == "__main__":
     animate_simulation_csv_3d(
         "logs/simulations/ppo_rollout.csv",
         hfov_deg=90,
-        vfov_deg=60,
+        vfov_deg=56,
         frustum_depth=15,
         interval_ms=100,
-        trail=200,
-        show_frustum=False,
+        trail=20,
+        show_frustum=True,
         ortho=True,
     )
