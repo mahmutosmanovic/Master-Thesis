@@ -108,9 +108,9 @@ class Environment:
     def _spawn_drone(self, drone_params, count, sensor):
         match sensor:
             case "camera":
-                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=self.cfg.reward_scale)
+                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=self.cfg.reward_scale, seed=self.seed_seq.spawn(1)[0])
             case "gps":
-                sensor = GPSSensor(1, reward_scale=self.cfg.reward_scale, pos_scale=self.pos_scale)
+                sensor = GPSSensor(1, reward_scale=self.cfg.reward_scale, pos_scale=self.pos_scale, seed=self.seed_seq.spawn(1)[0])
 
         for _ in range(count):
             target_id = self.rng.choice(self.animal_ids)

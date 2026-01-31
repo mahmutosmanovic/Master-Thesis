@@ -2,6 +2,9 @@ import numpy as np
 from utils.vec_utils import *
 
 class Sensor:
+    def __init__(self, seed=None):
+        self.rng = np.random.default_rng(seed)
+
     @property
     def obs_dim(self):
         raise NotImplementedError
@@ -13,7 +16,21 @@ class Sensor:
         raise NotImplementedError
 
 class Camera(Sensor):
-    def __init__(self, hfov_rad, vfov_rad, near=0.0, far=float("inf"), K=1, reward_scale=5.0, sigma=250, center_penalty_scale=1.0, center_sigma=0.35):
+    def __init__(
+            self,
+            hfov_rad,
+            vfov_rad,
+            near=0.0,
+            far=float("inf"),
+            K=1,
+            reward_scale=5.0,
+            sigma=250,
+            center_penalty_scale=1.0,
+            center_sigma=0.35,
+            seed=None
+        ):
+        super().__init__(seed)
+        
         self.hfov = hfov_rad
         self.vfov = vfov_rad
         self.near = near
@@ -126,11 +143,12 @@ class GPSSensor(Sensor):
         reward_scale: float = 5.0,   # boosts signal vs disturbance penalty
         seed=None,
     ):
+        super().__init__(seed)
+
         self.max_targets = max_targets
         self.noise_pos = noise_pos
         self.pos_scale = np.asarray(pos_scale, dtype=np.float32)
         self.reward_scale = float(reward_scale)
-        self.rng = np.random.default_rng(seed)
 
     @property
     def obs_dim(self) -> int:
