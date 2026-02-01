@@ -1,6 +1,8 @@
 import os
 import csv
 import numpy as np
+import pandas as pd
+from collections import defaultdict
 
 from environment.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
@@ -87,7 +89,14 @@ class Environment:
 
     def _spawn_animal(self, animal_params, count, mode, path):
         for _ in range(count):
-            match mode:
+            # If list, select a random mode from the list
+            if isinstance(mode, list):
+                selected_idx = self.rng.choice(np.arange(len(mode)))
+                selected_mode = mode[selected_idx]
+            else:
+                selected_mode = mode
+
+            match selected_mode:
                 case "random":
                     behaviour = RandomWalk(self.seed_seq.spawn(1)[0])
                 case "path_follow":
@@ -100,11 +109,11 @@ class Environment:
                            params=animal_params,
                            behaviour=behaviour,
                            seed=self.seed_seq.spawn(1)[0],
-                           mode=mode)
+                           mode=selected_mode)
             
             self.animal_ids.append(agent.agent_id)
             self.agents.append(agent)
-
+    
     def _spawn_drone(self, drone_params, count, sensor):
         match sensor:
             case "camera":
@@ -184,8 +193,6 @@ class Environment:
             
         self.t += self.cfg.dt
 
-        for agent in self.agents: self.log_agent_state(agent)
-
         self.calc_animal_disturbance()
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
 
@@ -202,6 +209,8 @@ class Environment:
             # assign observation
             drone_observations[drone_id] = self.agents[drone_id].observe(animals)
 
+        for agent in self.agents: self.log_agent_state(agent)
+
         info = {}
         if self.t > self.max_t:
             done = True
@@ -211,14 +220,49 @@ class Environment:
         return drone_observations, reward, done, info
 
     def episode_statistics(self):
-        # Calculate episode statistics from self.log
-        pass
+        log = self.log
+        scalars = {}
+
+        behaviours = np.array(
+            [r.get("behaviour_state") for r in log if r.get("behaviour_state") is not None],
+            dtype=object,
+        )
+        if behaviours.size:
+            uniq, cnt = np.unique(behaviours, return_counts=True)
+            pct = 100.0 * cnt / behaviours.size
+            for b, p in zip(uniq, pct):
+                scalars[f"behaviour/{b}_pct"] = float(p)
+
+        by_species = defaultdict(list)
+        for r in log:
+            sp = r.get("species")
+            d = r.get("disturbance")
+            if sp is None or d is None:
+                continue
+            by_species[sp].append(d)
+
+        for sp, vals in by_species.items():
+            arr = np.asarray(vals, dtype=np.float32)
+            arr = arr[np.isfinite(arr)]
+            if arr.size == 0:
+                continue
+
+            scalars[f"disturbance/{sp}_min"] = float(arr.min())
+            scalars[f"disturbance/{sp}_max"] = float(arr.max())
+            scalars[f"disturbance/{sp}_mean"] = float(arr.mean())
+
+        return scalars
 
     # Logging
     def log_agent_state(self, agent):
+        disturbance = self.animal_disturbance.get(agent.agent_id, None)
+        if disturbance:
+            disturbance = np.sum([d["val"] for d in disturbance.values()])
+
         self.log.append({
             "t": self.t,
             **agent.to_dict(),
+            "disturbance": disturbance,
         })
 
     def _get_log_fieldnames(self):
