@@ -54,9 +54,9 @@ def main():
 
         # animals
         animals=[
-            dict(params=jackal_params(), count=10, mode=["random", "poi"]), # mode list for random selection between multiple
-            dict(params=eagle_params(),  count=1, mode="poi"),
-            dict(params=pigeon_params(), count=1, mode="path_follow"),
+            dict(params=jackal_params(), count=1, mode="random"), # mode list for random selection between multiple
+            dict(params=eagle_params(),  count=0, mode="poi"),
+            dict(params=pigeon_params(), count=0, mode="path_follow"),
         ],
 
         # drones

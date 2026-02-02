@@ -8,7 +8,7 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 # Env
-from utils.utils import decode_action
+from utils.utils import decode_action, log_config_text
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
 from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
 from environment.agents.drones.drone import DroneParams, drone_params
@@ -47,6 +47,8 @@ def train(
     run_name = f"ppo_drone_seed{seed}_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     tb_log_dir = os.path.join(log_dir, run_name)
     writer = SummaryWriter(log_dir=tb_log_dir)
+
+    log_config_text(writer, cfg)
 
     while steps < total_steps:
         buf.reset()
@@ -131,13 +133,15 @@ def train(
                 save_dir,
             )
 
+    writer.close()
+
     return agent
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=1_000_000)
+    parser.add_argument("--steps", type=int, default=500_000)
     parser.add_argument("--rollout", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=128)
@@ -173,12 +177,12 @@ if __name__ == "__main__":
 
         # drones
         drones=[
-            dict(params=drone_params(), count=1, sensor="gps"),
+            dict(params=drone_params(), count=1, sensor="camera"),
         ],
 
         # reward
         penalty_scale=2.5,
-        reward_scale=4.0,
+        reward_scale=1.5,
     )
 
     env = Environment(config=cfg)
