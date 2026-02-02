@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from utils.vec_utils import *
 
 class Animal(Agent):
+    STATE_BASE  = "base"
+    STATE_AVOID = "avoid"
+    STATE_FLEE  = "flee"
+    STATES = [STATE_BASE, STATE_AVOID, STATE_FLEE]
+
     def __init__(self, agent_id, pos, params, behaviour, seed, mode=None):
         super().__init__(agent_id, pos, seed, mode)
         self.params = params
         self.behaviour = behaviour
-        self.state = "base"
+        self.state = Animal.STATE_BASE
 
     # Behavior
     def policy(self, obs, dt):
@@ -17,17 +22,17 @@ class Animal(Agent):
 
         if disturbance > 0.95: # Flee !!! hardcoded atm
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
-            self.state = "flee"
+            self.state = Animal.STATE_FLEE
             return mean_disturbance_dir, 1
         elif disturbance > 0.6: # Avoid ! hardcoded atm
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
 
             w = (disturbance - 0.4) / 0.4
             blended_dir = (1 - w) * direction + w * mean_disturbance_dir
-            self.state = "avoid"
+            self.state = Animal.STATE_AVOID
             return unit(blended_dir), speed
         else: # Base
-            self.state = "base"
+            self.state = Animal.STATE_BASE
             return direction, speed
     
     def calc_mean_disturbance_dir(self, obs):

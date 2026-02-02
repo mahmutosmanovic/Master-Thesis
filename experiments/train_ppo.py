@@ -173,12 +173,12 @@ if __name__ == "__main__":
 
         # drones
         drones=[
-            dict(params=drone_params(), count=1, sensor="camera"),
+            dict(params=drone_params(), count=1, sensor="gps"),
         ],
 
         # reward
         penalty_scale=2.5,
-        reward_scale=5.0,
+        reward_scale=4.0,
     )
 
     env = Environment(config=cfg)

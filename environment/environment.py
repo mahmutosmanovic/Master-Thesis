@@ -221,7 +221,7 @@ class Environment:
 
     def episode_statistics(self):
         log = self.log
-        scalars = {}
+        scalars = {f"behaviour/{b}_percent": 0.0 for b in Animal.STATES} # Init with behaviour fallback values
 
         behaviours = np.array(
             [r.get("behaviour_state") for r in log if r.get("behaviour_state") is not None],
@@ -231,7 +231,7 @@ class Environment:
             uniq, cnt = np.unique(behaviours, return_counts=True)
             pct = 100.0 * cnt / behaviours.size
             for b, p in zip(uniq, pct):
-                scalars[f"behaviour/{b}_pct"] = float(p)
+                scalars[f"behaviour/{b}_percent"] = float(p)
 
         by_species = defaultdict(list)
         for r in log:
