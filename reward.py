@@ -14,7 +14,7 @@ def compute_total_reward(next_obs, animal_pos, drone_pos):
     in_view, ang_score, range_score = next_obs
 
     # Your existing monitoring term (kept exactly)
-    monitoring_reward = float(in_view) * float(ang_score) * float(range_score)
+    monitoring_reward = float(in_view) + float(ang_score) + float(range_score)
 
     # Disturbance in [0,1]
     disturbance = _df.get_disturbance(animal_pos, drone_pos)

@@ -27,8 +27,8 @@ class DroneConfig:
     max_speed: float = 15.0
     fov: float = np.deg2rad(90)
 
-STEPS = 200
-EPISODES = 500
+STEPS = 500
+EPISODES = 200
 obs_dim = 3 # obs = (in_view, angle, dist) -> 3
 act_dim = 4 # action = dx,dy,dz,dyaw -> 4
 learning_rate = 0.02
@@ -42,7 +42,7 @@ MAX_DZ = 1.0
 MAX_DYAW = 1.0
 
 # Reward weights
-MONITOR_W = 1.0
+MONITOR_W = 3.0
 DISTURB_W = 1.0
 
 # Species-specific "safe" disturbance threshold (0..1)
