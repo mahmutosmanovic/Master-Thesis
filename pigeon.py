@@ -10,6 +10,14 @@ class Pigeon:
 
         self.v = np.zeros(2)
 
+    def reset(self, start_pos=(0,0,0)):
+
+        self.x, self.y, self.z = start_pos
+        self.z = 0.0
+
+        self.v = np.zeros(2)
+
+
     def step(self):
         """
         Perform one simulation step.

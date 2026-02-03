@@ -126,111 +126,6 @@ def draw_trail_3D(df, interval=50, trail_length=50):
         sub = df[df["entity"] == ent]
         entity_data[ent] = sub[["x", "y", "z"]].to_numpy()
 
-    # ---------- Trails ----------
-    lines = {}
-
-    for ent in entities:
-
-        dummy = np.zeros((1, 2, 3))
-
-        lc = Line3DCollection(
-            dummy,
-            color=color_map[ent],
-            linewidth=2,
-            alpha=0.6
-        )
-
-        ax.add_collection3d(lc)
-        lines[ent] = lc
-
-    # ---------- Frustum (FOV) ----------
-    camera_dir = np.array([-1, -1, -1], dtype=float)
-    camera_dir /= np.linalg.norm(camera_dir)
-
-    fov = np.deg2rad(90)
-    MAX_VIEW_DIST = 100.0
-    fov_len = min(r * 0.7, MAX_VIEW_DIST)
-
-    drone_color = color_map.get("DRONE", "cyan")
-    animal_color = color_map.get("PIGEON", "cyan")
-
-    fov_lines = Line3DCollection(
-        np.zeros((8, 2, 3)),
-        colors=drone_color,
-        linewidth=1.5,
-        linestyles="--",
-        alpha=0.9
-    )
-
-    ax.add_collection3d(fov_lines)
-
-    # ---------- Head Dots (NEW) ----------
-    drone_dot = ax.scatter([], [], [], s=100, c=drone_color, marker="o")
-    animal_dot = ax.scatter([], [], [], s=100, c=animal_color, marker="o")
-
-    # ---------- Update ----------
-def draw_trail_3D(df, interval=50, trail_length=50):
-
-    df = df.copy()
-
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d.art3d import Line3DCollection
-    from matplotlib import animation
-    import numpy as np
-
-    # ---------- Setup ----------
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection="3d")
-
-    ax.view_init(elev=25, azim=-45)
-
-    ax.set_title("Cumulative 3D Trajectory")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-
-    # ---------- Axis limits ----------
-    x_min, x_max = df["x"].min(), df["x"].max()
-    y_min, y_max = df["y"].min(), df["y"].max()
-    z_min, z_max = df["z"].min(), df["z"].max()
-
-    x_mid = (x_min + x_max) / 2
-    y_mid = (y_min + y_max) / 2
-    z_mid = (z_min + z_max) / 2
-
-    max_range = max(
-        x_max - x_min,
-        y_max - y_min,
-        z_max - z_min
-    )
-
-    pad = 0.05 * max_range
-    r = max_range / 2 + pad
-
-    ax.set_xlim(x_mid - r, x_mid + r)
-    ax.set_ylim(y_mid - r, y_mid + r)
-    ax.set_zlim(z_mid - r, z_mid + r)
-
-    # ---------- Colors ----------
-    base_colors = [
-        "red", "green", "blue", "orange", "purple",
-        "yellow", "cyan", "magenta", "lime", "brown"
-    ]
-
-    entities = df["entity"].unique()
-
-    color_map = {
-        ent: base_colors[i % len(base_colors)]
-        for i, ent in enumerate(entities)
-    }
-
-    # ---------- Data ----------
-    entity_data = {}
-
-    for ent in entities:
-        sub = df[df["entity"] == ent]
-        entity_data[ent] = sub[["x", "y", "z"]].to_numpy()
-
     # Extract drone yaw separately
     drone_df = df[df["entity"] == "DRONE"].reset_index(drop=True)
     drone_yaws = drone_df["yaw"].to_numpy()
@@ -408,5 +303,11 @@ def draw_trail_3D(df, interval=50, trail_length=50):
         blit=False,
         repeat=False
     )
+
+    # ---------- Save video ----------
+    from matplotlib.animation import FFMpegWriter
+    fps = max(1, int(1000 / interval))
+    writer = FFMpegWriter(fps=fps, bitrate=1800)
+    ani.save("video.mp4", writer=writer)
 
     plt.show()

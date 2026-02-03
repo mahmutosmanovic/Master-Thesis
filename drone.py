@@ -1,13 +1,11 @@
 from settings import *
-import numpy as np
-
 
 class Drone:
 
     def __init__(self, config, animal_pos):
 
         self.config = config
-        self.z = 40
+        self.z = 20
 
         # Fixed camera mounting direction
         v = np.array([-1, -1, -1], dtype=float)
@@ -52,6 +50,15 @@ class Drone:
         return Rz @ self.camera_dir
 
     # ----------------------------------
+
+    
+    def reset(self, animal_pos):
+
+        self.z = 20
+        self.yaw = 0.0
+
+        self._init_pos(animal_pos)
+
 
     def observe(self, animal):
 
