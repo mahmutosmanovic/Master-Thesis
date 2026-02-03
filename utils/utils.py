@@ -1,5 +1,18 @@
+import json
 import numpy as np
 from utils.vec_utils import unit
+from dataclasses import asdict, is_dataclass
+
+def log_config_text(writer, cfg, tag="config/env"):
+    if is_dataclass(cfg):
+        payload = asdict(cfg)
+    elif hasattr(cfg, "__dict__"):
+        payload = cfg.__dict__
+    else:
+        payload = cfg
+
+    txt = json.dumps(payload, indent=2)
+    writer.add_text(tag, f"```json\n{txt}\n```")
 
 def decode_action(a: np.ndarray):
     a = np.asarray(a, dtype=np.float32)

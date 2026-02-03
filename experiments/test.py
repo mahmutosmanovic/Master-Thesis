@@ -37,7 +37,7 @@ def main():
     cfg = EnvConfig(
         # simulation
         dt=0.2,
-        max_t=1000.0,
+        max_t=10.0,
 
         # map
         map_width=200.0,
@@ -54,14 +54,14 @@ def main():
 
         # animals
         animals=[
-            dict(params=jackal_params(), count=1, mode="random"),
-            dict(params=eagle_params(),  count=1, mode="poi"),
-            dict(params=pigeon_params(), count=1, mode="path_follow"),
+            dict(params=jackal_params(), count=1, mode="random"), # mode list for random selection between multiple
+            dict(params=eagle_params(),  count=0, mode="poi"),
+            dict(params=pigeon_params(), count=0, mode="path_follow"),
         ],
 
         # drones
         drones=[
-            dict(params=drone_params(), count=3, sensor="camera"),
+            dict(params=drone_params(), count=1, sensor="camera"),
         ],
 
         # reward
@@ -103,6 +103,7 @@ def main():
             print(f"step {t+1}/{args.steps} reward={reward_dict}")
 
         if done:
+            env.episode_statistics()
             print("done=True, stopping early")
             break
 

@@ -3,7 +3,12 @@ import os
 import numpy as np
 import torch
 
-from utils.utils import decode_action
+# logging
+from datetime import datetime
+from torch.utils.tensorboard import SummaryWriter
+
+# Env
+from utils.utils import decode_action, log_config_text
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
 from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
 from environment.agents.drones.drone import DroneParams, drone_params
@@ -19,7 +24,7 @@ def train(
     episode_horizon=500,
     device="cuda",
     seed=42,
-    save_path="checkpoints/ppo_drone.pt",
+    log_dir="logs/training",
 ):
     device_t = torch.device(device)
 
@@ -38,6 +43,12 @@ def train(
     ep_ret = 0.0
     ep_len = 0
     steps = 0
+
+    run_name = f"ppo_drone_seed{seed}_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    tb_log_dir = os.path.join(log_dir, run_name)
+    writer = SummaryWriter(log_dir=tb_log_dir)
+
+    log_config_text(writer, cfg)
 
     while steps < total_steps:
         buf.reset()
@@ -84,6 +95,14 @@ def train(
 
             if done:
                 print(f"episode return={ep_ret:.2f} len={ep_len} steps={steps}")
+                scalars = env.episode_statistics()
+                scalars["episode/return"] = float(ep_ret)
+                scalars["episode/len"] = float(ep_len)
+
+                for k, v in scalars.items():
+                    writer.add_scalar(k, v, global_step=steps)
+
+                writer.flush()
                 obs_dict, info = env.reset()
                 drone_ids = info["drone_ids"]
                 train_id = drone_ids[0]
@@ -102,16 +121,19 @@ def train(
         agent.update(buf, last_val, epochs=update_epochs, batch_size=batch_size)
 
         # Periodic save (simple)
-        if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        if log_dir:
+            save_dir = os.path.join(log_dir, "checkpoints", "ppo_drone.pt") # join with tb logging later
+            os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             torch.save(
                 {
                     "ac_state_dict": agent.ac.state_dict(),
                     "obs_dim": obs_dim,
                     "act_dim": act_dim,
                 },
-                save_path,
+                save_dir,
             )
+
+    writer.close()
 
     return agent
 
@@ -119,13 +141,13 @@ def train(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=1_000_000)
+    parser.add_argument("--steps", type=int, default=500_000)
     parser.add_argument("--rollout", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=128)
     parser.add_argument("--horizon", type=int, default=500)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save", type=str, default="checkpoints/ppo_drone.pt")
+    parser.add_argument("--log_dir", type=str, default="logs/training")
     args = parser.parse_args()
 
     cfg = EnvConfig(
@@ -149,8 +171,8 @@ if __name__ == "__main__":
         # animals
         animals=[
             dict(params=jackal_params(), count=1, mode="path_follow"),
-            dict(params=eagle_params(),  count=1, mode="random"),
-            dict(params=pigeon_params(), count=1, mode="path_follow"),
+            dict(params=eagle_params(),  count=0, mode="random"),
+            dict(params=pigeon_params(), count=0, mode="path_follow"),
         ],
 
         # drones
@@ -160,7 +182,7 @@ if __name__ == "__main__":
 
         # reward
         penalty_scale=2.5,
-        reward_scale=5.0,
+        reward_scale=1.5,
     )
 
     env = Environment(config=cfg)
@@ -174,5 +196,5 @@ if __name__ == "__main__":
         episode_horizon=args.horizon,
         device=args.device,
         seed=args.seed,
-        save_path=args.save,
+        log_dir=args.log_dir,
     )
