@@ -6,9 +6,8 @@ import torch
 
 from utils.utils import decode_action
 from environment.environment import Environment
-from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
-from environment.agents.drones.drone import DroneParams, drone_params
-from environment.config import EnvConfig
+from environment.config import EnvConfig, AnimalParams, DroneParams
+from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
 from model.model import PPO
 
 @torch.no_grad()

@@ -27,3 +27,36 @@ class EnvConfig:
     # reward
     penalty_scale: float = 2.5
     reward_scale: float = 5.0
+
+@dataclass
+class AnimalParams:
+   # metadata
+   name: str
+
+   # geometry
+   is_planar: bool
+
+   # movement
+   max_speed: float
+   max_turn: float
+   max_accel: float
+
+   # noise / behavior
+   turn_noise: float
+   epsilon: float
+
+@dataclass
+class DroneParams:
+   # metadata
+   name: str
+
+   # geometry
+   is_planar: bool
+
+   # movement
+   max_speed: float
+   max_turn: float
+   max_view_yaw: float
+   max_accel: float
+
+   camera_pitch: float

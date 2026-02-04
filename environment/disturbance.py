@@ -3,17 +3,6 @@ import matplotlib.pyplot as plt
 from environment.agents.agent import Agent
 
 class DisturbanceField:
-    """
-    3D disturbance model based on:
-    - Altitude (z)
-    - Horizontal distance (sqrt(x² + y²))
-    - Approach angle
-    - Speed & acceleration gains
-    """
-
-    # -------------------------
-    # Altitude component
-    # -------------------------
     def altitude(self, z):
         z = np.asarray(z, dtype=float)
         out = np.zeros_like(z)
@@ -29,17 +18,6 @@ class DisturbanceField:
 
         return out
 
-    # def altitude(self, z):
-    #     z = np.asarray(z, dtype=float)
-    #     # Smooth decay instead of flat plateau
-    #     # At z=0, val=1.0. At z=20, val=0.36. At z=100, val=0.0
-    #     # The '1.0 -' ensures high penalty at low altitude
-    #     # Adjust scale (e.g., 20.0) to control falloff speed
-    #     return np.exp(- (z / 60.0)**2)
-    
-    # -------------------------
-    # Horizontal distance
-    # -------------------------
     def horizontal(self, d):
         d = np.asarray(d, dtype=float)
         out = np.zeros_like(d)
@@ -54,16 +32,6 @@ class DisturbanceField:
 
         return out
 
-    # def horizontal(self, d):
-    #     d = np.asarray(d, dtype=float)
-    #     # Similar smooth decay. 
-    #     # Even at d=5 vs d=10, the agent sees a difference now.
-    #     return np.exp(- (d / 100.0)**2)
-
-
-    # -------------------------
-    # Angle gain (3D)
-    # -------------------------
     def angle_gain(self, horizontal_dist, z):
         """
         Angle between horizontal plane and line of sight
@@ -125,80 +93,82 @@ class DisturbanceField:
 
         return 1.5 + 0.5 * cos_theta
 
-    # -------------------------
-    # Motion gains
-    # -------------------------
     def speed_gain(self, v, v_safe=5.0):
         return 1.0 if v <= v_safe else 1.0 + (v - v_safe) / v_safe
 
-    def accel_gain(self, a, a_safe=2.0):
-        return 1.0 if a <= a_safe else 1.0 + (a - a_safe) / a_safe
-
-
-    # -------------------------
-    # Disturbance between agents
-    # -------------------------
-    def disturbance_at(self, animal: Agent, drone: Agent):
-        """
-        Disturbance experienced by the animal caused by the drone
-        """
+    def get_disturbance(self, animal: Agent, drone: Agent):
         diff = drone.pos - animal.pos
         horizontal_dist = np.linalg.norm(diff[0:2])
-        dz = abs(diff[2])
+        dz_abs = abs(diff[2])
+        dz = diff[2]
 
-        z_alt = self.altitude(dz)
+        z_alt = self.altitude(dz_abs)
         z_hor = self.horizontal(horizontal_dist)
         g_ang = self.angle_gain(horizontal_dist, dz)
 
-        g_speed = self.speed_gain(drone.speed)
+        g_speed = self.speed_gain(drone.norm_speed * drone.params.max_speed)
 
         # g_heading = self.heading_gain_soft(drone.direction, diff)
         g_heading = self.heading_gain_hard(drone.direction, diff)
         # g_accel = self.accel_gain(drone_accel)
 
-        Z = z_alt * z_hor * g_ang * g_speed * g_heading# * g_accel
+        Z = z_alt * z_hor * g_ang * g_speed * g_heading # * g_accel
 
         return {"val": float(Z), "dir": diff}
 
-    # -------------------------
-    # Visualization
-    # -------------------------
-    def plot(self, cmap="tab20b"):
+def plot_3view_contours(df, extent=50.0, n=120, levels=30):
+    vals = np.linspace(-extent, extent, n)
+    X, Y, Z = np.meshgrid(vals, vals, vals, indexing="ij")
 
-        X, Y, Z = self.total_field()
+    horizontal_dist = np.sqrt(X**2 + Y**2)
+    dz = abs(Z)
 
-        plt.figure(figsize=(10, 9))
+    z_alt = df.altitude(dz)
+    z_hor = df.horizontal(horizontal_dist)
+    g_ang = df.angle_gain(horizontal_dist, Z)
 
-        im = plt.imshow(
-            Z,
-            origin="lower",
-            extent=[
-                -self.size, self.size,
-                -self.size, self.size
-            ],
-            aspect="equal",
-            cmap=cmap
-        )
+    D = np.clip(z_alt * z_hor * g_ang, 0.0, 2.0)
 
-        plt.colorbar(im, label="Total Disturbance")
+    mid = n // 2
 
-        plt.xlabel("Horizontal Distance (m)")
-        plt.ylabel("Altitude (m)")
+    fig, axs = plt.subplots(1, 3, figsize=(20, 6))
+    plt.subplots_adjust(right=0.88)
 
-        plt.title("Combined Disturbance Field")
+    cmap = "tab20b"
 
-        plt.tight_layout()
-        plt.show()
+    im1 = axs[0].contourf(vals, vals, D[:, :, mid].T, levels=levels, cmap=cmap)
+    axs[0].set_title("XY Plane (Z = 0)")
+    axs[0].set_xlabel("X")
+    axs[0].set_ylabel("Y")
+    axs[0].set_aspect("equal")
+
+    im2 = axs[1].contourf(vals, vals, D[:, mid, :].T, levels=levels, cmap=cmap)
+    axs[1].set_title("XZ Plane (Y = 0)")
+    axs[1].set_xlabel("X")
+    axs[1].set_ylabel("Z")
+    axs[1].set_aspect("equal")
+
+    im3 = axs[2].contourf(vals, vals, D[mid, :, :].T, levels=levels, cmap=cmap)
+    axs[2].set_title("YZ Plane (X = 0)")
+    axs[2].set_xlabel("Y")
+    axs[2].set_ylabel("Z")
+    axs[2].set_aspect("equal")
+
+    cax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
+    fig.colorbar(im3, cax=cax, label="Disturbance")
+
+    fig.suptitle("3-View Disturbance Field Slices", fontsize=16)
+    plt.savefig("disturbance")
+    plt.show()
+
+# ======================================================
+# Main
+# ======================================================
+
+def main():
+    df = DisturbanceField()
+    plot_3view_contours(df, extent=50.0, n=120, levels=30)
+
 
 if __name__ == "__main__":
-    field = DisturbanceField()
-    # field.plot()
-
-    Z = field.disturbance_at(
-        x=20,
-        y=20,
-        v=0.0,
-        a=0.0
-    )
-
-    print("Disturbance:", Z)
+    main()

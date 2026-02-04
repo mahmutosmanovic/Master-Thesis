@@ -23,18 +23,18 @@ class RandomWalk(Behaviour):
 
     def act(self, obs, params, dt):
         cur_dir = unit(obs["direction"])
-        cur_speed = float(obs["speed"])
+        cur_norm_speed = float(obs["norm_speed"])
 
         # Small random steering (simple: add noise in 3D and renormalize)
         desired_dir = cur_dir + self.rng.normal(0.0, params.turn_noise, size=3)
         desired_dir = unit(desired_dir)
 
-        # Random-ish speed around mid range
-        target_speed = 0.5
-        desired_speed = target_speed + self.rng.normal(0.0, 0.2)
-        desired_speed = float(np.clip(desired_speed, 0.0, 1))
+        # Random-ish norm_speed around mid range
+        target_norm_speed = 0.5
+        desired_norm_speed = target_norm_speed + self.rng.normal(0.0, 0.2)
+        desired_norm_speed = float(np.clip(desired_norm_speed, 0.0, 1))
 
-        return desired_dir, desired_speed
+        return desired_dir, desired_norm_speed
 
 
 class PathFollow(Behaviour):
@@ -42,13 +42,13 @@ class PathFollow(Behaviour):
         super().__init__(seed)
         self.path = path
         self.s = 0.0
-        self.s_speed = 1.0
+        self.s_norm_speed = 1.0
         self.Kp = 0.01
 
     def act(self, obs, params, dt):
         pos = np.asarray(obs["pos"], dtype=float)
         cur_dir = unit(obs["direction"])
-        cur_speed = float(obs["speed"])
+        cur_norm_speed = float(obs["norm_speed"])
 
         # Project onto path and get path frame
         self.s = self.path.project_s(pos, self.s, iters=2)
@@ -66,14 +66,14 @@ class PathFollow(Behaviour):
         if self.rng.random() < params.epsilon:
             desired_dir = unit(desired_dir + self.rng.normal(0.0, params.turn_noise * 0.3, size=3))
 
-        desired_speed = 0.7
+        desired_norm_speed = 0.7
 
-        # Advance path parameter based on current tangential speed
-        v = cur_dir * cur_speed
+        # Advance path parameter based on current tangential norm_speed
+        v = cur_dir * cur_norm_speed
         v_tan = max(0.0, float(np.dot(v, t_hat)))
-        self.s += self.s_speed * (v_tan / (dp_norm + 1e-12)) * float(dt)
+        self.s += self.s_norm_speed * (v_tan / (dp_norm + 1e-12)) * float(dt)
 
-        return desired_dir, desired_speed
+        return desired_dir, desired_norm_speed
 
 class POI(Behaviour):
     def __init__(self, pois, seed, poi_reached_eps=3.0):
@@ -118,6 +118,6 @@ class POI(Behaviour):
         noise = self.rng.normal(0.0, params.turn_noise, size=3)
         desired_dir = unit(desired_dir + noise)
 
-        desired_speed = 0.7
+        desired_norm_speed = 0.7
 
-        return desired_dir, desired_speed
+        return desired_dir, desired_norm_speed

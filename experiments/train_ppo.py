@@ -10,9 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 # Env
 from utils.utils import decode_action, log_config_text
 from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
-from environment.agents.animals.animal import AnimalParams, jackal_params, eagle_params, pigeon_params
-from environment.agents.drones.drone import DroneParams, drone_params
-from environment.config import EnvConfig
+from environment.config import EnvConfig, AnimalParams, DroneParams
+from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
 from environment.environment import Environment 
 
 def train(

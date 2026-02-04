@@ -11,20 +11,21 @@ class Drone(Agent):
         self.pos = pos
         self.pos_scale = pos_scale
         self.sensors = []
+        rad_camera_pitch = np.deg2rad(self.params.camera_pitch)
         self.view_dir = np.array([ # Used by camera, drone facing direction
-            np.cos(self.params.camera_pitch) * np.cos(yaw),
-            np.cos(self.params.camera_pitch) * np.sin(yaw),
-            np.sin(self.params.camera_pitch),
+            np.cos(rad_camera_pitch) * np.cos(yaw),
+            np.cos(rad_camera_pitch) * np.sin(yaw),
+            np.sin(rad_camera_pitch),
         ])
 
     @property
     def obs_dim(self) -> int:
-        return 1 + sum(s.obs_dim for s in self.sensors)
+        return 3 + sum(s.obs_dim for s in self.sensors)
 
     def observe(self, animals) -> np.ndarray:
         # full_state = np.concatenate([
         #     self.pos / self.pos_scale,
-        #     (self.direction * self.speed) / self.params.max_speed,
+        #     self.direction * self.norm_speed,
         #     self.view_dir
         # ]).astype(np.float32)
 
@@ -44,8 +45,8 @@ class Drone(Agent):
         self.sensors.append(sensor)
     
     def update(self, action, dt):
-        direction, speed, view_yaw_rate = action
-        self.apply_control(direction, speed, dt)
+        direction, norm_speed, view_yaw_rate = action
+        self.apply_control(direction, norm_speed, dt)
         self.apply_view_yaw(view_yaw_rate, dt)
         self.move(dt)
     
@@ -82,30 +83,3 @@ class Drone(Agent):
             "view_y": view_y,
             "view_z": view_z,
         }
-
-@dataclass
-class DroneParams:
-   # metadata
-   name: str
-
-   # geometry
-   is_planar: bool
-
-   # movement
-   max_speed: float
-   max_turn: float
-   max_view_yaw: float
-   max_accel: float
-
-   camera_pitch: float
-
-def drone_params():
-    return DroneParams(
-        name="drone",
-        is_planar=False,
-        max_speed=12.0,
-        max_turn=4.0,
-        max_view_yaw=2.0,
-        max_accel=4.0,
-        camera_pitch=np.deg2rad(-30)
-    )

@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 
-from environment.agents.animals.animal import Animal, jackal_params, pigeon_params, eagle_params
-from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.paths import CirclePath
-from environment.agents.drones.drone import Drone, drone_params
+from environment.agents.drones.drone import Drone
+from environment.agents.behaviour import RandomWalk, PathFollow, POI
+from environment.agents.animals.animal import Animal
 from environment.agents.drones.sensor import Camera, GPSSensor
 from environment.disturbance import DisturbanceField
 from utils.vec_utils import *
@@ -165,7 +165,7 @@ class Environment:
     def get_animal_observation(self, agent):
         return {
             "pos": agent.pos.copy(),
-            "speed": agent.speed,
+            "norm_speed": agent.norm_speed,
             "direction": agent.direction,
             "disturbance_info": self.animal_disturbance[agent.agent_id],
         }
@@ -173,7 +173,7 @@ class Environment:
     def calc_animal_disturbance(self):
         animal_disturbance = {}
         for animal_id in self.animal_ids:
-            disturbance = {drone_id: self.disturbance.disturbance_at(self.agents[animal_id], self.agents[drone_id]) for drone_id in self.drone_ids}
+            disturbance = {drone_id: self.disturbance.get_disturbance(self.agents[animal_id], self.agents[drone_id]) for drone_id in self.drone_ids}
             animal_disturbance[self.agents[animal_id].agent_id] = disturbance
         
         self.animal_disturbance = animal_disturbance

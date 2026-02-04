@@ -8,7 +8,7 @@ class Agent:
         self.rng = np.random.default_rng(seed)
 
         self.pos = np.array(pos) # 3d
-        self.speed = 0.0
+        self.norm_speed = 0.0
         self.direction = self.random_direction()
 
         self.mode = mode
@@ -24,7 +24,7 @@ class Agent:
         return self.l2_norm(v)
 
     def move(self, dt):
-        self.pos = self.pos + (self.direction * self.speed * self.params.max_speed) * float(dt)
+        self.pos = self.pos + (self.direction * self.norm_speed * self.params.max_speed) * float(dt)
 
         if self.params.is_planar:
             self.pos[2] = 0.0
@@ -32,11 +32,11 @@ class Agent:
             self.pos[2] = max(self.pos[2], 0.0)
 
     def update(self, action, dt):
-        direction, speed = action
-        self.apply_control(direction, speed, dt)
+        direction, norm_speed = action
+        self.apply_control(direction, norm_speed, dt)
         self.move(dt)
 
-    def apply_control(self, direction, speed, dt):
+    def apply_control(self, direction, norm_speed, dt):
         direction = np.asarray(direction, dtype=float)
 
         if self.params.is_planar:
@@ -60,10 +60,10 @@ class Agent:
             else:
                 self.direction = d_desired
 
-        self.speed = float(speed)
+        self.norm_speed = np.clip(norm_speed, 0.0, 1.0)
 
     def to_dict(self):
-        vx, vy, vz = self.direction * self.speed
+        vx, vy, vz = self.direction * self.norm_speed * self.params.max_speed
         return {
             "agent_id": self.agent_id,
             "species": self.params.name,
@@ -77,6 +77,6 @@ class Agent:
             "vy": vy,
             "vz": vz,
 
-            "speed": self.speed,
+            "norm_speed": self.norm_speed,
         }
 
