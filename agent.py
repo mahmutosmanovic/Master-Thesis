@@ -248,7 +248,7 @@ class PPOAgent:
             drone_pos  = (drone.x, drone.y, drone.z)
 
             reward, monitoring_r, disturbance_pen = compute_total_reward(
-                next_obs, animal_pos, drone_pos
+                next_obs, animal_pos, drone_pos, obs
             )
 
             done = (t == steps)

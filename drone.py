@@ -11,6 +11,10 @@ class Drone:
         v = np.array([1.0, 0.0, -0.5])
         self.camera_dir = v / np.linalg.norm(v)
 
+        self.vx = self.vy = self.vz = 0.0
+        self.max_acc = 0.15
+        self.max_vel = 1.5
+
         # Body yaw (radians)
         self.yaw = 0.0
 
@@ -137,7 +141,8 @@ class Drone:
     def step(self, action):
         dx, dy, dz, dyaw = action
 
-        self.yaw += dyaw * self.config.yaw_speed
+        dyaw = np.clip(dyaw, -1.0, 1.0)
+        self.yaw += dyaw * self.config.yaw_speed * 1.5
         self.yaw = (self.yaw + np.pi) % (2*np.pi) - np.pi
 
         c, s = np.cos(self.yaw), np.sin(self.yaw)

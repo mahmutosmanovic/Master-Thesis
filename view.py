@@ -152,8 +152,8 @@ def draw_trail_3D(df, interval=50, trail_length=50):
     base_camera_dir /= np.linalg.norm(base_camera_dir)
 
     # ---------- Frustum ----------
-    fov = np.deg2rad(90)
-    MAX_VIEW_DIST = 100.0
+    fov = np.deg2rad(FOV_DEG)
+    MAX_VIEW_DIST = MAX_VIEW_RANGE
     fov_len = min(r * 0.7, MAX_VIEW_DIST)
 
     drone_color = color_map.get("DRONE", "cyan")
