@@ -1,6 +1,6 @@
 from settings import *
 
-class Pigeon:
+class Animal:
     def __init__(self, config, behavior='random', start_pos=(0, 0, 0)):
         self.behavior = behavior
         self.config = config

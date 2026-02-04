@@ -120,20 +120,6 @@ class Drone:
 
     # ----------------------------------
 
-    def policy(self, obs):
-
-        print(obs)
-        # Random yaw for now
-
-        dx = (np.random.random() - 0.5) * 10
-        dy = (np.random.random() - 0.5) * 10
-        dz = (np.random.random() - 0.5) * 10
-        dyaw = np.random.uniform(-1, 1)
-
-        return dx, dy, dz, dyaw
-
-    # ----------------------------------
-
     def step(self, action):
 
         dx, dy, dz, dyaw = action

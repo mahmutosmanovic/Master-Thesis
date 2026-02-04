@@ -1,5 +1,5 @@
+from reward import *
 from settings import *
-
 
 LOG_STD_MIN = -5.0
 LOG_STD_MAX = 2.0
@@ -216,6 +216,83 @@ class PPOAgent:
                 last_val = 0.0
 
         return returns, advs
+    
+    def rollout_episode(self, animal, drone, logger, ep=1, steps=STEPS, train=False):
+        """
+        Runs one episode. If train=False uses deterministic policy for nicer playback.
+        Logs to CSV via Logger.
+        Returns: total_reward, total_monitor, total_disturb_pen
+        """
+        animal.reset()
+        drone.reset((animal.x, animal.y, animal.z))
+
+        obs = drone.observe(animal)
+
+        ep_reward = 0.0
+        ep_monitor = 0.0
+        ep_disturb = 0.0
+
+        for t in range(1, steps + 1):
+            if train:
+                action, logp, val = self.act(obs)
+            else:
+                action = self.act_deterministic(obs)
+                # dummy for buffer (not used)
+                logp, val = None, None
+
+            drone.step(action)
+            drone.z = max(0.0, drone.z)
+
+            animal.step()
+
+            next_obs = drone.observe(animal)
+
+            # Reward
+            animal_pos = (animal.x, animal.y, animal.z)
+            drone_pos  = (drone.x, drone.y, drone.z)
+
+            reward, monitoring_r, disturbance_pen = compute_total_reward(
+                next_obs, animal_pos, drone_pos
+            )
+
+            done = (t == steps)
+
+            # Store only in training mode
+            if train:
+                self.store(obs, action, logp, val, reward, done)
+
+            # Logging (same schema you created)
+            step_id = (ep - 1) * steps + (t - 1)
+
+            logger.write(
+                CSV_PATH,
+                ep,
+                step_id,
+                "PIGEON",
+                (animal.x, animal.y, animal.z, 0),
+                0,
+                0,
+                0,
+            )
+
+            logger.write(
+                CSV_PATH,
+                ep,
+                step_id,
+                "DRONE",
+                (drone.x, drone.y, drone.z, drone.yaw),
+                reward,
+                monitoring_r,
+                disturbance_pen,
+            )
+
+            ep_reward += reward
+            ep_monitor += monitoring_r
+            ep_disturb += disturbance_pen
+
+            obs = next_obs
+
+        return ep_reward, ep_monitor, ep_disturb
 
     # -------------------------
 
