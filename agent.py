@@ -160,13 +160,9 @@ class PPOAgent:
     @torch.no_grad()
     def act_deterministic(self, obs):
         obs = np.array(obs, dtype=np.float32).reshape(-1)
-        if obs.shape[0] != self.obs_dim:
-            raise ValueError(f"Bad obs shape: {obs.shape}, obs={obs}")
-
         obs_t = torch.from_numpy(obs).to(self.device)
 
-        # If your actor ends with Tanh, mean is already bounded [-1,1]
-        mean = self.actor(obs_t) * self.action_scale
+        mean = torch.tanh(self.actor(obs_t)) * self.action_scale
         return mean.detach().cpu().numpy()
     
     # -------------------------

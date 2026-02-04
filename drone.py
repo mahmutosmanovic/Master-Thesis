@@ -5,10 +5,10 @@ class Drone:
     def __init__(self, config, animal_pos):
 
         self.config = config
-        self.z = 20
+        self.z = 40
 
         # Fixed camera mounting direction
-        v = np.array([-1, -1, -1], dtype=float)
+        v = np.array([1.0, 0.0, -0.5])
         self.camera_dir = v / np.linalg.norm(v)
 
         # Body yaw (radians)
@@ -19,17 +19,33 @@ class Drone:
     # ----------------------------------
 
     def _init_pos(self, animal_pos):
-
         ax, ay, az = animal_pos
 
-        min_r = getattr(self.config, "spawn_min_radius", self.z * 0.5)
-        max_r = getattr(self.config, "spawn_max_radius", self.z)
+        # ----------------------------------
+        # Spawn distance: moderate, not too close
+        # ----------------------------------
+        r_min = getattr(self.config, "spawn_min_radius", 40.0)
+        r_max = getattr(self.config, "spawn_max_radius", 60.0)
 
         theta = np.random.uniform(0, 2*np.pi)
-        r = np.random.uniform(min_r, max_r)
+        r = np.random.uniform(r_min, r_max)
 
         self.x = ax + r * np.cos(theta)
         self.y = ay + r * np.sin(theta)
+
+        # ----------------------------------
+        # Initialize yaw so animal is in view
+        # ----------------------------------
+        dx = ax - self.x
+        dy = ay - self.y
+
+        base_yaw = np.arctan2(dy, dx)
+
+        # small noise so policy still has work to do
+        yaw_noise = np.random.uniform(-0.15, 0.15)
+
+        self.yaw = base_yaw + yaw_noise
+
 
     # ----------------------------------
 
@@ -54,9 +70,7 @@ class Drone:
     
     def reset(self, animal_pos):
 
-        self.z = 20
-        self.yaw = 0.0
-
+        self.z = 40
         self._init_pos(animal_pos)
 
 
@@ -77,7 +91,7 @@ class Drone:
         to_animal = animal_pos - drone_pos
         dist = np.linalg.norm(to_animal)
 
-        max_dist = 100.0
+        max_dist = self.config.max_view_range
 
         # Default outputs
         in_view = 0
@@ -121,14 +135,18 @@ class Drone:
     # ----------------------------------
 
     def step(self, action):
-
         dx, dy, dz, dyaw = action
 
-        # Yaw control
         self.yaw += dyaw * self.config.yaw_speed
         self.yaw = (self.yaw + np.pi) % (2*np.pi) - np.pi
 
-        # Movement
-        self.x += dx
-        self.y += dy
+        c, s = np.cos(self.yaw), np.sin(self.yaw)
+
+        # body → world
+        vx = c * dx - s * dy
+        vy = s * dx + c * dy
+
+        self.x += vx
+        self.y += vy
         self.z += dz
+

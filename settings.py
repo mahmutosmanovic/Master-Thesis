@@ -30,16 +30,17 @@ class DroneConfig:
     yaw_speed = 0.20
     max_speed: float = 15.0
     fov: float = np.deg2rad(120)
+    max_view_range: int = 200
 
-STEPS = 500
-EPISODES = 200
+STEPS = 300
+EPISODES = 300
 ROLLOUT_EPS = 10
 obs_dim = 3 # obs = (in_view, angle, dist) -> 3
 act_dim = 4 # action = dx,dy,dz,dyaw -> 4
 learning_rate = 0.02
+BEHAVIOR = "random"
 DATA_FOLDER_PATH = "data/pigeon/animal_01.csv"
 CSV_PATH = "log.csv"
-BEHAVIOR = "random"
 
 
 MAX_DX = 2.0

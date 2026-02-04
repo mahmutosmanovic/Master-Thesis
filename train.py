@@ -6,6 +6,15 @@ def train_script(EPISODES, ROLLOUT_EPS, agent, model_path, animal, drone, logger
             api_token=os.environ["NEPTUNE_API_TOKEN"],
         )
 
+        if run is not None:
+            run["settings/STEPS"].append(STEPS)
+            run["settings/EPISODES"].append(EPISODES)
+            run["settings/ROLLOUT_EPS"].append(ROLLOUT_EPS)
+            run["settings/BEHAVIOR"].append(BEHAVIOR)
+            run["settings/obs_dim"].append(obs_dim)
+            run["settings/act_dim"].append(act_dim)
+            run["settings/learning_rate"].append(learning_rate)
+
         reward_history = []
         for ep in range(1, EPISODES + 1):
             if ep % 20 == 0:
