@@ -1,157 +1,148 @@
 from settings import *
 
 class Drone:
+    """
+    Drone kinematics (simple, PPO-friendly):
+      - action = (dx, dy, dz, dyaw) in BODY frame
+      - dx,dy,dz are per-step position deltas (already scaled by PPO action_scale)
+      - dyaw is a per-step yaw command (already scaled by PPO action_scale), then multiplied by config.yaw_speed
+    Observation (5D, learnable even when target is out of FoV):
+      [rel_body_x/max_range, rel_body_y/max_range, rel_body_z/max_range, dist/max_range, fov_margin]
+    """
 
     def __init__(self, config, animal_pos):
-
         self.config = config
-        self.z = 40
 
-        # Fixed camera mounting direction
-        v = np.array([1.0, 0.0, -0.5])
-        self.camera_dir = v / np.linalg.norm(v)
-
-        self.vx = self.vy = self.vz = 0.0
-        self.max_acc = 0.15
-        self.max_vel = 1.5
+        # Position
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 40.0
 
         # Body yaw (radians)
         self.yaw = 0.0
 
+        # Fixed camera mounting direction in BODY frame
+        v = np.array([1.0, 0.0, -0.5], dtype=np.float32)
+        self.camera_dir = v / (np.linalg.norm(v) + 1e-8)
+
         self._init_pos(animal_pos)
 
-    # ----------------------------------
+    # ----------------------------
+
+    @staticmethod
+    def _wrap_angle(a):
+        return (a + np.pi) % (2.0 * np.pi) - np.pi
 
     def _init_pos(self, animal_pos):
         ax, ay, az = animal_pos
 
-        # ----------------------------------
-        # Spawn distance: moderate, not too close
-        # ----------------------------------
-        r_min = getattr(self.config, "spawn_min_radius", 40.0)
-        r_max = getattr(self.config, "spawn_max_radius", 60.0)
+        r_min = float(getattr(self.config, "spawn_min_radius", 40.0))
+        r_max = float(getattr(self.config, "spawn_max_radius", 60.0))
 
-        theta = np.random.uniform(0, 2*np.pi)
+        theta = np.random.uniform(0.0, 2.0 * np.pi)
         r = np.random.uniform(r_min, r_max)
 
-        self.x = ax + r * np.cos(theta)
-        self.y = ay + r * np.sin(theta)
+        self.x = float(ax + r * np.cos(theta))
+        self.y = float(ay + r * np.sin(theta))
+        self.z = 40.0
 
-        # ----------------------------------
-        # Initialize yaw so animal is in view
-        # ----------------------------------
-        dx = ax - self.x
-        dy = ay - self.y
-
+        # yaw so animal roughly in front
+        dx = float(ax - self.x)
+        dy = float(ay - self.y)
         base_yaw = np.arctan2(dy, dx)
 
-        # small noise so policy still has work to do
         yaw_noise = np.random.uniform(-0.15, 0.15)
+        self.yaw = self._wrap_angle(base_yaw + yaw_noise)
 
-        self.yaw = base_yaw + yaw_noise
+    def reset(self, animal_pos):
+        self._init_pos(animal_pos)
 
-
-    # ----------------------------------
+    # ----------------------------
 
     def _get_view_dir(self):
         """
-        Rotate camera_dir by yaw
+        Camera view direction in WORLD frame.
+        Rotate the BODY-frame camera_dir by yaw around z.
         """
+        c = float(np.cos(self.yaw))
+        s = float(np.sin(self.yaw))
 
-        c = np.cos(self.yaw)
-        s = np.sin(self.yaw)
+        Rz = np.array([[c, -s, 0.0],
+                       [s,  c, 0.0],
+                       [0.0, 0.0, 1.0]], dtype=np.float32)
+        v = Rz @ self.camera_dir
+        return v / (np.linalg.norm(v) + 1e-8)
 
-        Rz = np.array([
-            [ c, -s, 0],
-            [ s,  c, 0],
-            [ 0,  0, 1]
-        ])
-
-        return Rz @ self.camera_dir
-
-    # ----------------------------------
-
-    
-    def reset(self, animal_pos):
-
-        self.z = 40
-        self._init_pos(animal_pos)
-
+    # ----------------------------
 
     def observe(self, animal):
+        """
+        Returns 5D observation:
+          rel_body_norm (3), dist_norm (1), fov_margin (1)
+        Works smoothly even when target is outside FoV.
+        """
+        drone_pos = np.array([self.x, self.y, self.z], dtype=np.float32)
+        animal_pos = np.array([animal.x, animal.y, animal.z], dtype=np.float32)
 
-        drone_pos = np.array([self.x, self.y, self.z])
+        rel_world = animal_pos - drone_pos
+        dist = float(np.linalg.norm(rel_world) + 1e-8)
 
-        animal_pos = np.array(
-            [animal.x, animal.y, animal.z],
-            dtype=float
+        max_dist = float(self.config.max_view_range)
+
+        # world -> body (undo yaw): body x=forward, y=left, z=up
+        c = float(np.cos(self.yaw))
+        s = float(np.sin(self.yaw))
+        R_world_to_body = np.array([[ c,  s, 0.0],
+                                   [-s,  c, 0.0],
+                                   [0.0, 0.0, 1.0]], dtype=np.float32)
+
+        rel_body = R_world_to_body @ rel_world
+        rel_body_norm = rel_body / (max_dist + 1e-8)
+
+        dist_norm = float(np.clip(dist / (max_dist + 1e-8), 0.0, 2.0))
+
+        # FoV margin (continuous): cos(angle) - cos(threshold)
+        view_dir = self._get_view_dir().astype(np.float32)
+        to_animal = (rel_world / dist).astype(np.float32)
+
+        cos_angle = float(np.clip(np.dot(view_dir, to_animal), -1.0, 1.0))
+
+        fov = float(self.config.fov)
+        # Safety: if user accidentally stored degrees, convert
+        if fov > 3.2:  # ~> pi
+            fov = np.deg2rad(fov)
+
+        half_fov = 0.5 * fov
+        cos_thr = float(np.cos(half_fov))
+
+        fov_margin = cos_angle - cos_thr  # >0 inside FoV, <0 outside
+
+        return np.array(
+            [rel_body_norm[0], rel_body_norm[1], rel_body_norm[2], dist_norm, fov_margin],
+            dtype=np.float32
         )
 
-        # View direction (with yaw)
-        view_dir = self._get_view_dir()
-        view_dir /= np.linalg.norm(view_dir)
-
-        # Vector to animal
-        to_animal = animal_pos - drone_pos
-        dist = np.linalg.norm(to_animal)
-
-        max_dist = self.config.max_view_range
-
-        # Default outputs
-        in_view = 0
-        angle_score = 0.0
-        dist_score = 0.0
-
-        # Edge case
-        if dist == 0:
-            return (1, 1.0, 1.0)
-
-        # Too far
-        if dist > max_dist:
-            return (0, 0.0, 0.0)
-
-        # Normalize
-        to_animal /= dist
-
-        # Angle
-        cos_angle = np.dot(view_dir, to_animal)
-
-        half_fov = self.config.fov / 2
-        cos_threshold = np.cos(half_fov)
-
-        # Distance score
-        dist_score = 1.0 - dist / max_dist
-        dist_score = np.clip(dist_score, 0.0, 1.0)
-
-        # Outside FOV
-        if cos_angle < cos_threshold:
-            return (0, 0.0, 0.0)
-
-        # Inside FOV
-        in_view = 1
-
-        # Angle score
-        angle_score = (cos_angle - cos_threshold) / (1 - cos_threshold)
-        angle_score = np.clip(angle_score, 0.0, 1.0)
-
-        return (in_view, angle_score, dist_score)
-
-    # ----------------------------------
+    # ----------------------------
 
     def step(self, action):
+        """
+        action = (dx, dy, dz, dyaw)
+          - dx,dy,dz: BODY-frame deltas (already bounded by PPO tanh+scale)
+          - dyaw: bounded by PPO tanh+scale, then multiplied by yaw_speed
+        """
         dx, dy, dz, dyaw = action
 
-        dyaw = np.clip(dyaw, -1.0, 1.0)
-        self.yaw += dyaw * self.config.yaw_speed * 1.5
-        self.yaw = (self.yaw + np.pi) % (2*np.pi) - np.pi
+        # No mismatch with PPO: clip only to the same bound PPO uses
+        dyaw = float(np.clip(dyaw, -MAX_DYAW, MAX_DYAW))
+        self.yaw = self._wrap_angle(self.yaw + dyaw * float(self.config.yaw_speed))
 
-        c, s = np.cos(self.yaw), np.sin(self.yaw)
+        c = float(np.cos(self.yaw))
+        s = float(np.sin(self.yaw))
 
-        # body → world
-        vx = c * dx - s * dy
-        vy = s * dx + c * dy
+        # BODY -> WORLD
+        vx = c * float(dx) - s * float(dy)
+        vy = s * float(dx) + c * float(dy)
 
         self.x += vx
         self.y += vy
-        self.z += dz
-
+        self.z += float(dz)

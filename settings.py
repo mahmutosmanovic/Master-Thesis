@@ -40,7 +40,7 @@ STEPS = 500
 EPISODES = 500
 ROLLOUT_EPS = 3
 learning_rate = 0.0005
-obs_dim = 3 # obs = (in_view, angle, dist) -> 3
+obs_dim = 5 # obs = (in_view, angle, dist) -> 3
 act_dim = 4 # action = dx,dy,dz,dyaw -> 4
 BEHAVIOR = "random"
 DATA_FOLDER_PATH = "data/pigeon/animal_01.csv"
@@ -53,6 +53,7 @@ MAX_DZ = 1.0
 MAX_DYAW = 1.0
 
 # Reward weights
+DIST_W = 0.1
 VIEW_W        = 8.0
 CENTER_SIGMA  = 0.03
 RANGE_TARGET  = 0.65

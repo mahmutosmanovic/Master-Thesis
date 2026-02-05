@@ -1,36 +1,37 @@
 from settings import *
+from disturbance import *
 
-def compute_total_reward(next_obs, animal_pos=None, drone_pos=None, prev_obs=None):
-    in_view, ang_score, range_score = next_obs
-    eps = 1e-6
+DIST_FIELD = DisturbanceField()
 
-    # Soft visibility
-    vis = in_view * (0.4 + 0.6 * ang_score)
+def compute_total_reward(next_obs, animal_pos, drone_pos, prev_obs=None):
 
-    # State reward (bounded, smooth)
-    center_error = 1.0 - ang_score
-    center_term = np.exp(-(center_error ** 2) / CENTER_SIGMA)
+    relx, rely, relz, dist_norm, fov_margin = next_obs
 
-    range_term = np.exp(-((range_score - RANGE_TARGET) ** 2) / RANGE_SIGMA)
+    # --------------------
+    # Tracking reward
+    # --------------------
 
-    state_reward = VIEW_W * vis * center_term * range_term
+    k = 10.0
+    in_fov = 1.0 / (1.0 + np.exp(-k * fov_margin))
 
-    # --- ERROR REDUCTION REWARD (CRITICAL) ---
-    correction_reward = 0.0
-    if prev_obs is not None:
-        _, prev_ang, prev_range = prev_obs
-        correction_reward = CORRECT_W * (
-            (prev_ang - ang_score)   # positive if centering improved
-            + (range_score - prev_range)
-        )
+    close = np.clip((0.5 - dist_norm) / 0.5, 0.0, 1.0)
 
-    # Smooth close repulsion
-    close_penalty = 0.0
-    if animal_pos is not None and drone_pos is not None:
-        ax, ay, az = animal_pos
-        dx, dy, dz = drone_pos
-        dist = np.sqrt((ax - dx)**2 + (ay - dy)**2 + (az - dz)**2 + eps)
-        close_penalty = -CLOSE_W * np.exp(-(dist / CLOSE_RADIUS) ** 2)
+    monitoring_r = in_fov + 0.8 * in_fov * close
 
-    total_reward = state_reward + correction_reward + close_penalty
-    return total_reward, state_reward, close_penalty
+    recover_pen = -0.2 * (1.0 - in_fov)
+
+    # --------------------
+    # Disturbance penalty
+    # --------------------
+
+    disturbance = DIST_FIELD.get_disturbance(animal_pos, drone_pos)
+
+    eco_pen = -DIST_W * disturbance
+
+    # --------------------
+    # Total
+    # --------------------
+
+    total = monitoring_r + recover_pen + eco_pen
+
+    return total, monitoring_r, eco_pen
