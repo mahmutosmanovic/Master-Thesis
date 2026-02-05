@@ -148,7 +148,7 @@ def draw_trail_3D(df, interval=50, trail_length=50):
         lines[ent] = lc
 
     # ---------- Base camera direction ----------
-    base_camera_dir = np.array([-1, -1, -1], dtype=float)
+    base_camera_dir = np.array([1.0, 0.0, -0.5], dtype=float)
     base_camera_dir /= np.linalg.norm(base_camera_dir)
 
     # ---------- Frustum ----------

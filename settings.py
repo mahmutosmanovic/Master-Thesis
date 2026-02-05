@@ -24,7 +24,7 @@ load_dotenv()
 class AnimalConfig:
     epsilon: float = 0.1
     step_size: float = 1.0
-    max_speed: float = 15.0
+    max_speed: float = 20.0
 
 FOV_DEG = 90
 MAX_VIEW_RANGE = 200
@@ -47,27 +47,11 @@ DATA_FOLDER_PATH = "data/pigeon/animal_01.csv"
 CSV_PATH = "log.csv"
 
 
+# action limimts
 MAX_DX = 4.0
 MAX_DY = 4.0
 MAX_DZ = 1.0
 MAX_DYAW = 1.0
-
-# Reward weights
-DIST_W = 0.1
-VIEW_W        = 8.0
-CENTER_SIGMA  = 0.03
-RANGE_TARGET  = 0.65
-RANGE_SIGMA   = 0.10
-CORRECT_W     = 3.0
-CLOSE_W       = 4.0
-CLOSE_RADIUS  = 20.0
-
-# Species-specific "safe" disturbance threshold (0..1)
-DISTURB_THRESHOLD = 0.25
-
-# Penalty shaping: 1 = linear, 2 = quadratic (harsher near high disturbance)
-DISTURB_POWER = 2.0
-
 
 
 
