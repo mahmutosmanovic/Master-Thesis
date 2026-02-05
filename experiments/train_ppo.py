@@ -7,12 +7,11 @@ import torch
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
-# Env
+from model.model import PPO, RolloutBuffer
 from utils.utils import decode_action, log_config_text
-from model.model import PPO, RolloutBuffer  # your existing PPO + buffer
-from environment.config import EnvConfig, AnimalParams, DroneParams
+from environment import Environment, EnvConfig, DroneParams, AnimalParams
 from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
-from environment.environment import Environment 
+
 
 def train(
     env: Environment,

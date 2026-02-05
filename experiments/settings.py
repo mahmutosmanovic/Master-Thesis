@@ -7,9 +7,10 @@ def jackal_params():
         is_planar=True,
         max_speed=12.0,
         max_turn=4.0,
-        max_accel=4.0,
         turn_noise=0.4,
         epsilon=1,
+        avoidance_threshold=1,
+        flight_threshold=0.75,
     )
 
 def eagle_params():
@@ -18,9 +19,10 @@ def eagle_params():
        is_planar=False,
        max_speed=30.0,
        max_turn=8.0,
-       max_accel=8.0,
        turn_noise=0.4,
        epsilon=0.03,
+       avoidance_threshold=1,
+       flight_threshold=0.75,
    )
 
 def pigeon_params():
@@ -29,9 +31,10 @@ def pigeon_params():
         is_planar = False,
         max_speed = 15.0,
         max_turn  = 16.0,
-        max_accel = 6.0,
         turn_noise = 0.6,
         epsilon = 0.8,
+        avoidance_threshold=1,
+        flight_threshold=0.75,
     )
 
 # Drones
@@ -42,6 +45,5 @@ def drone_params():
         max_speed=12.0,
         max_turn=4.0,
         max_view_yaw=2.0,
-        max_accel=4.0,
         camera_pitch=-30
     )

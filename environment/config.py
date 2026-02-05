@@ -39,11 +39,12 @@ class AnimalParams:
    # movement
    max_speed: float
    max_turn: float
-   max_accel: float
 
    # noise / behavior
    turn_noise: float
    epsilon: float
+   avoidance_threshold: float
+   flight_threshold: float
 
 @dataclass
 class DroneParams:
@@ -57,6 +58,5 @@ class DroneParams:
    max_speed: float
    max_turn: float
    max_view_yaw: float
-   max_accel: float
 
    camera_pitch: float

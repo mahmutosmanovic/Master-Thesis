@@ -5,8 +5,7 @@ import numpy as np
 import torch
 
 from utils.utils import decode_action
-from environment.environment import Environment
-from environment.config import EnvConfig, AnimalParams, DroneParams
+from environment import Environment, EnvConfig, DroneParams, AnimalParams
 from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
 from model.model import PPO
 

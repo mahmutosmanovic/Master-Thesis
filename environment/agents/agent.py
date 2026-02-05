@@ -50,7 +50,7 @@ class Agent:
         else:
             d_desired = direction / norm
 
-            # Enforce max turn, may not be neccesary after fit, or, estimate from data ???
+            # Enforce max turn
             theta = angle_between(d_current, d_desired)
             theta_max = self.params.max_turn * float(dt)
 
@@ -77,6 +77,6 @@ class Agent:
             "vy": vy,
             "vz": vz,
 
-            "norm_speed": self.norm_speed,
+            "speed": self.norm_speed * self.params.max_speed,
         }
 

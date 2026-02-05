@@ -20,14 +20,15 @@ class Animal(Agent):
         direction, norm_speed = self.behaviour.act(obs, self.params, dt) # always act, to maintain determinism
         disturbance = np.sum([drone["val"] for drone in obs["disturbance_info"].values()])
 
-        if disturbance > 0.95: # Flee !!! hardcoded atm
+        if disturbance > self.params.flight_threshold: # Flee !!!
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
             self.state = Animal.STATE_FLEE
             return mean_disturbance_dir, 1
-        elif disturbance > 0.6: # Avoid ! hardcoded atm
+        elif disturbance > self.params.avoidance_threshold: # Avoid !
             mean_disturbance_dir = self.calc_mean_disturbance_dir(obs)
 
-            w = (disturbance - 0.4) / 0.4
+            w = (disturbance - self.params.avoidance_threshold) / (self.params.flight_threshold - self.params.avoidance_threshold)
+            w = np.clip(w, 0.0, 1.0)
             blended_dir = (1 - w) * direction + w * mean_disturbance_dir
             self.state = Animal.STATE_AVOID
             return unit(blended_dir), norm_speed
