@@ -1,8 +1,8 @@
 import numpy as np
-from ..agent import Agent
+from .agent import Agent
 from dataclasses import dataclass
 from utils.vec_utils import *
-from environment.agents.drones.sensor import Sensor
+from environment.agents.sensor import Sensor
 
 class Drone(Agent):
     def __init__(self, agent_id, pos, params, seed, mode=None, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):

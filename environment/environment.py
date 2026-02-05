@@ -5,10 +5,10 @@ import pandas as pd
 from collections import defaultdict
 
 from environment.paths import CirclePath
-from environment.agents.drones.drone import Drone
+from environment.agents.drone import Drone
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
-from environment.agents.animals.animal import Animal
-from environment.agents.drones.sensor import Camera, GPSSensor
+from environment.agents.animal import Animal
+from environment.agents.sensor import Camera, GPSSensor
 from environment.disturbance import DisturbanceField
 from utils.vec_utils import *
 

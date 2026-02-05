@@ -1,5 +1,5 @@
 import numpy as np
-from ..agent import Agent
+from .agent import Agent
 from dataclasses import dataclass
 from utils.vec_utils import *
 
