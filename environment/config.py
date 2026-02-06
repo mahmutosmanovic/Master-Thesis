@@ -24,9 +24,11 @@ class EnvConfig:
     # each entry: {params: DroneParams, count: int, sensor: str}
     drones: Sequence[dict] = field(default_factory=list)
     
-    # reward
-    penalty_scale: float = 2.5
-    reward_scale: float = 5.0
+    # observation and reward
+    sensor_scale: float = 200.0 # used for scaling observation and reward (meters) if sensor has no maximum distance
+    distance_scale: float = 5.0
+    alignment_scale: float = 1.0
+    disturbance_scale: float = 2.5
 
 @dataclass
 class AnimalParams:

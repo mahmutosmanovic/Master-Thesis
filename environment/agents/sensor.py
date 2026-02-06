@@ -1,8 +1,17 @@
 import numpy as np
 from utils.vec_utils import *
+from dataclasses import dataclass
+
+@dataclass
+class SensorMetrics:
+    n_visible: int = 0
+    min_distance: float = np.inf
+    mean_distance: float = np.inf
+    alignment_error: float = np.inf
 
 class Sensor:
-    def __init__(self, seed=None):
+    def __init__(self, sensor_scale=1, seed=None):
+        self.sensor_scale = sensor_scale
         self.rng = np.random.default_rng(seed)
 
     @property
@@ -12,48 +21,37 @@ class Sensor:
     def observe(self, drone, animals):
         raise NotImplementedError
     
-    def reward(self, drone, animals):
+    def metrics(self, obs):
         raise NotImplementedError
 
 class Camera(Sensor):
     def __init__(
             self,
-            hfov_rad,
-            vfov_rad,
+            hfov,
+            vfov,
             near=0.0,
-            far=float("inf"),
-            K=1,
-            reward_scale=5.0,
-            sigma=250,
-            center_penalty_scale=1.0,
-            center_sigma=0.35,
+            far=np.inf,
+            sensor_scale=1,
+            max_targets=1,
             seed=None
         ):
-        super().__init__(seed)
-        
-        self.hfov = hfov_rad
-        self.vfov = vfov_rad
+        super().__init__(sensor_scale, seed)
         self.near = near
         self.far = far
-        self.K = K
+        self.max_targets = max_targets
 
-        self.reward_scale = float(reward_scale)
-        self.sigma = float(sigma)
-        self.center_penalty_scale = float(center_penalty_scale)
-        self.center_sigma = float(center_sigma)
-
-        self.tan_h = np.tan(hfov_rad * 0.5)
-        self.tan_v = np.tan(vfov_rad * 0.5)
+        self.tan_h = np.tan(np.deg2rad(hfov) * 0.5)
+        self.tan_v = np.tan(np.deg2rad(vfov) * 0.5)
 
     @property
     def obs_dim(self) -> int:
-        return self.K * 4  # [u,v,z_norm,mask]
+        return self.max_targets * 4  # [u,v,z_norm,mask]
 
-    def observe(self, drone, animals) -> np.ndarray:
-        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+    def observe(self, agent, targets) -> np.ndarray:
+        points = np.array([animal.pos.copy() for animal in targets], dtype=float)
 
         inside, cam_xyz = self.points_in_view_frustum(
-            points, drone.pos, drone.view_dir
+            points, agent.pos, agent.view_dir
         )
 
         vis = cam_xyz[inside]
@@ -61,14 +59,18 @@ class Camera(Sensor):
         if vis.shape[0] > 0:
             vis = vis[np.argsort(vis[:, 2])]  # sort by depth
 
-        feats = np.zeros((self.K, 4), dtype=np.float32)
-        m = min(self.K, vis.shape[0])
+        feats = np.zeros((self.max_targets, 4), dtype=np.float32)
+        m = min(self.max_targets, vis.shape[0])
 
         if m > 0:
             x, y, z = vis[:m, 0], vis[:m, 1], vis[:m, 2]
             u = x / (z * self.tan_h + 1e-8)
             v = y / (z * self.tan_v + 1e-8)
-            z_norm = np.clip((z - self.near) / (self.far - self.near + 1e-8), 0.0, 1.0)
+
+            if self.far == np.inf:
+                z_norm = np.clip(z / self.sensor_scale, 0.0, 1.0)
+            else:
+                z_norm = np.clip((z - self.near) / (self.far - self.near + 1e-8), 0.0, 1.0)
 
             feats[:m, 0] = u
             feats[:m, 1] = v
@@ -77,34 +79,28 @@ class Camera(Sensor):
 
         return feats.reshape(-1)
 
-    def reward(self, drone, animals):
-        if len(animals) == 0:
-            return 0.0
+    def metrics(self, obs: np.ndarray) -> SensorMetrics:
+        feats = obs.reshape(self.max_targets, 4)
 
-        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+        mask = feats[:, 3] > 0.5 # targets in view
+        if not np.any(mask):
+            return SensorMetrics()
 
-        inside, cam_xyz = self.points_in_view_frustum(
-            points, drone.pos, drone.view_dir
+        u = feats[mask, 0]
+        v = feats[mask, 1]
+        z_norm = feats[mask, 2]
+
+        min_dist = float(z_norm.min())
+        mean_dist = float(z_norm.mean())
+
+        center_error = float(np.sqrt(u*u + v*v).mean())
+
+        return SensorMetrics(
+            n_visible=np.sum(mask),
+            min_distance=min_dist,
+            mean_distance=mean_dist,
+            alignment_error=center_error,
         )
-
-        if not np.any(inside):
-            return 0.0
-
-        vis = cam_xyz[inside]
-        d = np.linalg.norm(vis, axis=1)
-        i = np.argmin(d)
-        d = d[i]
-        base = max(0.0, 1.0 - d / (self.sigma + 1e-8))
-        distance_reward = float(self.reward_scale * base)
-        
-        x, y, z = float(vis[i, 0]), float(vis[i, 1]), float(vis[i, 2])
-        u = x / (z * self.tan_h + 1e-8)
-        v = y / (z * self.tan_v + 1e-8)
-
-        center_dist = float(np.sqrt(u*u + v*v))
-        penalty = self.center_penalty_scale * center_dist
-
-        return distance_reward - penalty
 
     def points_in_view_frustum(self, points, cam_pos, view_dir):
         forward = unit(view_dir)
@@ -139,31 +135,29 @@ class GPSSensor(Sensor):
         self,
         max_targets: int,
         noise_pos: float = 0.0,
-        pos_scale=np.array([1.0, 1.0, 1.0]),          # scalar or (3,) array; used to normalize relative vectors
-        reward_scale: float = 5.0,   # boosts signal vs disturbance penalty
+        sensor_scale=1,
         seed=None,
     ):
-        super().__init__(seed)
+        super().__init__(sensor_scale, seed)
 
         self.max_targets = max_targets
         self.noise_pos = noise_pos
-        self.pos_scale = np.asarray(pos_scale, dtype=np.float32)
-        self.reward_scale = float(reward_scale)
+
 
     @property
     def obs_dim(self) -> int:
         return self.max_targets * 7  # [dx,dy,dz,vx,vy,vz,mask] per slot
 
-    def observe(self, drone, animals) -> np.ndarray:
+    def observe(self, agent, targets) -> np.ndarray:
         obs = np.zeros((self.max_targets, 7), dtype=np.float32)
-        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
-        dirs = np.array([animal.direction for animal in animals], dtype=float)
+        points = np.array([animal.pos.copy() for animal in targets], dtype=float)
+        dirs = np.array([animal.direction for animal in targets], dtype=float)
 
         if len(points) == 0:
-            raise ValueError("No observable animals")
+            raise ValueError("No observable tragets")
 
         # distances to drone
-        dists = np.linalg.norm(points - drone.pos, axis=1)
+        dists = np.linalg.norm(points - agent.pos, axis=1)
         k = min(len(points), self.max_targets)
         idx = np.argsort(dists)[:k]
         nearest = points[idx].astype(np.float32, copy=True)
@@ -173,12 +167,11 @@ class GPSSensor(Sensor):
             nearest += self.rng.normal(0, self.noise_pos, size=nearest.shape).astype(np.float32)
 
         # relative vectors (target - drone)
-        rel = nearest - drone.pos.astype(np.float32)
+        rel = nearest - agent.pos.astype(np.float32)
         dirs = dirs[idx]
 
-        # normalize (supports scalar or (3,) vector)
-        rel = rel / (self.pos_scale + 1e-8)
-        # vels = vels[nearest] should be normalized
+        rel = rel / self.sensor_scale
+
 
         obs[:k, 0:3] = rel
         obs[:k, 3:6] = dirs
@@ -186,16 +179,26 @@ class GPSSensor(Sensor):
 
         return obs.reshape(-1)
 
-    def reward(self, drone, animals, sigma=250.0):
-        if len(animals) == 0:
-            raise ValueError("No observable animals")
-        points = np.array([animal.pos.copy() for animal in animals], dtype=float)
+    def metrics(self, obs: np.ndarray) -> SensorMetrics:
+        feats = obs.reshape(self.max_targets, 7)
 
-        # nearest distance only
-        dists = np.linalg.norm(points - drone.pos, axis=1)
-        d = float(np.min(dists))
+        mask = feats[:, 6] > 0.5
+        n_visible = int(np.sum(mask))
 
-        # linear reward: closer is better
-        base = max(0.0, 1.0 - d / (sigma + 1e-8))
+        if n_visible == 0:
+            return SensorMetrics()
 
-        return self.reward_scale * base
+        rel = feats[mask, 0:3]
+        dists = np.linalg.norm(rel, axis=1)
+
+        min_dist = float(dists.min())
+        mean_dist = float(dists.mean())
+
+        alignment_error = 0.0  # GPS has no bearing info by default
+
+        return SensorMetrics(
+            n_visible=n_visible,
+            min_distance=min_dist,
+            mean_distance=mean_dist,
+            alignment_error=alignment_error,
+        )

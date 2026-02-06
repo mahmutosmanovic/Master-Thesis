@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from model.model import PPO, RolloutBuffer
 from utils.utils import decode_action, log_config_text
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
-from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
+from experiments.settings import randjack5drone1
 
 
 def train(
@@ -139,7 +139,7 @@ def train(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=500_000)
+    parser.add_argument("--steps", type=int, default=1_000_000)
     parser.add_argument("--rollout", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=128)
@@ -148,40 +148,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="logs/training")
     args = parser.parse_args()
 
-    cfg = EnvConfig(
-        # simulation
-        dt=0.2,
-        max_t=1000.0,
-
-        # map
-        map_width=200.0,
-        map_height=200.0,
-        map_altitude=100.0,
-
-        # POIs
-        poi_count=3,
-        poi_points=[
-            (30.0, 0.0, 0.0),
-            (0.0, 0.0, 0.0),
-            (0.0, 30.0, 30.0),
-        ],
-
-        # animals
-        animals=[
-            dict(params=jackal_params(), count=1, mode="path_follow"),
-            dict(params=eagle_params(),  count=0, mode="random"),
-            dict(params=pigeon_params(), count=0, mode="path_follow"),
-        ],
-
-        # drones
-        drones=[
-            dict(params=drone_params(), count=1, sensor="camera"),
-        ],
-
-        # reward
-        penalty_scale=2.5,
-        reward_scale=1.5,
-    )
+    cfg = randjack5drone1()
 
     env = Environment(config=cfg)
 

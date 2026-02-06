@@ -5,12 +5,12 @@ from utils.vec_utils import *
 from environment.agents.sensor import Sensor
 
 class Drone(Agent):
-    def __init__(self, agent_id, pos, params, seed, mode=None, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):
+    def __init__(self, agent_id, pos, params, sensor, seed, mode=None, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):
         super().__init__(agent_id, pos, seed, mode)
         self.params = params
         self.pos = pos
         self.pos_scale = pos_scale
-        self.sensors = []
+        self.sensor = sensor
         rad_camera_pitch = np.deg2rad(self.params.camera_pitch)
         self.view_dir = np.array([ # Used by camera, drone facing direction
             np.cos(rad_camera_pitch) * np.cos(yaw),
@@ -20,29 +20,16 @@ class Drone(Agent):
 
     @property
     def obs_dim(self) -> int:
-        return 3 + sum(s.obs_dim for s in self.sensors)
+        return 3 + self.sensor.obs_dim()
 
     def observe(self, animals) -> np.ndarray:
-        # full_state = np.concatenate([
+        # return np.concatenate([
         #     self.pos / self.pos_scale,
         #     self.direction * self.norm_speed,
         #     self.view_dir
         # ]).astype(np.float32)
 
-        parts = [self.view_dir]
-        for sensor in self.sensors:  # list order is deterministic
-            parts.append(sensor.observe(self, animals).astype(np.float32))
-        obs = np.concatenate(parts, axis=0).astype(np.float32)
-        return obs
-    
-    def reward(self, animals):
-        reward = 0
-        for sensor in self.sensors:
-            reward += sensor.reward(self, animals)
-        return reward
-    
-    def add_sensor(self, sensor):
-        self.sensors.append(sensor)
+        return self.view_dir, self.sensor.observe(self, animals)
     
     def update(self, action, dt):
         direction, norm_speed, view_yaw_rate = action

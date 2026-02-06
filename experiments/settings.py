@@ -1,4 +1,44 @@
-from environment.config import AnimalParams, DroneParams
+from environment.config import EnvConfig, AnimalParams, DroneParams
+
+def randjack5drone1():
+    return EnvConfig(
+        # simulation
+        dt=0.2,
+        max_t=1000.0,
+
+        # map
+        map_width=200.0,
+        map_height=200.0,
+        map_altitude=100.0,
+
+        # POIs
+        poi_count=3,
+        poi_points=[
+            (30.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 30.0, 30.0),
+        ],
+
+        # animals
+        animals=[
+            dict(params=jackal_params(), count=5, mode="random"),
+            dict(params=eagle_params(),  count=0, mode="random"),
+            dict(params=pigeon_params(), count=0, mode="path_follow"),
+        ],
+
+        # drones
+        drones=[
+            dict(params=drone_params(), count=1, sensor="camera"),
+        ],
+
+        # observation and reward
+        sensor_scale = 200.0,
+        distance_scale = 5.0,
+        alignment_scale = 1.0,
+        disturbance_scale = 2.5,
+    )
+
+    env = Environment(config=cfg)
 
 # Animals (placeholders, should be changed to 3 general "animals")
 def jackal_params():
@@ -9,20 +49,20 @@ def jackal_params():
         max_turn=4.0,
         turn_noise=0.4,
         epsilon=1,
-        avoidance_threshold=1,
-        flight_threshold=0.75,
+        avoidance_threshold=0.75,
+        flight_threshold=1,
     )
 
 def eagle_params():
    return AnimalParams(
-       name="eagle",
-       is_planar=False,
-       max_speed=30.0,
-       max_turn=8.0,
-       turn_noise=0.4,
-       epsilon=0.03,
-       avoidance_threshold=1,
-       flight_threshold=0.75,
+        name="eagle",
+        is_planar=False,
+        max_speed=30.0,
+        max_turn=8.0,
+        turn_noise=0.4,
+        epsilon=0.03,
+        avoidance_threshold=0.75,
+        flight_threshold=1,
    )
 
 def pigeon_params():
@@ -33,8 +73,8 @@ def pigeon_params():
         max_turn  = 16.0,
         turn_noise = 0.6,
         epsilon = 0.8,
-        avoidance_threshold=1,
-        flight_threshold=0.75,
+        avoidance_threshold=0.75,
+        flight_threshold=1,
     )
 
 # Drones

@@ -10,6 +10,7 @@ from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.agents.animal import Animal
 from environment.agents.sensor import Camera, GPSSensor
 from environment.disturbance import DisturbanceField
+from environment.reward import tracking_reward
 from utils.vec_utils import *
 
 
@@ -70,7 +71,7 @@ class Environment:
         self.calc_animal_disturbance()
 
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
-        drone_observations = {drone_id: self.agents[drone_id].observe(animals) for drone_id in self.drone_ids}
+        drone_observations = {drone_id: np.concatenate(self.agents[drone_id].observe(animals), axis=0) for drone_id in self.drone_ids}
 
         return drone_observations, info
     
@@ -117,9 +118,9 @@ class Environment:
     def _spawn_drone(self, drone_params, count, sensor):
         match sensor:
             case "camera":
-                sensor = Camera(np.deg2rad(90), np.deg2rad(56), far=200, reward_scale=self.cfg.reward_scale, seed=self.seed_seq.spawn(1)[0])
+                sensor = Camera(max_targets=5, hfov=90, vfov=56, far=200, sensor_scale=self.cfg.sensor_scale, seed=self.seed_seq.spawn(1)[0])
             case "gps":
-                sensor = GPSSensor(1, reward_scale=self.cfg.reward_scale, pos_scale=self.pos_scale, seed=self.seed_seq.spawn(1)[0])
+                sensor = GPSSensor(max_targets=5, sensor_scale=self.cfg.sensor_scale, seed=self.seed_seq.spawn(1)[0])
 
         for _ in range(count):
             target_id = self.rng.choice(self.animal_ids)
@@ -129,13 +130,13 @@ class Environment:
             agent = Drone(agent_id=len(self.agents),
                           pos=pos, 
                           params=drone_params,
+                          sensor=sensor,
                           seed=self.seed_seq.spawn(1)[0],
                           mode="external",
                           yaw=yaw,
                           pos_scale=self.pos_scale)
             
             self.drone_ids.append(agent.agent_id)
-            agent.add_sensor(sensor)
             self.agents.append(agent)
 
     # Simulation
@@ -201,13 +202,16 @@ class Environment:
         for drone_id in self.drone_ids:
             # per drone disturbance
             disturbances = np.array([animal[drone_id]["val"] for animal in self.animal_disturbance.values()], dtype=np.float32)
+            disturbance = np.mean(disturbances)
 
-            # calculate total reward
-            reward[drone_id] = self.agents[drone_id].reward(animals)              # Observation reward
-            reward[drone_id] -= self.cfg.penalty_scale * float(np.mean(disturbances)) # Disturbance penalty
+            # keep separate and handle concat in env, easier to modify later with heterogeneous agents
+            drone_obs, sensor_obs = self.agents[drone_id].observe(animals)
+            sensor_metrics = self.agents[drone_id].sensor.metrics(sensor_obs)
 
-            # assign observation
-            drone_observations[drone_id] = self.agents[drone_id].observe(animals)
+            # calculate reward from metrics, explicit reward stated in reward.py
+            reward[drone_id] = tracking_reward(sensor_metrics, disturbance, self.cfg.distance_scale, self.cfg.alignment_scale, self.cfg.disturbance_scale)
+
+            drone_observations[drone_id] = np.concatenate([drone_obs, sensor_obs], axis=0) # Assemble full observation
 
         for agent in self.agents: self.log_agent_state(agent)
 

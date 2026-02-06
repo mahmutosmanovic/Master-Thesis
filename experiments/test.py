@@ -6,7 +6,7 @@ import torch
 
 from utils.utils import decode_action
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
-from experiments.settings import jackal_params, eagle_params, pigeon_params, drone_params
+from experiments.settings import randjack5drone1
 from model.model import PPO
 
 @torch.no_grad()
@@ -32,40 +32,7 @@ def main():
 
     # --- Env ---
 
-    cfg = EnvConfig(
-        # simulation
-        dt=0.2,
-        max_t=10.0,
-
-        # map
-        map_width=200.0,
-        map_height=200.0,
-        map_altitude=100.0,
-
-        # POIs
-        poi_count=3,
-        poi_points=[
-            (150.0, 0.0, 20.0),
-            (0.0, 0.0, 20.0),
-            (0.0, 150.0, 30.0),
-        ],
-
-        # animals
-        animals=[
-            dict(params=jackal_params(), count=1, mode="random"), # mode list for random selection between multiple
-            dict(params=eagle_params(),  count=0, mode="poi"),
-            dict(params=pigeon_params(), count=0, mode="path_follow"),
-        ],
-
-        # drones
-        drones=[
-            dict(params=drone_params(), count=1, sensor="camera"),
-        ],
-
-        # reward
-        penalty_scale=2.5,
-        reward_scale=5.0,
-    )
+    cfg = randjack5drone1()
     
     env = Environment(cfg)
     obs_dict, info = env.reset(seed=args.seed)
@@ -88,6 +55,7 @@ def main():
 
         for did in drone_ids:
             did = int(did)
+
             obs = np.asarray(obs_dict[did], dtype=np.float32)
 
             a = act_deterministic(agent, obs)  # shape (5,)
