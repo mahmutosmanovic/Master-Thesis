@@ -8,7 +8,6 @@ class Agent:
         Agent.next_id += 1
 
         self.dt = config["dt"]
-        self.pos = Vector()
 
     def update_pos(self):
         self.pos.add(self.vel.scale(self.dt))
@@ -40,9 +39,10 @@ class Drone(Agent):
         self.view_range = int(config["drone"]["init"]["view_range"])
         self.view_dir = Vector(*config["drone"]["init"]["view_dir"])
         self.theta = 0 # camera rotation in degrees per timestep
-        
-        print(f'drone_{self.id}')
 
+        # pos
+        self.pos = Vector()
+        
     def rotate_view(self):
         self.view_dir.rotate_z(self.theta)
 
@@ -84,9 +84,14 @@ class Animal(Agent):
         self.vel_speed = random.uniform(self.min_speed, self.max_speed)
         self.vel_dir = Vector(random_unit_2d=~self.use_random_unit_3d,
                               random_unit_3d=self.use_random_unit_3d)
+        
+        # pos
+        spawn_dir = Vector(random_unit_2d=~self.use_random_unit_3d,
+                           random_unit_3d=self.use_random_unit_3d)
+        radis_len = random.uniform(0, config["animal"]["init"]["max_spawn_radius"])
+        spawn_dir.scale(radis_len)
+        self.pos = spawn_dir
 
-        print(f'animal_{self.id}')
-    
     def _enforce_position_3d(self):
         if self.pos.z < 0:
             self.pos.z = 0

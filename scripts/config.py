@@ -18,7 +18,7 @@ c1 = {
     },
     "animal": {
         "env": {
-            "count": 1, # animal count
+            "count": 10, # animal count
         },
         "init": {
             "min_speed": 1, # min animal speed
@@ -28,7 +28,7 @@ c1 = {
             "hor_dir_angle": 60, # max animal vertical abs(deg) change
             "behavior": Behavior.RANDOM, # type of behavior
             "movement_dim": MovementDim.TWO_D, # 2d or 3d
-            "spawn_square_side_len": 200 # meters
+            "max_spawn_radius": 200 # meters
         },
     },
 }
