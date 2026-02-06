@@ -1,0 +1,34 @@
+from .immutables import Behavior, MovementDim
+
+c1 = {
+    "dt": 1, # seconds
+    "drone": {
+        "env": {
+            "count": 0, # drone count
+        },
+        "init": {
+            "min_speed": 0, # m/s2
+            "max_speed": 8, # m/s2
+            "ver_angle": 90, # frustum, vertical angle
+            "hor_angle": 140, # frustum, horizontal angle
+            "max_cam_rot": 90, # abs(deg)
+            "view_range": 400, # meters
+            "view_dir": [1,0,-0.5], # camera direction
+        },
+    },
+    "animal": {
+        "env": {
+            "count": 1, # animal count
+        },
+        "init": {
+            "min_speed": 1, # min animal speed
+            "max_speed": 8, # max animal speed
+            "epsilon": 0.05, # how often dir change
+            "ver_dir_angle": 0, # max animal vertical abs(deg) change
+            "hor_dir_angle": 60, # max animal vertical abs(deg) change
+            "behavior": Behavior.RANDOM, # type of behavior
+            "movement_dim": MovementDim.TWO_D, # 2d or 3d
+            "spawn_square_side_len": 200 # meters
+        },
+    },
+}
