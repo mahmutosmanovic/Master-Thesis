@@ -10,7 +10,7 @@ class Agent:
         self.dt = config["dt"]
 
     def update_pos(self):
-        self.pos.add(self.vel.scale(self.dt))
+        self.pos.add(self.vel.scale(self.dt, in_place=True))
 
     def update_vel(self):
         raise NotImplementedError
@@ -38,9 +38,12 @@ class Drone(Agent):
         self.max_cam_rot = int(config["drone"]["init"]["max_cam_rot"])
         self.view_range = int(config["drone"]["init"]["view_range"])
         self.view_dir = Vector(*config["drone"]["init"]["view_dir"])
+        self.view_dir.unit()
+        self.view_dir.rotate_z(random.uniform(0,360))
         self.theta = 0 # camera rotation in degrees per timestep
 
         # pos
+        self.spawn_dist = int(random.uniform(*config["drone"]["init"]["spawn_dist"]))
         self.pos = Vector()
         
     def rotate_view(self):
@@ -89,8 +92,7 @@ class Animal(Agent):
         spawn_dir = Vector(random_unit_2d=~self.use_random_unit_3d,
                            random_unit_3d=self.use_random_unit_3d)
         radis_len = random.uniform(0, config["animal"]["init"]["max_spawn_radius"])
-        spawn_dir.scale(radis_len)
-        self.pos = spawn_dir
+        self.pos = spawn_dir.scale(radis_len)
 
     def _enforce_position_3d(self):
         if self.pos.z < 0:

@@ -37,22 +37,7 @@ class Vector:
         self.y = random.uniform(-1, 1)
         self.z = random.uniform(-1, 1)
         self.unit()
-        
-    def scale(self, k):
-        self.x *= k
-        self.y *= k
-        self.z *= k
     
-    def add(self, vec3d):
-        self.x += vec3d.x
-        self.y += vec3d.y
-        self.z += vec3d.z
-
-    def setter(self, vec3d):
-        self.x = vec3d.x
-        self.y = vec3d.y
-        self.z = vec3d.z
-
     def rotate_z(self, deg):
         rad = math.radians(deg)
         cos_t = math.cos(rad)
@@ -65,4 +50,35 @@ class Vector:
         # rotate around z-axis
         self.x = x * cos_t - y * sin_t
         self.y = x * sin_t + y * cos_t
+    
+    def scale(self, k, in_place=False):
+        if in_place:
+            self.x *= k
+            self.y *= k
+            self.z *= k
+        else:
+            x = self.x * k
+            y = self.y * k
+            z = self.z * k
+            return Vector(x, y, z)
+    def add(self, vec3d, in_place=False):
+        if in_place:
+            self.x += vec3d.x
+            self.y += vec3d.y
+            self.z += vec3d.z
+        else:
+            x = self.x + vec3d.x
+            y = self.y + vec3d.y
+            z = self.z + vec3d.z
+            return Vector(x, y, z)
+
+    def setter(self, vec3d):
+        self.x = vec3d.x
+        self.y = vec3d.y
+        self.z = vec3d.z
+
+    def getter(self):
+        return Vector(self.x, self.y, self.z)
+
+
 

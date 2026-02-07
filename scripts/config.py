@@ -4,7 +4,7 @@ c1 = {
     "dt": 1, # seconds
     "drone": {
         "env": {
-            "count": 0, # drone count
+            "count": 5, # drone count
         },
         "init": {
             "min_speed": 0, # m/s2
@@ -13,12 +13,13 @@ c1 = {
             "hor_angle": 140, # frustum, horizontal angle
             "max_cam_rot": 90, # abs(deg)
             "view_range": 400, # meters
-            "view_dir": [1,0,-0.5], # camera direction
+            "spawn_dist": [40,100], # euclidean spawn distance from animal
+            "view_dir": [1,0,-0.7], # camera direction
         },
     },
     "animal": {
         "env": {
-            "count": 10, # animal count
+            "count": 5, # animal count
         },
         "init": {
             "min_speed": 1, # min animal speed
