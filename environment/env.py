@@ -1,6 +1,6 @@
 import random
 from .vec import Vector
-from .agent import Drone, Animal
+from .entity import Drone, Animal
 from scripts import Behavior, MovementDim
 
 class Env:
@@ -46,5 +46,14 @@ class Env:
 
         self._init_animal_pos()
         self._init_drone_pos()
-        return self.animals, self.drones
+
+        info = {}
+
+        return (self.animals, self.drones), info
+    
+    def step(self, action):
+        ...
+
+    def close(self):
+        ...
         

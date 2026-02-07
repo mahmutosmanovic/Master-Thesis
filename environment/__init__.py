@@ -1,2 +1,2 @@
-from .agent import *
+from .entity import *
 from .env import *

@@ -1,11 +1,11 @@
 import random
 from .vec import Vector
     
-class Agent:
+class Entity:
     next_id = 1
     def __init__(self, config):
-        self.id = int(Agent.next_id)
-        Agent.next_id += 1
+        self.id = int(Entity.next_id)
+        Entity.next_id += 1
 
         self.dt = config["dt"]
 
@@ -24,7 +24,7 @@ class Agent:
         elif self.vel_speed < self.min_speed:
             self.vel_speed = self.min_speed
 
-class Drone(Agent):
+class Drone(Entity):
     def __init__(self, config):
         super().__init__(config)
         # speed
@@ -66,7 +66,7 @@ class Drone(Agent):
         self._enforce_speed()
         self._enforce_position()        
         
-class Animal(Agent):
+class Animal(Entity):
     def __init__(self, config, behaviors, movement_dims):
         super().__init__(config)
         # enums

@@ -1,7 +1,11 @@
 from .immutables import Behavior, MovementDim
 
-c1 = {
-    "dt": 1, # seconds
+cfg_train = {
+    "dt": 1, # seconds,
+    "model_path": "checkpoint.pt",
+    "episodes": 100,
+    "save_every": 20, # episodes
+    "steps": 200,
     "drone": {
         "env": {
             "count": 5, # drone count
