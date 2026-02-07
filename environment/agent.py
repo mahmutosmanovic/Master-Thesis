@@ -38,8 +38,6 @@ class Drone(Agent):
         self.max_cam_rot = int(config["drone"]["init"]["max_cam_rot"])
         self.view_range = int(config["drone"]["init"]["view_range"])
         self.view_dir = Vector(*config["drone"]["init"]["view_dir"])
-        self.view_dir.unit()
-        self.view_dir.rotate_z(random.uniform(0,360))
         self.theta = 0 # camera rotation in degrees per timestep
 
         # pos
@@ -84,15 +82,9 @@ class Animal(Agent):
         self.behavior = config["animal"]["init"]["behavior"]
         self.movement_dim = config["animal"]["init"]["movement_dim"]
         self.use_random_unit_3d = (self.movement_dim == self.movement_dims.THREE_D)
-        self.vel_speed = random.uniform(self.min_speed, self.max_speed)
-        self.vel_dir = Vector(random_unit_2d=~self.use_random_unit_3d,
-                              random_unit_3d=self.use_random_unit_3d)
         
-        # pos
-        spawn_dir = Vector(random_unit_2d=~self.use_random_unit_3d,
-                           random_unit_3d=self.use_random_unit_3d)
-        radis_len = random.uniform(0, config["animal"]["init"]["max_spawn_radius"])
-        self.pos = spawn_dir.scale(radis_len)
+        self.vel_speed = 0
+        self.vel_dir = Vector()
 
     def _enforce_position_3d(self):
         if self.pos.z < 0:
