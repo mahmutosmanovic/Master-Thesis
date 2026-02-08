@@ -5,10 +5,10 @@ cfg_train = {
     "model_path": "checkpoint.pt",
     "episodes": 100,
     "save_every": 20, # episodes
-    "steps": 200,
+    "steps": 10,
     "drone": {
         "env": {
-            "count": 5, # drone count
+            "count": 1, # drone count
         },
         "init": {
             "min_speed": 0, # m/s2
@@ -23,7 +23,7 @@ cfg_train = {
     },
     "animal": {
         "env": {
-            "count": 5, # animal count
+            "count": 1, # animal count
         },
         "init": {
             "min_speed": 1, # min animal speed

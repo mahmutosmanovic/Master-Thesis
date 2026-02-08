@@ -10,13 +10,7 @@ class Entity:
         self.dt = config["dt"]
 
     def update_pos(self):
-        self.pos.add(self.vel.scale(self.dt, in_place=True))
-
-    def update_vel(self):
-        raise NotImplementedError
-
-    def enforce_constraints(self):
-        raise NotImplementedError
+        self.pos.add(self.vel_dir.scale(self.vel_speed*self.dt), in_place=True)
 
     def _enforce_speed(self):
         if self.vel_speed > self.max_speed:
@@ -27,11 +21,6 @@ class Entity:
 class Drone(Entity):
     def __init__(self, config):
         super().__init__(config)
-        # speed
-        self.min_speed = int(config["drone"]["init"]["min_speed"])
-        self.max_speed = int(config["drone"]["init"]["max_speed"])
-        self.vel_speed = random.uniform(self.min_speed, self.max_speed)
-
         # camera
         self.ver_angle = int(config["drone"]["init"]["ver_angle"])
         self.hor_angle = int(config["drone"]["init"]["hor_angle"])
@@ -43,6 +32,12 @@ class Drone(Entity):
         # pos
         self.spawn_dist = int(random.uniform(*config["drone"]["init"]["spawn_dist"]))
         self.pos = Vector()
+
+        # movement
+        self.min_speed = int(config["drone"]["init"]["min_speed"])
+        self.max_speed = int(config["drone"]["init"]["max_speed"])
+        self.vel_speed = 0
+        self.vel_dir = Vector()
         
     def rotate_view(self):
         self.view_dir.rotate_z(self.theta)
