@@ -7,7 +7,7 @@ import torch
 from utils.utils import decode_action
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
 from experiments.settings import randjack5drone1
-from model.model import PPO
+from model.PPO import PPO
 
 @torch.no_grad()
 def act_deterministic(agent: PPO, obs: np.ndarray):

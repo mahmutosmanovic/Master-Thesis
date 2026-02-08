@@ -1,6 +1,6 @@
 from environment.config import EnvConfig, AnimalParams, DroneParams
 
-def randjack5drone1():
+def rand5jack1drone():
     return EnvConfig(
         # simulation
         dt=0.2,
@@ -33,12 +33,10 @@ def randjack5drone1():
 
         # observation and reward
         sensor_scale = 200.0,
-        distance_scale = 5.0,
+        distance_scale = 2.5,
         alignment_scale = 1.0,
         disturbance_scale = 2.5,
     )
-
-    env = Environment(config=cfg)
 
 # Animals (placeholders, should be changed to 3 general "animals")
 def jackal_params():

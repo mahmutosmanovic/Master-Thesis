@@ -7,7 +7,7 @@ import torch
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
-from model.model import PPO, RolloutBuffer
+from model.PPO import PPO, RolloutBuffer
 from utils.utils import decode_action, log_config_text
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
 from experiments.settings import randjack5drone1
