@@ -1,5 +1,6 @@
 import random
 from .vec import Vector
+from .behaviors import BEHAVIOR_FNs
     
 class Entity:
     next_id = 1
@@ -12,7 +13,7 @@ class Entity:
     def update_pos(self):
         self.pos.add(self.vel_dir.scale(self.vel_speed*self.dt), in_place=True)
 
-    def _enforce_speed(self):
+    def enforce_speed(self):
         if self.vel_speed > self.max_speed:
             self.vel_speed = self.max_speed
         elif self.vel_speed < self.min_speed:
@@ -24,8 +25,8 @@ class Drone(Entity):
         # camera
         self.ver_angle = int(config["drone"]["init"]["ver_angle"])
         self.hor_angle = int(config["drone"]["init"]["hor_angle"])
-        self.max_cam_rot = int(config["drone"]["init"]["max_cam_rot"])
         self.view_range = int(config["drone"]["init"]["view_range"])
+        self.max_cam_rot = int(config["drone"]["init"]["max_cam_rot"])
         self.view_dir = Vector(*config["drone"]["init"]["view_dir"])
         self.theta = 0 # camera rotation in degrees per timestep
 
@@ -45,22 +46,17 @@ class Drone(Entity):
     def reset_theta(self):
         self.theta = 0
     
-    def _enforce_cam_rot(self): 
+    def enforce_cam_rot(self): 
         scaled_theta = self.max_cam_rot * self.dt
         if self.theta > scaled_theta:
             self.theta = scaled_theta
         elif self.theta < -scaled_theta:
             self.theta = -scaled_theta
 
-    def _enforce_position(self):
+    def enforce_position(self):
         if self.pos.z < 0:
             self.pos.z = 0
 
-    def enforce_constraints(self):
-        self._enforce_cam_rot()
-        self._enforce_speed()
-        self._enforce_position()        
-        
 class Animal(Entity):
     def __init__(self, config, behaviors, movement_dims):
         super().__init__(config)
@@ -71,7 +67,7 @@ class Animal(Entity):
         # movement
         self.min_speed = float(config["animal"]["init"]["min_speed"])
         self.max_speed = float(config["animal"]["init"]["max_speed"])
-        self.epsilon = int(config["animal"]["init"]["epsilon"])
+        self.epsilon = float(config["animal"]["init"]["epsilon"])
         self.ver_dir_angle = int(config["animal"]["init"]["ver_dir_angle"])
         self.hor_dir_angle = int(config["animal"]["init"]["hor_dir_angle"])
         self.behavior = config["animal"]["init"]["behavior"]
@@ -89,7 +85,7 @@ class Animal(Entity):
         if self.pos.z != 0:
             self.pos.z = 0 
 
-    def _enforce_position(self):
+    def enforce_position(self):
         if self.use_random_unit_3d:
             self._enforce_position_3d()
         elif ~self.use_random_unit_3d:
@@ -97,9 +93,13 @@ class Animal(Entity):
         else:
             raise ValueError(f"Unexpected value: Choose 2D or 3D")
 
-    def enforce_constraints(self):
-        self._enforce_speed()
-        self._enforce_position()
+    def update_vel(self):
+        """
+        Updates velocity (magnitude and direction) according to specified behavior (random walk, points of interest, path following) and movement dimensions (2D or 3D).
+        """
+        fn = BEHAVIOR_FNs[self.behavior]
+        fn(self)
         
+    
         
         

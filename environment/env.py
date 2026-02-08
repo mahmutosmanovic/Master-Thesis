@@ -44,17 +44,31 @@ class Env:
             drone.vel_speed = random.uniform(drone.min_speed, drone.max_speed)
 
     def sample_action(self):
+        """
+        Action Space:
+            1. Velocity Direction (unit vector): [vx,vy,vz],
+            2. Velocity speed (between min-max in config): k,
+            3. Angle, the amount of degrees to rotate the camera (view_dir, between -max_cam_rot and max_cam_rot): theta.
+        """
+
         actions = []
         for drone in self.drones:
             action = {
                 "vel_dir": Vector(random_unit_3d=True),
                 "vel_speed": random.uniform(drone.min_speed, drone.max_speed),
-                "theta": random.triangular(-drone.max_cam_rot, drone.max_cam_rot)
+                "theta": random.triangular(-drone.max_cam_rot, 0, drone.max_cam_rot)
             }
             actions.append(action)
         return actions
         
     def reset(self, seed=None):
+        """
+        Reinitializes drone and animal initial positions according to config.
+        Returns observations, the animals and drones.
+        
+        :param seed: makes every episode the same
+        """
+
         if seed:
             random.seed(seed)
 
@@ -65,12 +79,41 @@ class Env:
 
         return (self.animals, self.drones), info
     
-    def step(self, actions):
-        for drone, action in zip(self.drones, actions):
+    def _step_drone(self, drones, actions):
+        for drone, action in zip(drones, actions):
+            # movement
             drone.vel_dir.setter(action["vel_dir"])
             drone.vel_speed = action["vel_speed"]
-            drone.theta = action["theta"]
+            drone.enforce_speed()
             drone.update_pos()
+            drone.enforce_position()
+            
+            # camera
+            drone.theta = action["theta"]
+            drone.enforce_cam_rot()
+            drone.view_dir.rotate_z(drone.theta)
+            drone.reset_theta()
+
+    def _step_animal(self):
+        for animal in self.animals:
+            # movement
+            animal.update_vel()
+            animal.enforce_speed()
+            animal.update_pos()
+            animal.enforce_position()
+    
+    def step(self, actions):
+        self._step_drone(self.drones, actions)
+        self._step_animal()
+
+        reward = 0
+
+        terminated = False
+        truncated = False
+        info = {}
+
+        observations = (self.animals, self.drones)
+        return observations, reward, terminated, truncated, info
 
     def close(self):
         ...

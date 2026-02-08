@@ -18,7 +18,7 @@ def main(config):
     
     for t in range(config["steps"]):
         actions = env.sample_action()
-        env.step(actions)
+        observation, reward, terminated, truncated, info = env.step(actions)
 
 if __name__ == "__main__":
     main(cfg_train)

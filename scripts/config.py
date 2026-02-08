@@ -5,7 +5,7 @@ cfg_train = {
     "model_path": "checkpoint.pt",
     "episodes": 100,
     "save_every": 20, # episodes
-    "steps": 10,
+    "steps": 1,
     "drone": {
         "env": {
             "count": 1, # drone count
@@ -28,7 +28,7 @@ cfg_train = {
         "init": {
             "min_speed": 1, # min animal speed
             "max_speed": 8, # max animal speed
-            "epsilon": 0.05, # how often dir change
+            "epsilon": 0.1, # how often dir change
             "ver_dir_angle": 0, # max animal vertical abs(deg) change
             "hor_dir_angle": 60, # max animal vertical abs(deg) change
             "behavior": Behavior.RANDOM, # type of behavior
