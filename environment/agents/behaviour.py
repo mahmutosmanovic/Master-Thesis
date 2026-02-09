@@ -1,21 +1,95 @@
 import numpy as np
+from functools import singledispatch
+from dataclasses import dataclass
 from utils.vec_utils import *
-from abc import ABC, abstractmethod
 
-class Behaviour(ABC):
-    def __init__(self, seed): # Seed using np seed sequencer
+class CRWKernel: # Base movement for all behaviours
+    def __init__(self, rng):
+        self.rng = rng
+
+    def step_direction(self, cur_dir, persistence, turn_sigma, bias_vec = np.zeros(3, dtype=float), bias_gain = 1.0):
+        cur_dir = unit(cur_dir)
+        persistence = np.clip(persistence, 0.0, 1.0)
+        turn_sigma = np.max([0.0, turn_sigma])
+
+        # turning noise
+        noise = self.rng.normal(0.0, turn_sigma, size=3)
+        bias = unit(bias_vec) * bias_gain
+
+        # correlated update
+        desired = persistence * cur_dir + noise + bias
+        return unit(desired)
+
+    def step_speed(self, cur_norm_speed, target_norm_speed, speed_sigma = 0.0, smooth = 0.2):
+        smooth = np.clip(smooth, 0.0, 1.0)
+        speed_sigma = np.max([0.0, speed_sigma])
+
+        norm_speed = (1.0 - smooth) * cur_norm_speed + smooth * target_norm_speed + self.rng.normal(0.0, speed_sigma)
+        return np.clip(norm_speed, 0.0, 1.0)
+
+# Base
+@dataclass
+class BehaviourConfig:
+    pass
+
+@singledispatch
+def make_behaviour(cfg, seed):
+    raise TypeError(f"No behaviours for config type: {type(cfg).__name__}")
+
+class Behaviour:
+    def __init__(self, seed):
         self.rng = np.random.default_rng(seed)
+        self.kernel = CRWKernel(self.rng)
 
-    @abstractmethod
-    def act(self, obs, params, dt):
+    def act(self, obs, dt):
         raise NotImplementedError
-    
+
     # for when we have behaviour state, (memory etc.)
-    def update(self, obs): 
+    def update(self, obs):
         pass
 
     def reset(self):
         pass
+
+    def get_state(self) -> str:
+        return "base"
+
+# Implementations
+
+@dataclass
+class CRWConfig(BehaviourConfig):
+    persistence: float  = 0.9
+    turn_sigma: float   = 0.25
+    target_speed: float = 0.7
+    speed_sigma: float  = 0.03
+    speed_smooth: float = 0.2
+    bias_gain: float    = 0.0
+
+@make_behaviour.register
+def _(cfg: CRWConfig, seed):
+    return CRW(cfg, seed)
+
+class CRW(Behaviour):
+    def __init__(self, cfg, seed):
+        super().__init__(seed)
+        self.cfg = cfg
+
+    def act(self, obs, dt):
+        desired_dir = self.kernel.step_direction(
+            cur_dir=obs["direction"],
+            persistence=self.cfg.persistence,
+            turn_sigma=self.cfg.turn_sigma,
+            bias_gain=self.cfg.bias_gain,
+        )
+        desired_norm_speed = self.kernel.step_speed(
+            cur_norm_speed=obs["norm_speed"],
+            target_norm_speed=self.cfg.target_speed,
+            speed_sigma=self.cfg.speed_sigma,
+            smooth=self.cfg.speed_smooth,
+        )
+        return desired_dir, desired_norm_speed
+
+# Old implementations
 
 class RandomWalk(Behaviour):
     def __init__(self, seed):
@@ -35,7 +109,6 @@ class RandomWalk(Behaviour):
         desired_norm_speed = float(np.clip(desired_norm_speed, 0.0, 1))
 
         return desired_dir, desired_norm_speed
-
 
 class PathFollow(Behaviour):
     def __init__(self, path, seed):

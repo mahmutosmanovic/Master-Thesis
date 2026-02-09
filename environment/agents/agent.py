@@ -56,8 +56,7 @@ class Agent:
         vx, vy, vz = self.direction * self.norm_speed * self.params.max_speed
         return {
             "agent_id": self.agent_id,
-            "species": self.params.name,
-            "mode": self.mode,
+            "type": self.params.name,
 
             "x": self.pos[0],
             "y": self.pos[1],

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Sequence, Optional
+from environment.agents.behaviour import BehaviourConfig
 
 @dataclass
 class EnvConfig:
@@ -12,10 +13,6 @@ class EnvConfig:
     map_height: float = 200.0
     map_altitude: float = 100.0
 
-    # POIs
-    poi_count: int = 0
-    poi_points: Optional[Sequence[tuple]] = None
-
     # animals
     # each entry: {params: AnimalParams, count: int, mode: str}
     animals: Sequence[dict] = field(default_factory=list)
@@ -25,7 +22,6 @@ class EnvConfig:
     drones: Sequence[dict] = field(default_factory=list)
     
     # observation and reward
-    sensor_scale: float = 200.0 # used for scaling observation and reward (meters) if sensor has no maximum distance
     distance_scale: float = 5.0
     alignment_scale: float = 1.0
     disturbance_scale: float = 2.5
@@ -42,9 +38,7 @@ class AnimalParams:
    max_speed: float
    max_turn: float
 
-   # noise / behavior
-   turn_noise: float
-   epsilon: float
+   # flight/avoid
    avoidance_threshold: float
    flight_threshold: float
 

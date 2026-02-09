@@ -123,7 +123,7 @@ def animate_simulation_csv_3d(
     for r in rows:
         aid = int(r["agent_id"])
         if aid not in agent_species:
-            agent_species[aid] = r["species"]
+            agent_species[aid] = r["type"]
 
     # Precompute positions per agent per frame (NaN when not present)
     nF = len(frame_rows)

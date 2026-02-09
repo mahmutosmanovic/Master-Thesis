@@ -1,4 +1,6 @@
 from environment.config import EnvConfig, AnimalParams, DroneParams
+from environment.agents.behaviour import BehaviourConfig, CRWConfig
+from environment.agents.sensor import SensorConfig, CameraConfig, GPSConfig
 
 def rand5jack1drone():
     return EnvConfig(
@@ -6,33 +8,24 @@ def rand5jack1drone():
         dt=0.2,
         max_t=1000.0,
 
-        # map
+        # map spawning bounds
         map_width=200.0,
         map_height=200.0,
         map_altitude=100.0,
 
-        # POIs
-        poi_count=3,
-        poi_points=[
-            (30.0, 0.0, 0.0),
-            (0.0, 0.0, 0.0),
-            (0.0, 30.0, 30.0),
-        ],
-
         # animals
         animals=[
-            dict(params=jackal_params(), count=5, mode="random"),
-            dict(params=eagle_params(),  count=0, mode="random"),
-            dict(params=pigeon_params(), count=0, mode="path_follow"),
+            dict(params=jackal_params(), count=1, behaviour_cfg=CRWConfig()),
+            dict(params=eagle_params(),  count=0, behaviour_cfg=CRWConfig()),
+            dict(params=pigeon_params(), count=0, behaviour_cfg=CRWConfig()),
         ],
 
         # drones
         drones=[
-            dict(params=drone_params(), count=1, sensor="camera"),
+            dict(params=drone_params(), count=1, sensor_cfg=CameraConfig()),
         ],
 
         # observation and reward
-        sensor_scale = 200.0,
         distance_scale = 2.5,
         alignment_scale = 1.0,
         disturbance_scale = 2.5,
@@ -45,8 +38,6 @@ def jackal_params():
         is_planar=True,
         max_speed=12.0,
         max_turn=4.0,
-        turn_noise=0.4,
-        epsilon=1,
         avoidance_threshold=0.75,
         flight_threshold=1,
     )
@@ -57,8 +48,6 @@ def eagle_params():
         is_planar=False,
         max_speed=30.0,
         max_turn=8.0,
-        turn_noise=0.4,
-        epsilon=0.03,
         avoidance_threshold=0.75,
         flight_threshold=1,
    )
@@ -69,8 +58,6 @@ def pigeon_params():
         is_planar = False,
         max_speed = 15.0,
         max_turn  = 16.0,
-        turn_noise = 0.6,
-        epsilon = 0.8,
         avoidance_threshold=0.75,
         flight_threshold=1,
     )
