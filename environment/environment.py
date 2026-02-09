@@ -9,9 +9,9 @@ from environment.agents.drone import Drone
 from environment.agents.behaviour import RandomWalk, PathFollow, POI
 from environment.agents.animal import Animal
 from environment.agents.sensor import Camera, GPSSensor
-from environment.disturbance import DisturbanceField
+from environment.agents.disturbance import DisturbanceField
 from environment.reward import tracking_reward
-from utils.vec_utils import *
+from utils.vec_utils import position_on_cylinder, random_position, random_direction
 
 
 class Environment:
@@ -28,9 +28,6 @@ class Environment:
         self.max_t = config.max_t
 
         self.pois = self._init_pois()
-
-        self.disturbance = DisturbanceField()
-        self.animal_disturbance = None
 
         self.drone_ids = []
         self.animal_ids = []
@@ -68,12 +65,10 @@ class Environment:
 
         info = {"drone_ids": self.drone_ids, "animal_ids": self.animal_ids}
 
-        self.calc_animal_disturbance()
+        self.disturb_animals()
+        drone_obs, _ = self.gather_drone_obs_rew()
 
-        animals = [self.agents[animal_id] for animal_id in self.animal_ids]
-        drone_observations = {drone_id: np.concatenate(self.agents[drone_id].observe(animals), axis=0) for drone_id in self.drone_ids}
-
-        return drone_observations, info
+        return drone_obs, info
     
     def _create_path_if_needed(self):
         if not self._any_path_following():
@@ -106,9 +101,11 @@ class Environment:
                     behaviour = POI(self.pois, self.seed_seq.spawn(1)[0])
 
             agent = Animal(agent_id=len(self.agents),
-                           pos=self.random_position(),
+                           pos=random_position(self.rng, self.cfg.map_width, self.cfg.map_height, 0),
+                           direction=random_direction(self.rng),
                            params=animal_params,
                            behaviour=behaviour,
+                           disturbance_field=DisturbanceField(),
                            seed=self.seed_seq.spawn(1)[0],
                            mode=selected_mode)
             
@@ -125,10 +122,11 @@ class Environment:
         for _ in range(count):
             target_id = self.rng.choice(self.animal_ids)
             target_pos = self.agents[target_id].pos.copy()
-            pos, yaw = self.position_on_circle(target_pos)
+            pos, yaw = position_on_cylinder(target_pos, self.rng)
 
             agent = Drone(agent_id=len(self.agents),
-                          pos=pos, 
+                          pos=pos,
+                          direction=random_direction(self.rng),
                           params=drone_params,
                           sensor=sensor,
                           seed=self.seed_seq.spawn(1)[0],
@@ -140,21 +138,6 @@ class Environment:
             self.agents.append(agent)
 
     # Simulation
-    def random_position(self):
-        return np.array([
-            self.rng.uniform(0, self.cfg.map_width),
-            self.rng.uniform(0, self.cfg.map_height),
-            0.0
-        ])
-    
-    def position_on_circle(self, target_pos, distance=120, altitude=60):
-        angle = self.rng.uniform(0, 2*np.pi)
-        offset = np.array([distance * np.cos(angle), distance * np.sin(angle), altitude], dtype=float)
-        pos = target_pos + offset
-        yaw = np.arctan2(target_pos[1] - pos[1], target_pos[0] - pos[0])
-
-        return pos, yaw
-    
     def _init_pois(self):
         if self.cfg.poi_points is not None:
             pts = self.cfg.poi_points
@@ -162,66 +145,59 @@ class Environment:
             pts = [(self.rng.uniform(0, self.cfg.map_width), self.rng.uniform(0, self.cfg.map_height), 0.0) for _ in range(self.cfg.poi_count)]
 
         return [np.array(p, dtype=float) for p in pts]
-
-    def get_animal_observation(self, agent):
-        return {
-            "pos": agent.pos.copy(),
-            "norm_speed": agent.norm_speed,
-            "direction": agent.direction,
-            "disturbance_info": self.animal_disturbance[agent.agent_id],
-        }
-
-    def calc_animal_disturbance(self):
-        animal_disturbance = {}
-        for animal_id in self.animal_ids:
-            disturbance = {drone_id: self.disturbance.get_disturbance(self.agents[animal_id], self.agents[drone_id]) for drone_id in self.drone_ids}
-            animal_disturbance[self.agents[animal_id].agent_id] = disturbance
-        
-        self.animal_disturbance = animal_disturbance
     
-    def step(self, external_actions):
-        # Update agent states
+    def gather_actions(self, external_actions):
+        animal_obs = {animal_id: self.agents[animal_id].observe() for animal_id in self.animal_ids}
+        animal_actions = {animal_id: self.agents[animal_id].policy(animal_obs[animal_id], self.cfg.dt) for animal_id in self.animal_ids}
+        return {**external_actions, **animal_actions}
+    
+    def update_state(self, actions):
         for agent in self.agents:
-            if type(agent) == Drone:
-                action = external_actions[agent.agent_id]
-            elif type(agent) == Animal:
-                obs = self.get_animal_observation(agent)
-                action = agent.policy(obs, self.cfg.dt)
-            else:
-                raise NotImplementedError
-            
+            action = actions[agent.agent_id]
             agent.update(action, self.cfg.dt)
-            
         self.t += self.cfg.dt
 
-        self.calc_animal_disturbance()
+    def disturb_animals(self):
+        drones = [self.agents[drone_id] for drone_id in self.drone_ids]
+        for animal_id in self.animal_ids:
+            self.agents[animal_id].disturb(drones)
+
+    def gather_drone_obs_rew(self):
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
-
-        reward = {}
-        drone_observations = {}
+        rewards = {}
+        observations = {}
         for drone_id in self.drone_ids:
-            # per drone disturbance
-            disturbances = np.array([animal[drone_id]["val"] for animal in self.animal_disturbance.values()], dtype=np.float32)
-            disturbance = np.mean(disturbances)
-
             # keep separate and handle concat in env, easier to modify later with heterogeneous agents
             drone_obs, sensor_obs = self.agents[drone_id].observe(animals)
             sensor_metrics = self.agents[drone_id].sensor.metrics(sensor_obs)
 
+            # per drone disturbance
+            disturbances = np.array([animal.disturbance[drone_id]["val"] for animal in animals], dtype=np.float32)
+            disturbance = np.mean(disturbances)
+
             # calculate reward from metrics, explicit reward stated in reward.py
-            reward[drone_id] = tracking_reward(sensor_metrics, disturbance, self.cfg.distance_scale, self.cfg.alignment_scale, self.cfg.disturbance_scale)
+            rewards[drone_id] = tracking_reward(sensor_metrics, disturbance, self.cfg.distance_scale, self.cfg.alignment_scale, self.cfg.disturbance_scale)
 
-            drone_observations[drone_id] = np.concatenate([drone_obs, sensor_obs], axis=0) # Assemble full observation
+            # Assemble full observation
+            observations[drone_id] = np.concatenate([drone_obs, sensor_obs], axis=0)
+        
+        return observations, rewards
 
-        for agent in self.agents: self.log_agent_state(agent)
-
-        info = {}
+    def is_done(self):
         if self.t > self.max_t:
-            done = True
+            return True
         else:
-            done = False
-
-        return drone_observations, reward, done, info
+            return False
+        
+    def step(self, external_actions):
+        actions = self.gather_actions(external_actions)
+        self.update_state(actions)  
+        self.disturb_animals()
+        drone_obs, rewards = self.gather_drone_obs_rew()
+        for agent in self.agents: self.log_agent_state(agent)
+        done = self.is_done()
+        info = {}
+        return drone_obs, rewards, done, info
 
     def episode_statistics(self):
         log = self.log
@@ -259,14 +235,9 @@ class Environment:
 
     # Logging
     def log_agent_state(self, agent):
-        disturbance = self.animal_disturbance.get(agent.agent_id, None)
-        if disturbance:
-            disturbance = np.sum([d["val"] for d in disturbance.values()])
-
         self.log.append({
             "t": self.t,
             **agent.to_dict(),
-            "disturbance": disturbance,
         })
 
     def _get_log_fieldnames(self):

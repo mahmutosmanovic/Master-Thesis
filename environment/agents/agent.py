@@ -2,26 +2,16 @@ import numpy as np
 from utils.vec_utils import *
 
 class Agent:
-    def __init__(self, agent_id, pos, seed, mode=None):
+    def __init__(self, agent_id, pos, direction, seed, mode=None):
         self.agent_id = agent_id
 
         self.rng = np.random.default_rng(seed)
 
         self.pos = np.array(pos) # 3d
         self.norm_speed = 0.0
-        self.direction = self.random_direction()
+        self.direction = direction
 
         self.mode = mode
-
-    def l2_norm(self, v):
-        n = np.linalg.norm(v)
-        if n < 1e-8:
-            return np.array([1.0, 0.0, 0.0])
-        return v / n
-
-    def random_direction(self):
-        v = self.rng.normal(size=3)
-        return self.l2_norm(v)
 
     def move(self, dt):
         self.pos = self.pos + (self.direction * self.norm_speed * self.params.max_speed) * float(dt)

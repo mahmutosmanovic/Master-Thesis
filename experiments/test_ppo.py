@@ -6,7 +6,7 @@ import torch
 
 from utils.utils import decode_action
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
-from experiments.settings import randjack5drone1
+from experiments.settings import rand5jack1drone
 from model.PPO import PPO
 
 @torch.no_grad()
@@ -25,14 +25,14 @@ def main():
     parser.add_argument("--seed", type=int, default=65)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--ckpt", type=str, default="checkpoints/ppo_drone.pt")
+    parser.add_argument("--ckpt", type=str, default="logs/training/checkpoints/ppo_drone.pt")
     parser.add_argument("--log", type=str, default="logs/simulations/ppo_rollout.csv")
     parser.add_argument("--print_every", type=int, default=1)
     args = parser.parse_args()
 
     # --- Env ---
 
-    cfg = randjack5drone1()
+    cfg = rand5jack1drone()
     
     env = Environment(cfg)
     obs_dict, info = env.reset(seed=args.seed)

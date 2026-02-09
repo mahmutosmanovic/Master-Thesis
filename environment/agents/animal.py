@@ -9,13 +9,27 @@ class Animal(Agent):
     STATE_FLEE  = "flee"
     STATES = [STATE_BASE, STATE_AVOID, STATE_FLEE]
 
-    def __init__(self, agent_id, pos, params, behaviour, seed, mode=None):
-        super().__init__(agent_id, pos, seed, mode)
+    def __init__(self, agent_id, pos, direction, params, behaviour, disturbance_field, seed, mode=None):
+        super().__init__(agent_id, pos, direction, seed, mode)
         self.params = params
         self.behaviour = behaviour
         self.state = Animal.STATE_BASE
 
-    # Behavior
+        self.disturbance_field = disturbance_field
+        self.disturbance = None
+
+    # Behavior 
+    def disturb(self, drones):
+        self.disturbance = {drone.agent_id: self.disturbance_field.get_disturbance(self, drone) for drone in drones}
+
+    def observe(self):
+        return {
+            "pos": self.pos.copy(),
+            "norm_speed": self.norm_speed,
+            "direction": self.direction,
+            "disturbance_info": self.disturbance,
+        }
+    
     def policy(self, obs, dt):
         direction, norm_speed = self.behaviour.act(obs, self.params, dt) # always act, to maintain determinism
         disturbance = np.sum([drone["val"] for drone in obs["disturbance_info"].values()])
@@ -35,7 +49,7 @@ class Animal(Agent):
         else: # Base
             self.state = Animal.STATE_BASE
             return direction, norm_speed
-    
+
     def calc_mean_disturbance_dir(self, obs):
         drone_directions = [drone["dir"] for drone in obs["disturbance_info"].values()]
         mean_disturbance_dir = np.mean(drone_directions, axis=0)
@@ -46,6 +60,7 @@ class Animal(Agent):
         return{
             **super().to_dict(),
             "behaviour_state": self.state,
+            "disturbance": np.sum([d["val"] for d in self.disturbance.values()])
             # Add aditional things to log
         }
 

@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from model.PPO import PPO, RolloutBuffer
 from utils.utils import decode_action, log_config_text
 from environment import Environment, EnvConfig, DroneParams, AnimalParams
-from experiments.settings import randjack5drone1
+from experiments.settings import rand5jack1drone
 
 
 def train(
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="logs/training")
     args = parser.parse_args()
 
-    cfg = randjack5drone1()
+    cfg = rand5jack1drone()
 
     env = Environment(config=cfg)
 
