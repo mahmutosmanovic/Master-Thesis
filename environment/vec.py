@@ -1,5 +1,6 @@
-import random
 import math
+import random
+import numpy as np
 
 class Vector:
     def __init__(self, x=0, y=0, z=0, 
@@ -25,7 +26,11 @@ class Vector:
         self.x /= n 
         self.y /= n 
         self.z /= n
-    
+
+    def distance(self, vec_other):
+        dist_vec = self.add(vec_other.scale(-1))
+        return dist_vec.norm()
+
     def random_unit_2d(self):
         self.x = random.uniform(-1, 1)
         self.y = random.uniform(-1, 1)
@@ -37,6 +42,9 @@ class Vector:
         self.y = random.uniform(-1, 1)
         self.z = random.uniform(-1, 1)
         self.unit()
+
+    def to_numpy(self):
+        return np.array([self.x, self.y, self.z])
     
     def rotate_z(self, deg):
         rad = math.radians(deg)
@@ -61,6 +69,7 @@ class Vector:
             y = self.y * k
             z = self.z * k
             return Vector(x, y, z)
+        
     def add(self, vec3d, in_place=False):
         if in_place:
             self.x += vec3d.x
