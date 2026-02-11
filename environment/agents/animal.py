@@ -24,12 +24,13 @@ class Animal(Agent):
         self.disturbance_info = {drone.agent_id: self.disturbance_field.get_disturbance(self, drone) for drone in drones}
         self.total_disturbance = np.sum([d["val"] for d in self.disturbance_info.values()])
 
-    def observe(self):
+    def observe(self, p_resource):
         return {
             "pos": self.pos.copy(),
             "norm_speed": self.norm_speed,
             "direction": self.direction,
             "disturbance_info": self.disturbance_info,
+            "p_resource": p_resource,
         }
     
     def policy(self, obs, dt):
