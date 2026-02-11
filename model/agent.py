@@ -5,6 +5,9 @@ class Agent:
     def eval():
         ...
 
+    def load():
+        ...
+
     def save(self):
         ...
 

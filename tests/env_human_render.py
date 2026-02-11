@@ -15,7 +15,13 @@ def main(config):
     env = Env(cfg_train, render_mode="human")
     obs, info = env.reset()
     
-    for t in range(config["steps"]):
+    for t in range(1, config["steps"]+1):
+        if t==5:
+            env.set_render_mode(None)
+
+        if t==8:
+            env.set_render_mode("human")
+
         actions = env.sample_action()
         observation, reward, terminated, truncated, info = env.step(actions)
 

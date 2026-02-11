@@ -14,6 +14,7 @@ from tqdm import trange, tqdm
 def main(config):
     env = Env(config, seed=42)
     agent = Agent()
+    agent.load(config["model_path"])
     agent.train()
 
     global_step = 0

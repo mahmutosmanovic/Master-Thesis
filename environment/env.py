@@ -1,6 +1,7 @@
 import random
 import numpy as np
 from .vec import Vector
+from .viewer import Viewer
 from .entity import Drone, Animal
 from scripts import Behavior, MovementDim
 
@@ -12,6 +13,8 @@ class Env:
         self.render_mode = render_mode
 
         self.config = config
+
+        self.viewer = Viewer(config["dt"])
         
         self.animal_count = config["animal"]["env"]["count"]
         self.animals = [Animal(config=config, 
@@ -208,6 +211,49 @@ class Env:
 
             return np.array(in_FoV_obs, dtype=np.float32)
 
+    def compute_reward(self, observations):
+
+        r_vis = 0.0
+        r_dist = 0.0
+        r_align = 0.0
+
+        obs = observations.reshape(
+            self.drone_count,
+            self.animal_count,
+            4
+        )
+
+        for d in range(self.drone_count):
+
+            drone_obs = obs[d]
+
+            in_view = drone_obs[:, 0]
+            dist = drone_obs[:, 1]
+            v = np.abs(drone_obs[:, 2])
+            h = np.abs(drone_obs[:, 3])
+
+            visible = in_view > 0.5
+
+            if np.any(visible):
+
+                r_vis += np.mean(in_view)
+
+                r_dist += np.mean(1.0 - dist[visible])
+
+                r_align += np.mean(1.0 - (v[visible] + h[visible]) * 0.5)
+
+        r_vis /= self.drone_count
+        r_dist /= self.drone_count
+        r_align /= self.drone_count
+
+        return r_vis, r_dist, r_align
+
+    def set_render_mode(self, mode):
+        self.render_mode = mode
+
+    def render(self):
+        self.viewer.draw(self.drones, self.animals, self.render_mode)
+
     def step(self, actions):
         self._step_drone(self.drones, actions)
         self._step_animal()
@@ -226,6 +272,13 @@ class Env:
             )
         """
         observations = self.in_FoV(self.drones, self.animals)
+
+        reward = self.compute_reward(observations)
+        r_vis, r_dist, r_align = self.compute_reward(observations)
+        reward = 0.4*r_vis + 0.4*r_dist + 0.2*r_align
+
+
+        self.render()
         return observations, reward, terminated, truncated, info
 
     def close(self):
