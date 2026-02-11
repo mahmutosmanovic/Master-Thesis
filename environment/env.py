@@ -34,15 +34,32 @@ class Env:
             animal.pos = spawn_dir.scale(radis_len)
 
     def _init_drone(self):
-        for drone, animal in zip(self.drones, self.animals):
-            animal_pos = animal.pos.getter()    
-            drone.view_dir.unit()
-            drone.view_dir.rotate_z(random.uniform(0,360))
-            view_dir = drone.view_dir.getter()
-            inv_scale_view_dir = view_dir.scale(-drone.spawn_dist)
-            new_drone_pos = animal_pos.add(inv_scale_view_dir)
-            drone.pos.setter(new_drone_pos)
-            drone.vel_speed = random.uniform(drone.min_speed, drone.max_speed)
+            for i in range(self.drone_count):
+                # Use modulo to wrap around the animal list if drones > animals
+                # If drone_count is 5 and animal_count is 2: 
+                # Drones 0, 2, 4 get Animal 0 | Drones 1, 3 get Animal 1
+                animal = self.animals[i % self.animal_count]
+                drone = self.drones[i]
+
+                animal_pos = animal.pos.getter()    
+
+                # Reset and randomize view direction
+                drone.view_dir.unit()
+                drone.view_dir.rotate_z(random.uniform(0, 360))
+
+                view_dir = drone.view_dir.getter()
+
+                # Calculate position: move backwards from animal by spawn_dist
+                inv_scale_view_dir = view_dir.scale(-drone.spawn_dist)
+                new_drone_pos = animal_pos.add(inv_scale_view_dir)
+
+                drone.pos.setter(new_drone_pos)
+
+                # Randomize initial speed
+                drone.vel_speed = random.uniform(
+                    drone.min_speed, 
+                    drone.max_speed
+                )
 
     def sample_action(self):
         """
@@ -78,8 +95,9 @@ class Env:
 
         info = {}
 
-        return (self.animals, self.drones), info
-    
+        observations = self.in_FoV(self.drones, self.animals)
+        return observations, info
+
     def _step_drone(self, drones, actions):
         for drone, action in zip(drones, actions):
             # movement
@@ -104,57 +122,91 @@ class Env:
             animal.enforce_position()
 
     def in_FoV(self, drones, animals):
-        """
-        x: view dir
-        z: perpendicular upwards relative to x-dir
-        y: perpendicular right relative to x-dir
-        """
-        in_FoV_obs = []
-        world_z = np.array([0,0,1])
-        for i, (drone, animal) in enumerate(zip(drones, animals)):
-            # get animal and drone positions
-            distance = np.round(animal.pos.distance(drone.pos), 1)
-            drone_pos = drone.pos.to_numpy()
-            animal_pos = animal.pos.to_numpy()
+            """
+            x: view dir
+            z: perpendicular upwards relative to x-dir
+            y: perpendicular right relative to x-dir
+            """
+            in_FoV_obs = []
+            world_z = np.array([0,0,1], dtype=np.float32)
 
-            # get unit vector pointing in the direction of the animal from current drone position
-            drone_to_animal_vec = animal_pos - drone_pos
-            drone_to_animal_vec = drone_to_animal_vec / np.linalg.norm(drone_to_animal_vec)
+            for drone in drones:
 
-            # get camera / frustum view direction
-            x = drone.view_dir.to_numpy()
+                drone_obs = []
 
-            # create horizontal basis
-            y = np.cross(world_z, x)
-            y /= np.linalg.norm(y)
+                # get camera / frustum view direction
+                x = drone.view_dir.to_numpy()
+                x = x / np.linalg.norm(x)
 
-            # create upward basis
-            z = np.cross(x, y)
-            z /= np.linalg.norm(z)
+                # create horizontal basis
+                y = np.cross(world_z, x)
+                y = y / np.linalg.norm(y)
 
-            cx = np.dot(drone_to_animal_vec, x)
-            cy = np.dot(drone_to_animal_vec, y)
-            cz = np.dot(drone_to_animal_vec, z)
+                # create upward basis
+                z = np.cross(x, y)
+                z = z / np.linalg.norm(z)
 
-            # # horizontal angle between view and animal position
-            v_angle = np.round(np.arctan2(cz, cx), 2)
-            h_angle = np.round(np.arctan2(cy, cx), 2)
+                # specified config values are full width
+                v_max = np.deg2rad(drone.ver_angle / 2)
+                h_max = np.deg2rad(drone.hor_angle / 2)
 
-            # # specified config values are full width
-            v_max = np.deg2rad(drone.ver_angle / 2)
-            h_max = np.deg2rad(drone.hor_angle / 2)
+                for animal in animals:
 
-            # check if animal is in view
-            in_view = (
-                cx > 0 and # animal is not behind drone
-                abs(v_angle) <= v_max and
-                abs(h_angle) <= h_max and
-                distance < drone.view_range
-            )
+                    # get animal and drone positions
+                    drone_pos = drone.pos.to_numpy()
+                    animal_pos = animal.pos.to_numpy()
 
-            in_FoV_obs.append([in_view, distance, v_angle, h_angle])
+                    # get vector pointing in the direction of the animal
+                    rel_vec = animal_pos - drone_pos
+                    distance = np.linalg.norm(rel_vec)
 
-        return in_FoV_obs
+                    # guard against zero distance
+                    drone_to_animal_vec = rel_vec / distance if distance >= 1e-8 else np.zeros(3)
+
+                    cx = np.dot(drone_to_animal_vec, x)
+                    cy = np.dot(drone_to_animal_vec, y)
+                    cz = np.dot(drone_to_animal_vec, z)
+
+                    # horizontal and vertical angles
+                    v_angle = np.arctan2(cz, cx)
+                    h_angle = np.arctan2(cy, cx)
+
+                    # check if animal is in view
+                    in_view = (
+                        cx > 0 and 
+                        abs(v_angle) <= v_max and
+                        abs(h_angle) <= h_max and
+                        distance <= drone.view_range
+                    )
+
+                    if in_view:
+
+                        # normalize values for the observation
+                        dist_norm = distance / drone.view_range
+                        v_norm = v_angle / v_max
+                        h_norm = h_angle / h_max
+
+                        drone_obs.append([
+                            1.0, 
+                            dist_norm, 
+                            v_norm, 
+                            h_norm
+                        ])
+
+                    else:
+
+                        # default values when not in view
+                        drone_obs.append([
+                            0.0, 
+                            1.0, 
+                            0.0, 
+                            0.0
+                        ])
+
+                # flatten the observations for this specific drone
+                in_FoV_obs.append(np.array(drone_obs, dtype=np.float32).reshape(-1))
+
+            return np.array(in_FoV_obs, dtype=np.float32)
 
     def step(self, actions):
         self._step_drone(self.drones, actions)
@@ -166,9 +218,14 @@ class Env:
         truncated = False
         info = {}
 
-        in_view_bools = self.in_FoV(self.drones, self.animals)
-
-        observations = [in_view_bools]
+        """
+        observations.shape =
+            (
+                num_drones,
+                num_animals * [in_view, dist_norm, h_norm, v_norm]
+            )
+        """
+        observations = self.in_FoV(self.drones, self.animals)
         return observations, reward, terminated, truncated, info
 
     def close(self):

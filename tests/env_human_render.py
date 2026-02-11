@@ -14,7 +14,6 @@ from tqdm import trange, tqdm
 def main(config):
     env = Env(cfg_train, render_mode="human")
     obs, info = env.reset()
-    animals, drones = obs
     
     for t in range(config["steps"]):
         actions = env.sample_action()
