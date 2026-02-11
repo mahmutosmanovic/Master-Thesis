@@ -25,6 +25,7 @@ class EnvConfig:
     distance_scale: float = 5.0
     alignment_scale: float = 1.0
     disturbance_scale: float = 2.5
+    control_scale:float = 0.5
 
 @dataclass
 class AnimalParams:

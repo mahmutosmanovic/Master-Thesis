@@ -20,16 +20,16 @@ class Drone(Agent):
 
     @property
     def obs_dim(self) -> int:
-        return 3 + self.sensor.obs_dim()
+        return 6 + self.sensor.obs_dim()
 
     def observe(self, animals) -> np.ndarray:
-        # return np.concatenate([
-        #     self.pos / self.pos_scale,
-        #     self.direction * self.norm_speed,
-        #     self.view_dir
-        # ]).astype(np.float32)
+        self_obs = np.concatenate([
+            # self.pos[[2]] / self.pos_scale[[2]], #Just altitude
+            # self.direction * self.norm_speed,
+            self.view_dir
+        ]).astype(np.float32)
 
-        return self.view_dir, self.sensor.observe(self, animals)
+        return self_obs, self.sensor.observe(self, animals)
     
     def update(self, action, dt):
         direction, norm_speed, view_yaw_rate = action

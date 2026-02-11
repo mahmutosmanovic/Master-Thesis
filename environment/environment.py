@@ -61,7 +61,8 @@ class Environment:
         info = {"drone_ids": self.drone_ids, "animal_ids": self.animal_ids}
 
         self.disturb_animals()
-        drone_obs, _ = self.gather_drone_obs_rew()
+        dummy_actions = {drone_id: ((0, 0, 0), 0, 0) for drone_id in self.drone_ids}
+        drone_obs, _ = self.gather_drone_obs_rew(dummy_actions)
 
         return drone_obs, info
 
@@ -114,7 +115,7 @@ class Environment:
         for animal_id in self.animal_ids:
             self.agents[animal_id].disturb(drones)
 
-    def gather_drone_obs_rew(self):
+    def gather_drone_obs_rew(self, actions):
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
         rewards = {}
         observations = {}
@@ -128,7 +129,7 @@ class Environment:
             disturbance = np.mean(disturbances)
 
             # calculate reward from metrics, explicit reward stated in reward.py
-            rewards[drone_id] = tracking_reward(sensor_metrics, disturbance, self.cfg.distance_scale, self.cfg.alignment_scale, self.cfg.disturbance_scale)
+            rewards[drone_id] = tracking_reward(sensor_metrics, disturbance, actions[drone_id], self.cfg)
 
             # Assemble full observation
             observations[drone_id] = np.concatenate([drone_obs, sensor_obs], axis=0)
@@ -145,7 +146,7 @@ class Environment:
         actions = self.gather_actions(external_actions)
         self.update_state(actions)  
         self.disturb_animals()
-        drone_obs, rewards = self.gather_drone_obs_rew()
+        drone_obs, rewards = self.gather_drone_obs_rew(actions)
         for agent in self.agents: self.log_agent_state(agent)
         done = self.is_done()
         info = {}

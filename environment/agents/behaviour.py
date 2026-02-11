@@ -3,34 +3,19 @@ from functools import singledispatch
 from dataclasses import dataclass
 from utils.vec_utils import *
 
-class CRWKernel: # Base movement for all behaviours
-    def __init__(self, rng):
-        self.rng = rng
-
-    def step_direction(self, cur_dir, persistence, turn_sigma, bias_vec = np.zeros(3, dtype=float), bias_gain = 1.0):
-        cur_dir = unit(cur_dir)
-        persistence = np.clip(persistence, 0.0, 1.0)
-        turn_sigma = np.max([0.0, turn_sigma])
-
-        # turning noise
-        noise = self.rng.normal(0.0, turn_sigma, size=3)
-        bias = unit(bias_vec) * bias_gain
-
-        # correlated update
-        desired = persistence * cur_dir + noise + bias
-        return unit(desired)
-
-    def step_speed(self, cur_norm_speed, target_norm_speed, speed_sigma = 0.0, smooth = 0.2):
-        smooth = np.clip(smooth, 0.0, 1.0)
-        speed_sigma = np.max([0.0, speed_sigma])
-
-        norm_speed = (1.0 - smooth) * cur_norm_speed + smooth * target_norm_speed + self.rng.normal(0.0, speed_sigma)
-        return np.clip(norm_speed, 0.0, 1.0)
-
 # Base
-@dataclass
+@dataclass(frozen=True)
 class BehaviourConfig:
     pass
+
+@dataclass(frozen=True)
+class CRWConfig(BehaviourConfig):
+    persistence: float  = 0.9
+    turn_sigma: float   = 0.25
+    target_speed: float = 0.7
+    speed_sigma: float  = 0.03
+    speed_smooth: float = 0.2
+    bias_gain: float    = 0.0
 
 @singledispatch
 def make_behaviour(cfg, seed):
@@ -39,8 +24,27 @@ def make_behaviour(cfg, seed):
 class Behaviour:
     def __init__(self, seed):
         self.rng = np.random.default_rng(seed)
-        self.kernel = CRWKernel(self.rng)
 
+    def step_direction(self, cur_dir, cfg:CRWConfig, bias_vec = np.zeros(3, dtype=float)):
+        cur_dir = unit(cur_dir)
+        persistence = np.clip(cfg.persistence, 0.0, 1.0)
+        turn_sigma = np.max([0.0, cfg.turn_sigma])
+
+        # turning noise
+        noise = self.rng.normal(0.0, turn_sigma, size=3)
+        bias = unit(bias_vec) * cfg.bias_gain
+
+        # correlated update
+        desired = persistence * cur_dir + noise + bias
+        return unit(desired)
+
+    def step_speed(self, cur_norm_speed, cfg:CRWConfig):
+        speed_smooth = np.clip(cfg.speed_smooth, 0.0, 1.0)
+        speed_sigma = np.max([0.0, cfg.speed_sigma])
+
+        norm_speed = (1.0 - speed_smooth) * cur_norm_speed + speed_smooth * cfg.target_speed + self.rng.normal(0.0, speed_sigma)
+        return np.clip(norm_speed, 0.0, 1.0)
+    
     def act(self, obs, dt):
         raise NotImplementedError
 
@@ -56,15 +60,6 @@ class Behaviour:
 
 # Implementations
 
-@dataclass
-class CRWConfig(BehaviourConfig):
-    persistence: float  = 0.9
-    turn_sigma: float   = 0.25
-    target_speed: float = 0.7
-    speed_sigma: float  = 0.03
-    speed_smooth: float = 0.2
-    bias_gain: float    = 0.0
-
 @make_behaviour.register
 def _(cfg: CRWConfig, seed):
     return CRW(cfg, seed)
@@ -75,18 +70,71 @@ class CRW(Behaviour):
         self.cfg = cfg
 
     def act(self, obs, dt):
-        desired_dir = self.kernel.step_direction(
-            cur_dir=obs["direction"],
-            persistence=self.cfg.persistence,
-            turn_sigma=self.cfg.turn_sigma,
-            bias_gain=self.cfg.bias_gain,
+        desired_dir = self.step_direction(cur_dir=obs["direction"], cfg=self.cfg)
+        desired_norm_speed = self.step_speed(cur_norm_speed=obs["norm_speed"], cfg=self.cfg)
+        return desired_dir, desired_norm_speed
+
+@dataclass(frozen=True)
+class ExploreExploitConfig(BehaviourConfig):
+    explore_cfg: CRWConfig = CRWConfig(
+        persistence = 0.9,
+        turn_sigma = 0.15,
+        target_speed = 0.7,
+        speed_sigma = 0.03,
+        speed_smooth = 0.2,
+        bias_gain = 0.0
         )
-        desired_norm_speed = self.kernel.step_speed(
-            cur_norm_speed=obs["norm_speed"],
-            target_norm_speed=self.cfg.target_speed,
-            speed_sigma=self.cfg.speed_sigma,
-            smooth=self.cfg.speed_smooth,
+    exploit_cfg: CRWConfig = CRWConfig(
+        persistence = 0.9,
+        turn_sigma = 0.3,
+        target_speed = 0.3,
+        speed_sigma = 0.03,
+        speed_smooth = 0.2,
+        bias_gain = 0.1
         )
+    p_explore: float = 0.01
+    p_exploit: float = 0.008
+
+@make_behaviour.register
+def _(cfg: ExploreExploitConfig, seed):
+    return ExploreExploit(cfg, seed)
+
+class ExploreExploit(Behaviour):
+    STATE_EXPLORE = "explore"
+    STATE_EXPLOIT = "exploit"
+    def __init__(self, cfg, seed):
+        super().__init__(seed)
+        self.cfg = cfg
+        self.state = ExploreExploit.STATE_EXPLORE
+        self.exploit_point = np.zeros(3)
+
+    def update_state(self, obs, dt):
+        chance = self.rng.random()
+        match self.state:
+            case ExploreExploit.STATE_EXPLORE:  # maybe set state from observation? would require some sort of reward, perlin noise reward field?
+                if chance < self.cfg.p_exploit:
+                    self.exploit_point = obs["pos"]
+                    self.state = ExploreExploit.STATE_EXPLOIT
+            case ExploreExploit.STATE_EXPLOIT:
+                if chance < self.cfg.p_explore:
+                    self.state = ExploreExploit.STATE_EXPLORE
+            case _:
+                raise NotImplementedError
+
+    def act(self, obs, dt):
+        self.update_state(obs, dt)
+        # Aplly movement
+        match self.state:
+            case ExploreExploit.STATE_EXPLORE:
+                desired_dir = self.step_direction(cur_dir=obs["direction"], cfg=self.cfg.explore_cfg)
+                desired_norm_speed = self.step_speed(cur_norm_speed=obs["norm_speed"], cfg=self.cfg.explore_cfg)
+            case ExploreExploit.STATE_EXPLOIT:
+                bias_dir = unit(self.exploit_point - obs["pos"])
+                desired_dir = self.step_direction(cur_dir=obs["direction"], cfg=self.cfg.exploit_cfg, bias_vec=bias_dir)
+                desired_norm_speed = self.step_speed(cur_norm_speed=obs["norm_speed"], cfg=self.cfg.exploit_cfg)
+            case _:
+                raise NotImplementedError
+            
         return desired_dir, desired_norm_speed
 
 # Old implementations

@@ -68,10 +68,10 @@ def main():
         if args.print_every > 0 and ((t + 1) % args.print_every == 0):
             print(f"step {t+1}/{args.steps} reward={reward_dict}")
 
-        if done:
-            env.episode_statistics()
-            print("done=True, stopping early")
-            break
+        # if done:
+        #     env.episode_statistics()
+        #     print("done=True, stopping early")
+        #     break
 
     print("total rewards:", rewards_total)
 

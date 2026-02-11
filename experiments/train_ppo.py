@@ -19,7 +19,6 @@ def train(
     rollout_T=2048,
     update_epochs=10,
     batch_size=64,
-    episode_horizon=500,
     device="cuda",
     seed=42,
     log_dir="logs/training",
@@ -41,6 +40,8 @@ def train(
     ep_ret = 0.0
     ep_len = 0
     steps = 0
+
+    best_ret = -float('inf') 
 
     run_name = f"ppo_drone_seed{seed}_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     tb_log_dir = os.path.join(log_dir, run_name)
@@ -67,15 +68,12 @@ def train(
                         0.0,
                     )
 
-            next_obs_dict, reward_dict, done_env, info_step = env.step(external_actions)
+            next_obs_dict, reward_dict, done, info_step = env.step(external_actions)
 
             next_obs = np.asarray(next_obs_dict[train_id], dtype=np.float32)
             r = float(reward_dict[train_id])
 
             ep_len += 1
-            truncated = ep_len >= episode_horizon
-            terminated = bool(done_env)  # your env currently always False
-            done = terminated or truncated
 
             buf.add(
                 torch.as_tensor(obs, dtype=torch.float32, device=device_t),
@@ -92,6 +90,7 @@ def train(
             steps += 1
 
             if done:
+                        
                 print(f"episode return={ep_ret:.2f} len={ep_len} steps={steps}")
                 scalars = env.episode_statistics()
                 scalars["episode/return"] = float(ep_ret)
@@ -105,6 +104,18 @@ def train(
                 drone_ids = info["drone_ids"]
                 train_id = drone_ids[0]
                 obs = np.asarray(obs_dict[train_id], dtype=np.float32)
+
+                if ep_ret > best_ret:
+                    best_ret = ep_ret
+                    if log_dir:
+                        best_path = os.path.join(log_dir, "checkpoints", "best_ppo_drone.pt")
+                        os.makedirs(os.path.dirname(best_path), exist_ok=True)
+                        torch.save({
+                            "ac_state_dict": agent.ac.state_dict(),
+                            "obs_dim": obs_dim,
+                            "act_dim": act_dim,
+                        }, best_path)
+                        
                 ep_ret = 0.0
                 ep_len = 0
 
@@ -139,11 +150,10 @@ def train(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=1_000_000)
+    parser.add_argument("--steps", type=int, default=3_000_000)
     parser.add_argument("--rollout", type=int, default=2048)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=128)
-    parser.add_argument("--horizon", type=int, default=500)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log_dir", type=str, default="logs/training")
     args = parser.parse_args()
@@ -158,7 +168,6 @@ if __name__ == "__main__":
         rollout_T=args.rollout,
         update_epochs=args.epochs,
         batch_size=args.batch,
-        episode_horizon=args.horizon,
         device=args.device,
         seed=args.seed,
         log_dir=args.log_dir,

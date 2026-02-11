@@ -36,7 +36,7 @@ class Sensor:
         raise NotImplementedError
 
 # Implementations
-
+@dataclass
 class CameraConfig(SensorConfig):
     sensor_scale: float = 200
     hfov: float         = 90
@@ -71,7 +71,8 @@ class Camera(Sensor):
         vis = cam_xyz[inside]
 
         if vis.shape[0] > 0:
-            vis = vis[np.argsort(vis[:, 2])]  # sort by depth
+            d = np.linalg.norm(vis, axis=1)
+            vis = vis[np.argsort(d)]
 
         feats = np.zeros((self.cfg.max_targets, 4), dtype=np.float32)
         m = min(self.cfg.max_targets, vis.shape[0])
@@ -82,9 +83,9 @@ class Camera(Sensor):
             v = y / (z * self.tan_v + 1e-8)
 
             if self.cfg.far_plane == float("inf"):
-                z_norm = z / self.sensor_scale
+                z_norm = z / self.cfg.sensor_scale
             else:
-                z_norm = np.clip((z - self.near_plane) / (self.far_plane - self.near_plane + 1e-8), 0.0, 1.0)
+                z_norm = np.clip((z - self.cfg.near_plane) / (self.cfg.far_plane - self.cfg.near_plane + 1e-8), 0.0, 1.0)
 
             feats[:m, 0] = u
             feats[:m, 1] = v
@@ -104,15 +105,15 @@ class Camera(Sensor):
         v = feats[mask, 1]
         z_norm = feats[mask, 2]
 
-        min_dist = float(z_norm.min())
-        mean_dist = float(z_norm.mean())
+        d_norm = z_norm * np.sqrt(1.0 + (u*self.tan_h)**2 + (v*self.tan_v)**2)
+        d_norm = np.clip(d_norm, 0.0, 1.0)
 
         center_error = float(np.sqrt(u*u + v*v).mean())
 
         return SensorMetrics(
             n_visible=np.sum(mask),
-            min_distance=min_dist,
-            mean_distance=mean_dist,
+            min_distance=d_norm.min(),
+            mean_distance=d_norm.mean(),
             alignment_error=center_error,
         )
 
@@ -143,6 +144,7 @@ class Camera(Sensor):
 
         return inside, cam_xyz
 
+@dataclass
 class GPSConfig(SensorConfig):
     sensor_scale: float = 200
     max_targets: int    = 1

@@ -32,24 +32,7 @@ class Agent:
         if self.params.is_planar:
             direction[2] = 0.0
 
-        d_current = self.direction
-        norm = np.linalg.norm(direction)
-
-        if norm < 1e-8:
-            self.direction = d_current
-        else:
-            d_desired = direction / norm
-
-            # Enforce max turn
-            theta = angle_between(d_current, d_desired)
-            theta_max = self.params.max_turn * float(dt)
-
-            if theta > theta_max: 
-                t = theta_max / theta
-                self.direction = slerp(d_current, d_desired, t)
-            else:
-                self.direction = d_desired
-
+        self.direction = unit(direction)
         self.norm_speed = np.clip(norm_speed, 0.0, 1.0)
 
     def to_dict(self):
