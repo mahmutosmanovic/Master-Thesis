@@ -30,7 +30,7 @@ class Animal(Agent):
             "norm_speed": self.norm_speed,
             "direction": self.direction,
             "disturbance_info": self.disturbance_info,
-            "p_resource": p_resource,
+            "p_resource": p_resource(self.pos.copy()[0:2]),
         }
     
     def policy(self, obs, dt):

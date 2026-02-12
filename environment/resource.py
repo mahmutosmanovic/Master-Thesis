@@ -1,25 +1,23 @@
-import noise
 import numpy as np
 import matplotlib.pyplot as plt
+from opensimplex import OpenSimplex
 
 class ResourceField:
-    def __init__(self, freq, octaves, seed):
+    def __init__(self, freq, resource_scale, resource_abundance, seed=0):
         self.freq = freq
-        self.octaves = octaves
-        self.base = seed
+        self.resource_scale = resource_scale
+        self.resource_abundance = (1 - np.clip(resource_abundance, 0, 1))
+        self.gen = OpenSimplex(seed)
 
     def p_resource(self, pos):
-        x, y = pos[0], pos[1]
-        val = noise.pnoise2(
-            x * self.freq,
-            y * self.freq,
-            octaves=self.octaves,
-            persistence=0.5,
-            lacunarity=1.5,
-            base=self.base
-        )
-        # Normalize roughly to [0,1]
-        return 0.5 * (val + 1.0)
+        x = pos[0] * self.freq
+        y = pos[1] * self.freq
+
+        val = self.gen.noise2(x, y)
+        val += 0.5 * self.gen.noise2(2*x, 2*y)
+        # Normalize roughly to [0,1] * resource_scale
+        norm_val = 0.5 * (val + 1.0) 
+        return np.clip((norm_val - self.resource_abundance) * self.resource_scale, 0, 1)
 
     def get_poi(self):
         pass
@@ -49,5 +47,5 @@ class ResourceField:
         plt.show()
 
 if __name__ == "__main__":
-    field = ResourceField(freq=0.006, octaves=2, seed=42)
+    field = ResourceField(freq=0.006, resource_scale=0.5, resource_abundance=0.4, seed=1234)
     field.plot_field(world_size=1000.0, resolution=800)

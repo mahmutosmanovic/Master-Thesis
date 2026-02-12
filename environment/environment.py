@@ -11,6 +11,7 @@ from environment.agents.animal import Animal
 from environment.agents.sensor import make_sensor
 from environment.agents.disturbance import DisturbanceField
 from environment.reward import tracking_reward
+from environment.resource import ResourceField
 from utils.vec_utils import position_on_cylinder, random_position, random_direction
 
 
@@ -26,6 +27,7 @@ class Environment:
         self.log = []
         self.t = 0.0
         self.max_t = config.max_t
+        self.resource = None
 
         self.drone_ids = []
         self.animal_ids = []
@@ -43,6 +45,9 @@ class Environment:
         self.drone_ids.clear()
         self.animal_ids.clear()
         self.t = 0.0
+        
+        resource_seed = int(self.rng.integers(0, 2**31 - 1))
+        self.resource = ResourceField(freq=self.cfg.resource_frequency, resource_scale=self.cfg.resource_scale, resource_abundance=self.cfg.resource_scale, seed=resource_seed)
 
         for group in self.cfg.animals:
             self._spawn_animal(
@@ -100,7 +105,7 @@ class Environment:
     # Simulation
 
     def gather_actions(self, external_actions):
-        animal_obs = {animal_id: self.agents[animal_id].observe() for animal_id in self.animal_ids}
+        animal_obs = {animal_id: self.agents[animal_id].observe(self.resource.p_resource) for animal_id in self.animal_ids}
         animal_actions = {animal_id: self.agents[animal_id].policy(animal_obs[animal_id], self.cfg.dt) for animal_id in self.animal_ids}
         return {**external_actions, **animal_actions}
     

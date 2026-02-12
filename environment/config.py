@@ -17,6 +17,11 @@ class EnvConfig:
     # each entry: {params: AnimalParams, count: int, mode: str}
     animals: Sequence[dict] = field(default_factory=list)
 
+    # animal resources
+    resource_frequency: float = 0.006
+    resource_scale: float = 0.5
+    resource_abundance: float = 0.4
+
     # drones
     # each entry: {params: DroneParams, count: int, sensor: str}
     drones: Sequence[dict] = field(default_factory=list)

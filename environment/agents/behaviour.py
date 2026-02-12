@@ -92,8 +92,8 @@ class ExploreExploitConfig(BehaviourConfig):
         speed_smooth = 0.2,
         bias_gain = 0.0
         )
-    p_explore: float = 0.01
-    p_exploit: float = 0.008
+    
+    time_to_leave: float = 10
 
 @make_behaviour.register
 def _(cfg: ExploreExploitConfig, seed):
@@ -106,18 +106,21 @@ class ExploreExploit(Behaviour):
         super().__init__(seed)
         self.cfg = cfg
         self.state = ExploreExploit.STATE_EXPLORE
+        self.time_since_encounter = 0.0
 
     def update_state(self, obs, dt):
-        chance = self.rng.random()
-        match self.state:
-            case ExploreExploit.STATE_EXPLORE:  # maybe set state from observation? would require some sort of reward, perlin noise reward field?
-                if chance < self.cfg.p_exploit:
-                    self.state = ExploreExploit.STATE_EXPLOIT
-            case ExploreExploit.STATE_EXPLOIT:
-                if chance < self.cfg.p_explore:
-                    self.state = ExploreExploit.STATE_EXPLORE
-            case _:
-                raise NotImplementedError
+        encounter = self.rng.random() < obs["p_resource"]
+        if encounter:
+            print("encounter")
+            self.state = self.STATE_EXPLOIT
+            self.time_since_encounter = 0.0
+            return
+        
+        if self.state == self.STATE_EXPLOIT:
+            self.time_since_encounter += dt
+            if self.time_since_encounter > self.cfg.time_to_leave:
+                print("exploring")
+                self.state = self.STATE_EXPLORE
 
     def act(self, obs, dt):
         self.update_state(obs, dt)
@@ -133,3 +136,6 @@ class ExploreExploit(Behaviour):
                 raise NotImplementedError
             
         return desired_dir, desired_norm_speed
+    
+    def get_state(self) -> str:
+        return self.state

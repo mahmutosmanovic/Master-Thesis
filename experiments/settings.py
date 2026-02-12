@@ -16,9 +16,14 @@ def rand5jack1drone():
         # animals
         animals=[
             dict(params=jackal_params(), count=1, behaviour_cfg=ExploreExploitConfig()),
+            # dict(params=jackal_params(), count=1, behaviour_cfg=CRWConfig()),
             # dict(params=eagle_params(),  count=0, behaviour_cfg=CRWConfig()),
             # dict(params=pigeon_params(), count=0, behaviour_cfg=CRWConfig()),
         ],
+
+        resource_frequency = 0.006,
+        resource_scale = 0.3,
+        resource_abundance = 0.4,
 
         # drones
         drones=[

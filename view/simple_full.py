@@ -120,19 +120,19 @@ def render_simulation_csv_3d(
         y = np.array([float(r["y"]) for r in records])
         z = np.array([float(r["z"]) for r in records])
 
-        species = records[0]["species"]
-        color = species_colors.get(species, "black")
+        a_type = records[0]["type"]
+        color = species_colors.get(a_type, "black")
 
-        lw = 2.5 if species == "drone" else 1.2
-        alpha = 1.0 if species == "drone" else 0.7
+        lw = 2.5 if a_type == "drone" else 1.2
+        alpha = 1.0 if a_type == "drone" else 0.7
 
-        ax.plot(x, y, z, color=color, linewidth=lw, alpha=alpha, label=species)
+        ax.plot(x, y, z, color=color, linewidth=lw, alpha=alpha, label=a_type)
 
         # Start marker
         ax.scatter(x[0], y[0], z[0], color=color, s=30, marker="o")
 
         # Draw frustum for drones (latest frame)
-        if species == "drone":
+        if a_type == "drone":
             vx = float(records[-1]["view_x"]) if records[-1]["view_x"] != "" else np.nan
             vy = float(records[-1]["view_y"]) if records[-1]["view_y"] != "" else np.nan
             vz = float(records[-1]["view_z"]) if records[-1]["view_z"] != "" else np.nan
@@ -172,4 +172,4 @@ def render_simulation_csv_3d(
     return fig, ax
 
 if __name__ == '__main__':
-    render_simulation_csv_3d("logs/simulations/test_jackal_random_single.csv")
+    render_simulation_csv_3d("logs/simulations/ppo_rollout.csv")
