@@ -207,7 +207,7 @@ class Env:
                         ])
 
                 # flatten the observations for this specific drone
-                in_FoV_obs.append(np.array(drone_obs, dtype=np.float32).reshape(-1))
+                in_FoV_obs.append(np.array(drone_obs, dtype=np.float32))
 
             return np.array(in_FoV_obs, dtype=np.float32)
 
@@ -217,36 +217,29 @@ class Env:
         r_dist = 0.0
         r_align = 0.0
 
-        obs = observations.reshape(
-            self.drone_count,
-            self.animal_count,
-            4
-        )
-
         for d in range(self.drone_count):
 
-            drone_obs = obs[d]
+            drone_obs = observations[d]
 
             in_view = drone_obs[:, 0]
             dist = drone_obs[:, 1]
             v = np.abs(drone_obs[:, 2])
             h = np.abs(drone_obs[:, 3])
 
-            visible = in_view > 0.5
+            visible = in_view == 1.
 
             if np.any(visible):
-
                 r_vis += np.mean(in_view)
-
                 r_dist += np.mean(1.0 - dist[visible])
-
                 r_align += np.mean(1.0 - (v[visible] + h[visible]) * 0.5)
 
         r_vis /= self.drone_count
         r_dist /= self.drone_count
         r_align /= self.drone_count
 
-        return r_vis, r_dist, r_align
+        rewards = [r_vis, r_dist, r_align]
+        reward = sum(rewards) / len(rewards)
+        return reward
 
     def set_render_mode(self, mode):
         self.render_mode = mode
@@ -274,9 +267,6 @@ class Env:
         observations = self.in_FoV(self.drones, self.animals)
 
         reward = self.compute_reward(observations)
-        r_vis, r_dist, r_align = self.compute_reward(observations)
-        reward = 0.4*r_vis + 0.4*r_dist + 0.2*r_align
-
 
         self.render()
         return observations, reward, terminated, truncated, info

@@ -3,12 +3,12 @@ from .immutables import Behavior, MovementDim
 cfg_train = {
     "dt": 0.5, # seconds,
     "model_path": "checkpoint.pt",
-    "episodes": 100,
+    "episodes": 1,
     "save_every": 20, # episodes
-    "steps": 100,
+    "steps": 1,
     "drone": {
         "env": {
-            "count": 10, # drone count
+            "count": 1, # drone count
         },
         "init": {
             "min_speed": 0, # m/s2
@@ -23,7 +23,7 @@ cfg_train = {
     },
     "animal": {
         "env": {
-            "count": 3, # animal count
+            "count": 5, # animal count
         },
         "init": {
             "min_speed": 1, # min animal speed
