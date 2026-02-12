@@ -111,7 +111,6 @@ class ExploreExploit(Behaviour):
     def update_state(self, obs, dt):
         encounter = self.rng.random() < obs["p_resource"]
         if encounter:
-            print("encounter")
             self.state = self.STATE_EXPLOIT
             self.time_since_encounter = 0.0
             return
@@ -119,7 +118,6 @@ class ExploreExploit(Behaviour):
         if self.state == self.STATE_EXPLOIT:
             self.time_since_encounter += dt
             if self.time_since_encounter > self.cfg.time_to_leave:
-                print("exploring")
                 self.state = self.STATE_EXPLORE
 
     def act(self, obs, dt):
