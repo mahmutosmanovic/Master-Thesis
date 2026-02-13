@@ -1,5 +1,5 @@
 import random
-from scripts import Behavior
+from .immutables import Behavior
 
 def random_walk(animal):
     if random.random() < animal.epsilon:

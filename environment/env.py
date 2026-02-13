@@ -3,7 +3,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from scripts import Behavior, MovementDim
+from .immutables import Behavior, MovementDim
 
 class Env:
     def __init__(self, config, render_mode=None, seed=None):
@@ -253,6 +253,10 @@ class Env:
 
         reward = 0
 
+        """
+        Lost tracking → failure
+        Animal stress > threshold → failure
+        """
         terminated = False
         truncated = False
         info = {}

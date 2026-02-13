@@ -1,11 +1,11 @@
 import matplotlib
 matplotlib.use('Agg')
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.animation import FFMpegWriter
 import time
+import numpy as np
 from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.animation import FFMpegWriter
 
 class Viewer:
     def __init__(self, dt):

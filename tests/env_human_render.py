@@ -15,11 +15,10 @@ def main(config):
     env = Env(cfg_train, render_mode=None)
     obs, info = env.reset()
     
-    for traj in range(config["agent"]["ep"]):
-        for step in range(config["steps"]):
-            actions = env.sample_action()
-            observation, reward, terminated, truncated, info = env.step(actions)
-
+    for step in range(1, 2):
+        actions = env.sample_action()
+        observation, reward, terminated, truncated, info = env.step(actions)
+        
 
 if __name__ == "__main__":
     main(cfg_train)

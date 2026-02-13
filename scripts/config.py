@@ -1,11 +1,26 @@
-from .immutables import Behavior, MovementDim
+from environment import Behavior, MovementDim
 
 cfg_train = {
     "dt": 0.5, # seconds,
-    "model_path": "checkpoint.pt",
-    "episodes": 1,
-    "save_every": 20, # episodes
-    "steps": 1,
+
+    "model": {
+        "path": "checkpoints",
+        "mode": "train",
+        "optimization": {
+            "gamma": 0.99,
+            "value_lr": 1e-4,
+            "policy_lr": 3e-4,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+        },
+        "sampling": {
+            "total_timesteps": 1,
+            "rollout_steps": 200,
+            "mini_batch_size": 100,
+            "epochs_per_rollout": 5,
+        }
+    },
+
     "drone": {
         "env": {
             "count": 1, # drone count
