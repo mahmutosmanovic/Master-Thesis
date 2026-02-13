@@ -27,7 +27,8 @@ class Environment:
         self.log = []
         self.t = 0.0
         self.max_t = config.max_t
-        self.resource = None
+        self.resource_field = None
+        self.resource_seed = None
 
         self.drone_ids = []
         self.animal_ids = []
@@ -36,18 +37,28 @@ class Environment:
 
     def reset(self, seed=None):
         # Optional reseed
-        if seed is not None:
-            self.seed_seq = np.random.SeedSequence(seed)
-            self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
+        if seed is None:
+            seed = int(self.rng.integers(0, 2**31 - 1))
+
+        self.episode_seed = int(seed)
+
+        # reseed episode RNG tree
+        self.seed_seq = np.random.SeedSequence(self.episode_seed)
+        self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
 
         self.agents.clear()
         self.log.clear()
         self.drone_ids.clear()
         self.animal_ids.clear()
         self.t = 0.0
-        
-        resource_seed = int(self.rng.integers(0, 2**31 - 1))
-        self.resource = ResourceField(freq=self.cfg.resource_frequency, resource_scale=self.cfg.resource_scale, resource_abundance=self.cfg.resource_scale, seed=resource_seed)
+
+        self.resource_seed = int(self.rng.integers(0, 2**31 - 1))
+        self.resource_field = ResourceField(world_x=self.cfg.map_width,
+                                            world_y=self.cfg.map_height,
+                                            freq=self.cfg.resource_frequency,
+                                            resource_scale=self.cfg.resource_scale,
+                                            resource_abundance=self.cfg.resource_scale,
+                                            seed=self.resource_seed)
 
         for group in self.cfg.animals:
             self._spawn_animal(
@@ -63,7 +74,10 @@ class Environment:
                 group["sensor_cfg"],
             )
 
-        info = {"drone_ids": self.drone_ids, "animal_ids": self.animal_ids}
+        info = {"drone_ids": self.drone_ids,
+                "animal_ids": self.animal_ids,
+                "seed": self.episode_seed,
+                "resource_seed": self.resource_seed}
 
         self.disturb_animals()
         dummy_actions = {drone_id: ((0, 0, 0), 0, 0) for drone_id in self.drone_ids}
@@ -79,6 +93,9 @@ class Environment:
                            params=animal_params,
                            behaviour=make_behaviour(behaviour_cfg, self.seed_seq.spawn(1)[0]),
                            disturbance_field=DisturbanceField(),
+                           resource_field = self.resource_field,
+                           x_bound=self.cfg.map_width,
+                           y_bound=self.cfg.map_height,
                            seed=self.seed_seq.spawn(1)[0])
             
             self.animal_ids.append(agent.agent_id)
@@ -105,7 +122,7 @@ class Environment:
     # Simulation
 
     def gather_actions(self, external_actions):
-        animal_obs = {animal_id: self.agents[animal_id].observe(self.resource.p_resource) for animal_id in self.animal_ids}
+        animal_obs = {animal_id: self.agents[animal_id].observe() for animal_id in self.animal_ids}
         animal_actions = {animal_id: self.agents[animal_id].policy(animal_obs[animal_id], self.cfg.dt) for animal_id in self.animal_ids}
         return {**external_actions, **animal_actions}
     
@@ -119,6 +136,10 @@ class Environment:
         drones = [self.agents[drone_id] for drone_id in self.drone_ids]
         for animal_id in self.animal_ids:
             self.agents[animal_id].disturb(drones)
+    
+    def forage_animals(self):
+        for animal_id in self.animal_ids:
+            self.agents[animal_id].forage()
 
     def gather_drone_obs_rew(self, actions):
         animals = [self.agents[animal_id] for animal_id in self.animal_ids]
@@ -151,6 +172,7 @@ class Environment:
         actions = self.gather_actions(external_actions)
         self.update_state(actions)  
         self.disturb_animals()
+        self.forage_animals()
         drone_obs, rewards = self.gather_drone_obs_rew(actions)
         for agent in self.agents: self.log_agent_state(agent)
         done = self.is_done()

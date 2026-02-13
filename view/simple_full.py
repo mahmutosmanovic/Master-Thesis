@@ -172,4 +172,4 @@ def render_simulation_csv_3d(
     return fig, ax
 
 if __name__ == '__main__':
-    render_simulation_csv_3d("logs/simulations/ppo_rollout.csv")
+    render_simulation_csv_3d("logs/simulations/behaviour_test.csv")

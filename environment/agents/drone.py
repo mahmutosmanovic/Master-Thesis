@@ -5,8 +5,8 @@ from utils.vec_utils import *
 from environment.agents.sensor import Sensor
 
 class Drone(Agent):
-    def __init__(self, agent_id, pos, direction, params, sensor, seed, mode=None, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):
-        super().__init__(agent_id, pos, direction, seed, mode)
+    def __init__(self, agent_id, pos, direction, params, sensor, seed, yaw=0.0, pos_scale=np.array([1.0, 1.0, 1.0])):
+        super().__init__(agent_id, pos, direction, seed)
         self.params = params
         self.pos = pos
         self.pos_scale = pos_scale

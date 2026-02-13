@@ -282,7 +282,7 @@ def animate_simulation_csv_3d(
 
 if __name__ == "__main__":
     animate_simulation_csv_3d(
-        "logs/simulations/ppo_rollout.csv",
+        "logs/simulations/behaviour_test.csv",
         hfov_deg=90,
         vfov_deg=56,
         frustum_depth=15,

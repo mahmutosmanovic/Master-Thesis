@@ -9,8 +9,8 @@ def rand5jack1drone():
         max_t=100.0,
 
         # map spawning bounds
-        map_width=200.0,
-        map_height=200.0,
+        map_width=1000.0,
+        map_height=1000.0,
         map_altitude=100.0,
 
         # animals

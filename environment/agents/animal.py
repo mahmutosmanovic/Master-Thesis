@@ -9,28 +9,41 @@ class Animal(Agent):
     STATE_FLEE  = "flee"
     STATES = [STATE_BASE, STATE_AVOID, STATE_FLEE]
 
-    def __init__(self, agent_id, pos, direction, params, behaviour, disturbance_field, seed, mode=None):
-        super().__init__(agent_id, pos, direction, seed, mode)
+    def __init__(self, agent_id, pos, direction, params, behaviour, disturbance_field, resource_field, x_bound, y_bound, seed):
+        super().__init__(agent_id, pos, direction, seed)
         self.params = params
         self.behaviour = behaviour
         self.state = Animal.STATE_BASE
 
+        self.x_bound = x_bound
+        self.y_bound = y_bound
+
         self.disturbance_field = disturbance_field
         self.disturbance_info = None
         self.total_disturbance = None
+
+        self.resource_field = resource_field
+        self.pois = self.resource_field.get_pois()
+        self.encounter = False
+        self.p_resource = None
 
     # Behavior 
     def disturb(self, drones):
         self.disturbance_info = {drone.agent_id: self.disturbance_field.get_disturbance(self, drone) for drone in drones}
         self.total_disturbance = np.sum([d["val"] for d in self.disturbance_info.values()])
 
-    def observe(self, p_resource):
+    def forage(self):
+        self.p_resource = self.resource_field.p_resource(self.pos[0:2])
+        self.encounter = self.rng.random() < self.p_resource
+
+    def observe(self):
         return {
             "pos": self.pos.copy(),
             "norm_speed": self.norm_speed,
             "direction": self.direction,
             "disturbance_info": self.disturbance_info,
-            "p_resource": p_resource(self.pos.copy()[0:2]),
+            "encounter": bool(self.encounter),
+            "pois": self.pois,
         }
     
     def policy(self, obs, dt):
@@ -59,12 +72,20 @@ class Animal(Agent):
         weighted_dir = np.sum(drone_directions * drone_dist_vals[:, None], axis=0)
         return -unit(weighted_dir)
     
+    def update(self, action, dt):
+        direction, norm_speed = action
+        self.apply_control(direction, norm_speed, dt)
+        self.move(dt)
+        self.reflect_bounds()
+    
     def to_dict(self):
         return{
             **super().to_dict(),
             "behaviour_state": self.state,
             "disturbance": self.total_disturbance,
             "behaviour": type(self.behaviour).__name__,
+            "encounter": self.encounter,
+            "p_resource": self.p_resource
             # Add aditional things to log
         }
 
