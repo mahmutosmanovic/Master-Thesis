@@ -12,10 +12,10 @@ import numpy as np
 from tqdm import trange, tqdm
 
 def main(config):
-    env = Env(cfg_train, render_mode=None)
+    env = Env(cfg_train, render_mode="human")
     obs, info = env.reset()
     
-    for step in range(1, 2):
+    for step in range(1, 10):
         actions = env.sample_action()
         observation, reward, terminated, truncated, info = env.step(actions)
         

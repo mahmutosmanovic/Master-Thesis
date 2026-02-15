@@ -8,14 +8,13 @@ cfg_train = {
         "mode": "train",
         "optimization": {
             "gamma": 0.99,
-            "value_lr": 1e-4,
-            "policy_lr": 3e-4,
+            "lr": 3e-4,
             "gae_lambda": 0.95,
             "clip_range": 0.2,
         },
         "sampling": {
             "total_timesteps": 1,
-            "rollout_steps": 200,
+            "rollout_steps": 1,
             "mini_batch_size": 100,
             "epochs_per_rollout": 5,
         }
@@ -23,7 +22,7 @@ cfg_train = {
 
     "drone": {
         "env": {
-            "count": 1, # drone count
+            "count": 2, # drone count
         },
         "init": {
             "min_speed": 0, # m/s2
@@ -38,7 +37,7 @@ cfg_train = {
     },
     "animal": {
         "env": {
-            "count": 5, # animal count
+            "count": 1, # animal count
         },
         "init": {
             "min_speed": 1, # min animal speed

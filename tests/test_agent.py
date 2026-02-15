@@ -8,41 +8,36 @@ from environment import Env
 from model import Agent
 
 # standard modules
-from box import Box
 import numpy as np
+from box import Box
 from tqdm import trange, tqdm
 
 def main(config):
     config = Box(config)
-
     env = Env(cfg_train, render_mode=None)
     agent = Agent(config)
-
     obs, info = env.reset()
-    agent.add_to_buffer(obs)
+    agent.initialize_networks(obs)
 
     total_steps = 0
-
     while total_steps < config.model.sampling.total_timesteps:
 
         for _ in range(config.model.sampling.rollout_steps):
+            total_steps += 1
 
-            action = agent.act(obs)
+            action, log_prob, value = agent.act(obs)
             next_obs, reward, terminated, truncated, info = env.step(action)
 
-            agent.store_transition(next_obs, reward, terminated)
+            done = terminated or truncated
+            agent.add_to_buffer(obs, action, reward, done, log_prob, value)
 
             obs = next_obs
-            total_steps += 1
 
             if terminated or truncated:
                 obs, info = env.reset()
-                agent.add_to_buffer(obs)
 
-        # --- UPDATE PPO ---
-        agent.learn()
-        agent.clear_buffer()
-
+        # agent.learn()
+        # agent.clear_buffer()
 
 if __name__ == "__main__":
     main(cfg_train)

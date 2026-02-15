@@ -96,17 +96,20 @@ class Env:
         self._init_animal()
         self._init_drone()
 
-        info = {}
-
         observations = self.in_FoV(self.drones, self.animals)
+
+        info = {}
         return observations, info
 
     def _step_drone(self, drones, actions):
         for drone, action in zip(drones, actions):
             # movement
             drone.vel_dir.setter(action["vel_dir"])
+            drone.vel_dir.unit()
+
             drone.vel_speed = action["vel_speed"]
             drone.enforce_speed()
+
             drone.update_pos()
             drone.enforce_position()
             
@@ -239,6 +242,7 @@ class Env:
 
         rewards = [r_vis, r_dist, r_align]
         reward = sum(rewards) / len(rewards)
+
         return reward
 
     def set_render_mode(self, mode):
@@ -247,7 +251,21 @@ class Env:
     def render(self):
         self.viewer.draw(self.drones, self.animals, self.render_mode)
 
+    def torch_to_vec(self, actions):
+        actions = actions.detach().cpu().numpy()
+        actions = np.asarray(actions)
+
+        formatted = []
+        for a in actions:
+            formatted.append({
+                "vel_dir": Vector(a[0], a[1], a[2]),
+                "vel_speed": float(a[3]),
+                "theta": float(a[4]),
+            })
+        return formatted
+
     def step(self, actions):
+        actions = self.torch_to_vec(actions)
         self._step_drone(self.drones, actions)
         self._step_animal()
 
