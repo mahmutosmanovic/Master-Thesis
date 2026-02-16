@@ -35,17 +35,14 @@ class Viewer:
             self.writer = None
 
     def draw(self, drones, animals, mode):
-        # 1. Handle Closing: If mode is None, stop recording and exit
         if mode is None:
             if self.writer is not None:
                 self.stop_recording()
             return
 
-        # 2. Handle Opening: If mode is human but no writer exists
         if self.writer is None:
             self._start_new_recording()
 
-        # 3. Render Frame
         self.ax.cla()
         self._setup_axes(drones, animals)
 

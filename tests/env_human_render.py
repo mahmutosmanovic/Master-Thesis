@@ -8,16 +8,19 @@ from environment import Env
 from model import Agent
 
 # standard modules
+from box import Box
 import numpy as np
 from tqdm import trange, tqdm
 
 def main(config):
-    env = Env(cfg_train, render_mode="human")
+    env = Env(Box(cfg_train), render_mode="human")
     obs, info = env.reset()
+    env.set_render_mode(None)
     
-    for step in range(1, 10):
+    for step in range(1, 128):
         actions = env.sample_action()
         observation, reward, terminated, truncated, info = env.step(actions)
+
         
 
 if __name__ == "__main__":

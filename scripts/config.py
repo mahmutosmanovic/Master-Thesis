@@ -1,28 +1,34 @@
 from environment import Behavior, MovementDim
 
 cfg_train = {
-    "dt": 0.5, # seconds,
+    "dt": 0.1, # seconds,
 
     "model": {
         "path": "checkpoints",
         "mode": "train",
+        "space": {
+            "n_actions": 5,
+            "features": 4,
+        },
         "optimization": {
             "gamma": 0.99,
-            "lr": 3e-4,
+            "lr": 0.0003,
             "gae_lambda": 0.95,
-            "clip_range": 0.2,
+            "policy_clip": 0.2,
+            "val_loss_coef": 0.5,
+            "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 1,
-            "rollout_steps": 1,
-            "mini_batch_size": 100,
-            "epochs_per_rollout": 5,
+            "total_timesteps": 50*2048,
+            "rollout_steps": 2048,
+            "mini_batch_size": 64,
+            "n_epochs": 10,
         }
     },
 
     "drone": {
         "env": {
-            "count": 2, # drone count
+            "count": 1, # drone count
         },
         "init": {
             "min_speed": 0, # m/s2
@@ -40,11 +46,11 @@ cfg_train = {
             "count": 1, # animal count
         },
         "init": {
-            "min_speed": 1, # min animal speed
-            "max_speed": 8, # max animal speed
-            "epsilon": 0.0, # how often dir change
+            "min_speed": 4, # min animal speed
+            "max_speed": 6, # max animal speed
+            "epsilon": 0.10, # how often dir change
             "ver_dir_angle": 0, # max animal vertical abs(deg) change
-            "hor_dir_angle": 60, # max animal vertical abs(deg) change
+            "hor_dir_angle": 60, # max animal horizontal abs(deg) change
             "behavior": Behavior.RANDOM, # type of behavior
             "movement_dim": MovementDim.TWO_D, # 2d or 3d
             "max_spawn_radius": 200 # meters

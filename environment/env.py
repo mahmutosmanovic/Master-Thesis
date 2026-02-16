@@ -25,6 +25,8 @@ class Env:
         self.drone_count = config["drone"]["env"]["count"]
         self.drones = [Drone(config=config) 
                        for _ in range(self.drone_count)]
+        
+        self._env_steps = 0
 
     def _init_animal(self):
         for i, animal in enumerate(self.animals):
@@ -66,21 +68,34 @@ class Env:
 
     def sample_action(self):
         """
-        Action Space:
-            1. Velocity Direction (unit vector): [vx,vy,vz],
-            2. Velocity speed (between min-max in config): k,
-            3. Angle, the amount of degrees to rotate the camera (view_dir, between -max_cam_rot and max_cam_rot): theta.
+        Returns a flat action array compatible with env.step().
+
+        For each drone:
+            [vx, vy, vz, vel_speed, theta]
         """
 
         actions = []
+
         for drone in self.drones:
-            action = {
-                "vel_dir": Vector(random_unit_3d=True),
-                "vel_speed": random.uniform(drone.min_speed, drone.max_speed),
-                "theta": random.triangular(-drone.max_cam_rot, 0, drone.max_cam_rot)
-            }
-            actions.append(action)
-        return actions
+
+            # random 3D unit direction
+            vel_dir = Vector(random_unit_3d=True)
+            vx, vy, vz = vel_dir.to_numpy()
+
+            # random speed within limits
+            vel_speed = random.uniform(drone.min_speed, drone.max_speed)
+
+            # random camera rotation
+            theta = random.triangular(
+                -drone.max_cam_rot,
+                0,
+                drone.max_cam_rot
+            )
+
+            actions.extend([vx, vy, vz, vel_speed, theta])
+
+        return np.array(actions, dtype=np.float32)
+
         
     def reset(self, seed=None):
         """
@@ -100,6 +115,30 @@ class Env:
 
         info = {}
         return observations, info
+    
+    def package_actions(self, actions):
+
+        n_actions = self.config.model.space.n_actions
+        n_drones = self.config.drone.env.count
+
+        packaged_actions = []
+
+        for i in range(n_drones):
+            start = i * n_actions
+            end = start + n_actions
+            drone_actions = actions[start:end]
+
+            package_action = {
+                "vel_dir": Vector(drone_actions[0],
+                                drone_actions[1],
+                                drone_actions[2]),
+                "vel_speed": drone_actions[3],
+                "theta": drone_actions[4]
+            }
+
+            packaged_actions.append(package_action)
+
+        return packaged_actions
 
     def _step_drone(self, drones, actions):
         for drone, action in zip(drones, actions):
@@ -265,7 +304,9 @@ class Env:
         return formatted
 
     def step(self, actions):
-        actions = self.torch_to_vec(actions)
+        self._env_steps += 1
+
+        actions = self.package_actions(actions)
         self._step_drone(self.drones, actions)
         self._step_animal()
 
@@ -278,6 +319,10 @@ class Env:
         terminated = False
         truncated = False
         info = {}
+
+        if self._env_steps >= 128:
+            self._env_steps = 0
+            terminated = True
 
         """
         observations.shape =
@@ -292,7 +337,3 @@ class Env:
 
         self.render()
         return observations, reward, terminated, truncated, info
-
-    def close(self):
-        ...
-        
