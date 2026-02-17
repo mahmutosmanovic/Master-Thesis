@@ -5,8 +5,6 @@ from .viewer import Viewer
 from .entity import Drone, Animal
 from .immutables import Behavior, MovementDim
 
-SEED_INT_MAX = np.iinfo(np.int32).max
-
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
         self.set_seed(seed)
@@ -101,15 +99,17 @@ class Env:
         return np.array(actions, dtype=np.float32)
 
     def set_seed(self, seed):
-        if seed is not None:
-            self.next_episode_seed = seed
-
-        self.seeder = np.random.SeedSequence(self.next_episode_seed)
-        child_seeds = self.seeder.spawn(2)
-        self.env_rng = np.random.default_rng(child_seeds[0])
-        self.sample_action_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it can influence env
-        self.next_episode_seed = self.env_rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
+        if seed == None: # for init
+            self.curr_episode_seed = self.next_episode_seed
+        else:
+            self.curr_episode_seed = seed
         
+        self.seeds = np.random.SeedSequence(self.curr_episode_seed).spawn(2)
+        self.env_rng = np.random.default_rng(self.seeds[0])
+        self.sample_action_rng = np.random.default_rng(self.seeds[1]) # sample action needs its own rng, otherwise it can influence env
+
+        self.next_episode_seed = self.env_rng.integers(0, np.iinfo(np.int32).max) # generate next seed immediately -> episode length has no influence on next seed
+
     def reset(self, seed=None):
         """
         Reinitializes drone and animal initial positions according to config.

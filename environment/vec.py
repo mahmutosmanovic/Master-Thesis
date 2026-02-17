@@ -11,9 +11,9 @@ class Vector:
         self.y = float(y)
         self.z = float(z)
 
-        if random_unit_2d and rng is not None:
+        if random_unit_2d:
             self.random_unit_2d(rng)
-        elif random_unit_3d and rng is not None:
+        elif random_unit_3d:
             self.random_unit_3d(rng)
 
     def __repr__(self):
@@ -33,12 +33,18 @@ class Vector:
         return dist_vec.norm()
 
     def random_unit_2d(self, rng):
+        if rng == None:
+            raise TypeError("rng is None")
+
         self.x = rng.uniform(-1, 1)
         self.y = rng.uniform(-1, 1)
         self.z = float(0)
         self.unit()
 
     def random_unit_3d(self, rng):
+        if rng == None:
+            raise TypeError("rng is None")
+        
         self.x = rng.uniform(-1, 1)
         self.y = rng.uniform(-1, 1)
         self.z = rng.uniform(-1, 1)
