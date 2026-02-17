@@ -58,11 +58,12 @@ class Drone(Entity):
             self.pos.z = 0
 
 class Animal(Entity):
-    def __init__(self, config, behaviors, movement_dims):
+    def __init__(self, config, behaviors, movement_dims, rng):
         super().__init__(config)
         # enums
         self.behaviors = behaviors
         self.movement_dims = movement_dims
+        self.rng = rng
 
         # movement
         self.min_speed = float(config["animal"]["init"]["min_speed"])
@@ -99,7 +100,6 @@ class Animal(Entity):
         """
         fn = BEHAVIOR_FNs[self.behavior]
         fn(self)
-        
-    
-        
-        
+
+    def seed(self, rng):
+        self.rng = rng

@@ -3,17 +3,18 @@ import random
 import numpy as np
 
 class Vector:
-    def __init__(self, x=0, y=0, z=0, 
+    def __init__(self, x=0, y=0, z=0,
                  random_unit_2d=False,
-                 random_unit_3d=False):
+                 random_unit_3d=False,
+                 rng=None):
         self.x = float(x)
         self.y = float(y)
         self.z = float(z)
 
-        if random_unit_2d:
-            self.random_unit_2d()
-        elif random_unit_3d:
-            self.random_unit_3d()
+        if random_unit_2d and rng is not None:
+            self.random_unit_2d(rng)
+        elif random_unit_3d and rng is not None:
+            self.random_unit_3d(rng)
 
     def __repr__(self):
         return f"[{self.x}, {self.y}, {self.z}]"
@@ -31,16 +32,16 @@ class Vector:
         dist_vec = self.add(vec_other.scale(-1))
         return dist_vec.norm()
 
-    def random_unit_2d(self):
-        self.x = random.uniform(-1, 1)
-        self.y = random.uniform(-1, 1)
+    def random_unit_2d(self, rng):
+        self.x = rng.uniform(-1, 1)
+        self.y = rng.uniform(-1, 1)
         self.z = float(0)
         self.unit()
 
-    def random_unit_3d(self):
-        self.x = random.uniform(-1, 1)
-        self.y = random.uniform(-1, 1)
-        self.z = random.uniform(-1, 1)
+    def random_unit_3d(self, rng):
+        self.x = rng.uniform(-1, 1)
+        self.y = rng.uniform(-1, 1)
+        self.z = rng.uniform(-1, 1)
         self.unit()
 
     def to_numpy(self):

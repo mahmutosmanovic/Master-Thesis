@@ -5,10 +5,18 @@ from .viewer import Viewer
 from .entity import Drone, Animal
 from .immutables import Behavior, MovementDim
 
+SEED_INT_MAX = np.iinfo(np.int32).max
+
 class Env:
     def __init__(self, config, render_mode=None, seed=None):
-        if seed:
-            random.seed(seed)
+        self.seed = seed
+        self.seeder = np.random.SeedSequence(seed)
+        self.rng = np.random.default_rng(self.seeder.spawn(1)[0])
+        # after seeding, drone spawn will use self.rng, this means that drone spawn location (angle) is dependent on number of animals which should be fine for now?
+        # one alternative is creating two base generators, one for generating animal seeds and one for drone init, thus making everything shift independent.
+        # generate seeds using rng.integers -> seeds can be saved so that specific instances can be rerun
+        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length and number of agents has no influence on next seed
+        self.non_important_rng = np.random.default_rng(self.seeder.spawn(1)[0]) # sampler needs its own rng, otherwise it will influence env
 
         self.render_mode = render_mode
 
@@ -17,10 +25,12 @@ class Env:
         self.viewer = Viewer(config["dt"])
         
         self.animal_count = config["animal"]["env"]["count"]
+        self.animal_seeds = self.rng.integers(0, SEED_INT_MAX, self.animal_count)
         self.animals = [Animal(config=config, 
                                behaviors=Behavior, 
-                               movement_dims=MovementDim)
-                        for _ in range(self.animal_count)]
+                               movement_dims=MovementDim,
+                               rng=np.random.default_rng(self.animal_seeds[i]))
+                        for i in range(self.animal_count)]
         
         self.drone_count = config["drone"]["env"]["count"]
         self.drones = [Drone(config=config) 
@@ -29,14 +39,17 @@ class Env:
         self._env_steps = 0
 
     def _init_animal(self):
+        # randomization using animal.rng, animal seed decides spawn location, spawn heading and behaviour
         for i, animal in enumerate(self.animals):
             animal.vel_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
-                                    random_unit_3d=animal.use_random_unit_3d)
+                                    random_unit_3d=animal.use_random_unit_3d,
+                                    rng=animal.rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
             spawn_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
-                               random_unit_3d=animal.use_random_unit_3d)
-            radis_len = random.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
-            animal.pos = spawn_dir.scale(radis_len)
+                               random_unit_3d=animal.use_random_unit_3d,
+                               rng=animal.rng)
+            radius = animal.rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
+            animal.pos = spawn_dir.scale(radius)
 
     def _init_drone(self):
             for i in range(self.drone_count):
@@ -50,7 +63,7 @@ class Env:
 
                 # Reset and randomize view direction
                 drone.view_dir.unit()
-                drone.view_dir.rotate_z(random.uniform(0, 360))
+                drone.view_dir.rotate_z(self.rng.uniform(0, 360))
 
                 view_dir = drone.view_dir.getter()
 
@@ -61,7 +74,7 @@ class Env:
                 drone.pos.setter(new_drone_pos)
 
                 # Randomize initial speed
-                drone.vel_speed = random.uniform(
+                drone.vel_speed = self.rng.uniform(
                     drone.min_speed, 
                     drone.max_speed
                 )
@@ -79,14 +92,14 @@ class Env:
         for drone in self.drones:
 
             # random 3D unit direction
-            vel_dir = Vector(random_unit_3d=True)
+            vel_dir = Vector(random_unit_3d=True, rng=self.non_important_rng)
             vx, vy, vz = vel_dir.to_numpy()
 
             # random speed within limits
-            vel_speed = random.uniform(drone.min_speed, drone.max_speed)
+            vel_speed = self.non_important_rng.uniform(drone.min_speed, drone.max_speed)
 
             # random camera rotation
-            theta = random.triangular(
+            theta = self.non_important_rng.triangular(
                 -drone.max_cam_rot,
                 0,
                 drone.max_cam_rot
@@ -105,8 +118,17 @@ class Env:
         :param seed: makes every episode the same
         """
 
-        if seed:
-            random.seed(seed)
+        if seed is not None:
+            self.next_seed = int(seed)
+
+        self.seeder = np.random.SeedSequence(self.next_seed)
+        self.next_seed = self.rng.integers(0, SEED_INT_MAX)
+        self.rng = np.random.default_rng(self.seeder.spawn(1)[0])
+        self.animal_seeds = self.rng.integers(0, SEED_INT_MAX, self.animal_count)
+        # Sampler doesent need to be reset, not important for env reproducibility
+
+        # reseed animals
+        for animal, seed in zip(self.animals, self.animal_seeds): animal.seed(np.random.default_rng(seed))
 
         self._init_animal()
         self._init_drone()
