@@ -1,20 +1,13 @@
 import math
 import random
 import numpy as np
+from environment.immutables import MovementDim
 
 class Vector:
-    def __init__(self, x=0, y=0, z=0,
-                 random_unit_2d=False,
-                 random_unit_3d=False,
-                 rng=None):
+    def __init__(self, x=0, y=0, z=0):
         self.x = float(x)
         self.y = float(y)
         self.z = float(z)
-
-        if random_unit_2d:
-            self.random_unit_2d(rng)
-        elif random_unit_3d:
-            self.random_unit_3d(rng)
 
     def __repr__(self):
         return f"[{self.x}, {self.y}, {self.z}]"
@@ -31,6 +24,16 @@ class Vector:
     def distance(self, vec_other):
         dist_vec = self.add(vec_other.scale(-1))
         return dist_vec.norm()
+    
+    def random_unit(self, dim, rng):
+        match dim:
+            case MovementDim.TWO_D:
+                self.random_unit_2d(rng)
+            case MovementDim.THREE_D:
+                self.random_unit_3d(rng)
+            case _:
+                raise NotImplementedError()
+        return self
 
     def random_unit_2d(self, rng):
         if rng == None:

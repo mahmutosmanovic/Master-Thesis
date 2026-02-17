@@ -30,13 +30,9 @@ class Env:
     def _init_animal(self):
         # randomization using animal.rng, animal seed decides spawn location, spawn heading and behaviour
         for i, animal in enumerate(self.animals):
-            animal.vel_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
-                                    random_unit_3d=animal.use_random_unit_3d,
-                                    rng=self.env_rng)
+            animal.vel_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
-            spawn_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
-                               random_unit_3d=animal.use_random_unit_3d,
-                               rng=self.env_rng)
+            spawn_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
             radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
 
@@ -81,7 +77,7 @@ class Env:
         for drone in self.drones:
 
             # random 3D unit direction
-            vel_dir = Vector(random_unit_3d=True, rng=self.sample_action_rng)
+            vel_dir = Vector().random_unit(dim=MovementDim.THREE_D, rng=self.sample_action_rng)
             vx, vy, vz = vel_dir.to_numpy()
 
             # random speed within limits
