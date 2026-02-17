@@ -9,14 +9,11 @@ SEED_INT_MAX = np.iinfo(np.int32).max
 
 class Env:
     def __init__(self, config, render_mode=None, seed=None):
-        self.seed = seed
         self.seeder = np.random.SeedSequence(seed)
-        self.rng = np.random.default_rng(self.seeder.spawn(1)[0])
-        # after seeding, drone spawn will use self.rng, this means that drone spawn location (angle) is dependent on number of animals which should be fine for now?
-        # one alternative is creating two base generators, one for generating animal seeds and one for drone init, thus making everything shift independent.
-        # generate seeds using rng.integers -> seeds can be saved so that specific instances can be rerun
-        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length and number of agents has no influence on next seed
-        self.non_important_rng = np.random.default_rng(self.seeder.spawn(1)[0]) # sampler needs its own rng, otherwise it will influence env
+        child_seeds = self.seeder.spawn(2)
+        self.rng = np.random.default_rng(child_seeds[0])
+        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
+        self.non_important_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it will influence env
 
         self.render_mode = render_mode
 
@@ -25,12 +22,10 @@ class Env:
         self.viewer = Viewer(config["dt"])
         
         self.animal_count = config["animal"]["env"]["count"]
-        self.animal_seeds = self.rng.integers(0, SEED_INT_MAX, self.animal_count)
         self.animals = [Animal(config=config, 
                                behaviors=Behavior, 
-                               movement_dims=MovementDim,
-                               rng=np.random.default_rng(self.animal_seeds[i]))
-                        for i in range(self.animal_count)]
+                               movement_dims=MovementDim)
+                        for _ in range(self.animal_count)]
         
         self.drone_count = config["drone"]["env"]["count"]
         self.drones = [Drone(config=config) 
@@ -43,12 +38,12 @@ class Env:
         for i, animal in enumerate(self.animals):
             animal.vel_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
                                     random_unit_3d=animal.use_random_unit_3d,
-                                    rng=animal.rng)
+                                    rng=self.rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
             spawn_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
                                random_unit_3d=animal.use_random_unit_3d,
-                               rng=animal.rng)
-            radius = animal.rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
+                               rng=self.rng)
+            radius = self.rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
 
     def _init_drone(self):
@@ -122,13 +117,10 @@ class Env:
             self.next_seed = int(seed)
 
         self.seeder = np.random.SeedSequence(self.next_seed)
-        self.next_seed = self.rng.integers(0, SEED_INT_MAX)
-        self.rng = np.random.default_rng(self.seeder.spawn(1)[0])
-        self.animal_seeds = self.rng.integers(0, SEED_INT_MAX, self.animal_count)
-        # Sampler doesent need to be reset, not important for env reproducibility
-
-        # reseed animals
-        for animal, seed in zip(self.animals, self.animal_seeds): animal.seed(np.random.default_rng(seed))
+        child_seeds = self.seeder.spawn(2)
+        self.rng = np.random.default_rng(child_seeds[0])
+        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
+        self.non_important_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it will influence env
 
         self._init_animal()
         self._init_drone()
@@ -183,7 +175,7 @@ class Env:
     def _step_animal(self):
         for animal in self.animals:
             # movement
-            animal.update_vel()
+            animal.update_vel(rng=self.rng)
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()

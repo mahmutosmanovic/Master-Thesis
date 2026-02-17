@@ -58,12 +58,11 @@ class Drone(Entity):
             self.pos.z = 0
 
 class Animal(Entity):
-    def __init__(self, config, behaviors, movement_dims, rng):
+    def __init__(self, config, behaviors, movement_dims):
         super().__init__(config)
         # enums
         self.behaviors = behaviors
         self.movement_dims = movement_dims
-        self.rng = rng
 
         # movement
         self.min_speed = float(config["animal"]["init"]["min_speed"])
@@ -94,12 +93,9 @@ class Animal(Entity):
         else:
             raise ValueError(f"Unexpected value: Choose 2D or 3D")
 
-    def update_vel(self):
+    def update_vel(self, rng):
         """
         Updates velocity (magnitude and direction) according to specified behavior (random walk, points of interest, path following) and movement dimensions (2D or 3D).
         """
         fn = BEHAVIOR_FNs[self.behavior]
-        fn(self)
-
-    def seed(self, rng):
-        self.rng = rng
+        fn(self, rng)
