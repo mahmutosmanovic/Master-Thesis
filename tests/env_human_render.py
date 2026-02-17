@@ -13,14 +13,14 @@ import numpy as np
 from tqdm import trange, tqdm
 
 def main(config):
-    env = Env(Box(cfg_train), render_mode="human")
+    env = Env(Box(cfg_train), render_mode=None)
     obs, info = env.reset()
-    env.set_render_mode(None)
+    print(obs)
+    # env.set_render_mode(None)
     
-    for step in range(1, 128):
+    for step in range(1, 2):
         actions = env.sample_action()
         observation, reward, terminated, truncated, info = env.step(actions)
-
         
 
 if __name__ == "__main__":

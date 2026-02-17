@@ -12,10 +12,10 @@ def random_walk(animal, rng):
         else:
             raise NotImplementedError 
 
-def poi_patrol(animal):
+def poi_patrol(animal, rng):
     ...
 
-def parametric_path(animal):
+def parametric_path(animal, rng):
     ...
 
 BEHAVIOR_FNs = {

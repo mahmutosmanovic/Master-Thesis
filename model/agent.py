@@ -59,7 +59,7 @@ class ActorNetwork(nn.Module):
 
         os.makedirs(chkpt_dir, exist_ok=True)
         self.checkpoint_file = os.path.join(chkpt_dir, "actor_torch_ppo.pt")
-        self.actor = nn.Sequential(
+        self.actor_nn = nn.Sequential(
             nn.Linear(input_dims, fc1_dims),
             nn.LeakyReLU(),
             nn.Linear(fc1_dims, fc2_dims),
@@ -72,7 +72,7 @@ class ActorNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, state):
-        x = self.actor(state)
+        x = self.actor_nn(state)
         mu = self.mu(x)
         std = self.log_std.clamp(-20, 2).exp().expand_as(mu)
         dist = Normal(mu, std)
@@ -91,7 +91,7 @@ class CriticNetwork(nn.Module):
 
         os.makedirs(chkpt_dir, exist_ok=True)
         self.checkpoint_file = os.path.join(chkpt_dir, "critic_torch_ppo.pt")
-        self.critic = nn.Sequential(
+        self.critic_nn = nn.Sequential(
             nn.Linear(input_dims, fc1_dims),
             nn.LeakyReLU(),
             nn.Linear(fc1_dims, fc2_dims),
@@ -103,7 +103,7 @@ class CriticNetwork(nn.Module):
         self.to(self.device)
     
     def forward(self, state):
-        value = self.critic(state)
+        value = self.critic_nn(state)
         return value
         
     def save_checkpoint(self):

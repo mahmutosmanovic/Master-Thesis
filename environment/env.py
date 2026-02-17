@@ -328,7 +328,7 @@ class Env:
         truncated = False
         info = {}
 
-        if self._env_steps >= 128:
+        if self._env_steps >= self.config["max_episode_steps"]:
             self._env_steps = 0
             terminated = True
 

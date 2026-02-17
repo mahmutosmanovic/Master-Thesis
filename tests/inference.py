@@ -17,7 +17,7 @@ def main(config):
 
     config = Box(config)
 
-    env = Env(config, render_mode=None, seed=5003)
+    env = Env(config, render_mode=None)
     obs, info = env.reset()
 
     agent = Agent(config)

@@ -35,39 +35,41 @@ def main(config):
     total_steps = 0
     episode_reward = 0
     reward_all_100 = []
-    sampling_interval_rewards = 512
     reward_queue = collections.deque(maxlen=100)
     try:
-        while total_steps < config.model.sampling.total_timesteps:
+        with tqdm(total=config.model.sampling.total_timesteps, desc="Training") as pbar:
+            while total_steps < config.model.sampling.total_timesteps:
 
-            for _ in range(config.model.sampling.rollout_steps):
-                total_steps += 1
-                action, log_prob, val = agent.choose_action(obs)
-                next_obs, reward, terminated, truncated, info = env.step(action)
+                for _ in range(config.model.sampling.rollout_steps):
+                    total_steps += 1
+                    pbar.update(1)   
 
-                done = terminated or truncated
-                agent.remember(obs, action, log_prob, val, reward, done)
-                
-                obs = next_obs
+                    action, log_prob, val = agent.choose_action(obs)
+                    next_obs, reward, terminated, truncated, info = env.step(action)
 
-                episode_reward += reward
-                if terminated or truncated:
-                    reward_queue.append(episode_reward)
-                    episode_reward = 0
-                    obs, info = env.reset()
+                    done = terminated or truncated
+                    agent.remember(obs, action, log_prob, val, reward, done)
                     
-                if total_steps % sampling_interval_rewards == 0:
-                    avg = np.mean(reward_queue)
-                    reward_all_100.append(avg)
-                    run["train/reward"].append(avg)
-                    print(f"{total_steps}. Avg Reward (last 100): {np.mean(reward_queue):4.4f}")
+                    obs = next_obs
 
-            last_value = agent.get_last_value(obs, done)
-            agent.learn(last_value)
-        
-        agent.save_models()
-        plot.reward(xs=np.arange(0, config.model.sampling.total_timesteps, sampling_interval_rewards),
-                    ys=reward_all_100)
+                    episode_reward += reward
+                    if terminated or truncated:
+                        reward_queue.append(episode_reward)
+
+                        avg = np.mean(reward_queue)
+                        reward_all_100.append(avg)
+                        run["train/reward"].append(avg)
+                        pbar.set_postfix({"Avg100": f"{avg:.2f}"})
+                        
+                        episode_reward = 0
+                        obs, info = env.reset()
+                        
+                last_value = agent.get_last_value(obs, done)
+                agent.learn(last_value)
+            
+            agent.save_models()
+            plot.reward(xs=np.arange(0, config.model.sampling.total_timesteps * config.dt, config.max_episode_time),
+                        ys=reward_all_100)
     finally:
         run.stop()
 
