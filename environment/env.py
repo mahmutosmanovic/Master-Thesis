@@ -8,12 +8,8 @@ from .immutables import Behavior, MovementDim
 SEED_INT_MAX = np.iinfo(np.int32).max
 
 class Env:
-    def __init__(self, config, render_mode=None, seed=None):
-        self.seeder = np.random.SeedSequence(seed)
-        child_seeds = self.seeder.spawn(2)
-        self.rng = np.random.default_rng(child_seeds[0])
-        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
-        self.non_important_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it will influence env
+    def __init__(self, config, render_mode=None, seed=42):
+        self.set_seed(seed)
 
         self.render_mode = render_mode
 
@@ -38,12 +34,12 @@ class Env:
         for i, animal in enumerate(self.animals):
             animal.vel_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
                                     random_unit_3d=animal.use_random_unit_3d,
-                                    rng=self.rng)
+                                    rng=self.env_rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
             spawn_dir = Vector(random_unit_2d=~animal.use_random_unit_3d,
                                random_unit_3d=animal.use_random_unit_3d,
-                               rng=self.rng)
-            radius = self.rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
+                               rng=self.env_rng)
+            radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
 
     def _init_drone(self):
@@ -58,7 +54,7 @@ class Env:
 
                 # Reset and randomize view direction
                 drone.view_dir.unit()
-                drone.view_dir.rotate_z(self.rng.uniform(0, 360))
+                drone.view_dir.rotate_z(self.env_rng.uniform(0, 360))
 
                 view_dir = drone.view_dir.getter()
 
@@ -69,7 +65,7 @@ class Env:
                 drone.pos.setter(new_drone_pos)
 
                 # Randomize initial speed
-                drone.vel_speed = self.rng.uniform(
+                drone.vel_speed = self.env_rng.uniform(
                     drone.min_speed, 
                     drone.max_speed
                 )
@@ -87,14 +83,14 @@ class Env:
         for drone in self.drones:
 
             # random 3D unit direction
-            vel_dir = Vector(random_unit_3d=True, rng=self.non_important_rng)
+            vel_dir = Vector(random_unit_3d=True, rng=self.sample_action_rng)
             vx, vy, vz = vel_dir.to_numpy()
 
             # random speed within limits
-            vel_speed = self.non_important_rng.uniform(drone.min_speed, drone.max_speed)
+            vel_speed = self.sample_action_rng.uniform(drone.min_speed, drone.max_speed)
 
             # random camera rotation
-            theta = self.non_important_rng.triangular(
+            theta = self.sample_action_rng.triangular(
                 -drone.max_cam_rot,
                 0,
                 drone.max_cam_rot
@@ -104,6 +100,15 @@ class Env:
 
         return np.array(actions, dtype=np.float32)
 
+    def set_seed(self, seed):
+        if seed is not None:
+            self.next_episode_seed = seed
+
+        self.seeder = np.random.SeedSequence(self.next_episode_seed)
+        child_seeds = self.seeder.spawn(2)
+        self.env_rng = np.random.default_rng(child_seeds[0])
+        self.sample_action_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it can influence env
+        self.next_episode_seed = self.env_rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
         
     def reset(self, seed=None):
         """
@@ -113,14 +118,7 @@ class Env:
         :param seed: makes every episode the same
         """
 
-        if seed is not None:
-            self.next_seed = int(seed)
-
-        self.seeder = np.random.SeedSequence(self.next_seed)
-        child_seeds = self.seeder.spawn(2)
-        self.rng = np.random.default_rng(child_seeds[0])
-        self.next_seed = self.rng.integers(0, SEED_INT_MAX) # generate next seed immediately -> episode length has no influence on next seed
-        self.non_important_rng = np.random.default_rng(child_seeds[1]) # sample action needs its own rng, otherwise it will influence env
+        self.set_seed(seed)
 
         self._init_animal()
         self._init_drone()
@@ -175,7 +173,7 @@ class Env:
     def _step_animal(self):
         for animal in self.animals:
             # movement
-            animal.update_vel(rng=self.rng)
+            animal.update_vel(rng=self.env_rng)
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
