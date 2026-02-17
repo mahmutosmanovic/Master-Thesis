@@ -68,7 +68,7 @@ def main(config):
                 agent.learn(last_value)
             
             agent.save_models()
-            plot.reward(xs=np.arange(0, config.model.sampling.total_timesteps * config.dt, config.max_episode_time),
+            plot.reward(xs=np.arange(0, config.model.sampling.total_timesteps, config.max_episode_steps),
                         ys=reward_all_100)
     finally:
         run.stop()

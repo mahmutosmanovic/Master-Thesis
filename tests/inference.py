@@ -43,15 +43,23 @@ def main(config):
 
     print("Recording episode...")
 
+    cnt = 0
+
     while not (terminated or truncated):
 
         # Deterministic action for inference
         with torch.no_grad():
             action, _, _ = agent.choose_action(obs, deterministic=True)
+            print(action)
 
         obs, reward, terminated, truncated, info = env.step(action)
 
         total_reward += reward
+        
+        cnt += 1
+        if cnt == 3:
+            break
+
 
     print(f"Episode finished. Total Reward: {total_reward:.4f}")
 
