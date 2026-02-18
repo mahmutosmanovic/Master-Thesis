@@ -14,14 +14,14 @@ cfg_train = {
         "optimization": {
             "gamma": 0.995,
             "actor_lr": 0.0003,
-            "critic_lr": 0.001,
+            "critic_lr": 0.0003,
             "gae_lambda": 0.95,
             "policy_clip": 0.2,
             "val_loss_coef": 0.5,
-            "entropy_coef": 0.10
+            "entropy_coef": 0.05
         },
         "sampling": {
-            "total_timesteps": 50*1024,
+            "total_timesteps": 200*1024,
             "rollout_steps": 1024,
             "mini_batch_size": 128,
             "n_epochs": 4,
@@ -32,7 +32,7 @@ cfg_train = {
             "count": 1, # drone count
         },
         "init": {
-            "min_speed": 0, # m/s
+            "min_speed": 8, # m/s
             "max_speed": 16, # m/s
             "ver_angle": 90, # frustum, vertical angle
             "hor_angle": 140, # frustum, horizontal angle
