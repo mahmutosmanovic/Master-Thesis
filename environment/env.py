@@ -4,7 +4,7 @@ from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
 from .immutables import Behavior, MovementDim
-from .encounter import EncounterMap
+from .resource_map import ResourceMap
 
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
@@ -19,15 +19,13 @@ class Env:
         self.animal_count = config["animal"]["env"]["count"]
         self.animals = [Animal(config=config, 
                                behaviors=Behavior, 
-                               movement_dims=MovementDim)
+                               movement_dims=MovementDim,
+                               )
                         for _ in range(self.animal_count)]
         
         self.drone_count = config["drone"]["env"]["count"]
         self.drones = [Drone(config=config) 
                        for _ in range(self.drone_count)]
-        
-        self.encounter_map = EncounterMap(config=config,
-                                          seed=self.encounter_map_seed)
         
         self._env_steps = 0
 
@@ -187,9 +185,7 @@ class Env:
 
     def _step_animal(self):
         for animal in self.animals:
-            pois = self.encounter_map.get_pois(animal.pos, rng=self.env_rng)
-            encounter = self.encounter_map.is_encounter(animal.pos, rng=self.env_rng)
-            animal.update_vel(pois=pois, encounter=encounter, rng=self.env_rng)
+            animal.update_vel(rng=self.env_rng)
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
