@@ -129,6 +129,10 @@ class Env:
         n_actions = self.config.model.space.n_actions
         n_drones = self.config.drone.env.count
 
+        min_speed = self.config["drone"]["init"]["min_speed"]
+        max_speed = self.config["drone"]["init"]["max_speed"]
+        max_cam_rot = self.config["drone"]["init"]["max_cam_rot"]
+
         packaged_actions = []
 
         for i in range(n_drones):
@@ -136,12 +140,22 @@ class Env:
             end = start + n_actions
             drone_actions = actions[start:end]
 
+            norm_speed = drone_actions[3]
+            norm_theta = drone_actions[4]
+
             package_action = {
+                # direction (already [-1,1])
                 "vel_dir": Vector(drone_actions[0],
                                 drone_actions[1],
                                 drone_actions[2]),
-                "vel_speed": drone_actions[3],
-                "theta": drone_actions[4]
+                # speed: [-1,1] -> [min,max]
+                "vel_speed": (
+                    (norm_speed + 1.0) * 0.5 *
+                    (max_speed - min_speed)
+                    + min_speed),
+                # camera rotation
+                # [-1,1] -> [-max,+max] degrees
+                "theta": norm_theta * max_cam_rot
             }
 
             packaged_actions.append(package_action)
@@ -149,34 +163,19 @@ class Env:
         return packaged_actions
 
     def _step_drone(self, drones, actions):
-
-        min_speed = self.config["drone"]["init"]["min_speed"]
-        max_speed = self.config["drone"]["init"]["max_speed"]
-        max_cam_rot = self.config["drone"]["init"]["max_cam_rot"]
-
         for drone, action in zip(drones, actions):
-
-            # direction (already [-1,1])
+            # movement
             drone.vel_dir.setter(action["vel_dir"])
             drone.vel_dir.unit()
 
-            # speed: [-1,1] -> [min,max]
-            norm_speed = action["vel_speed"]
-            drone.vel_speed = (
-                (norm_speed + 1.0) * 0.5 *
-                (max_speed - min_speed)
-                + min_speed
-            )
-
+            drone.vel_speed = action["vel_speed"]
             drone.enforce_speed()
 
             drone.update_pos()
             drone.enforce_position()
-
-            # camera rotation
-            # [-1,1] -> [-max,+max] degrees
-            drone.theta = action["theta"] * max_cam_rot
-
+            
+            # camera
+            drone.theta = action["theta"]
             drone.enforce_cam_rot()
             drone.view_dir.rotate_z(drone.theta)
             drone.reset_theta()
