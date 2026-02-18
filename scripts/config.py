@@ -1,7 +1,7 @@
 from environment import Behavior, MovementDim
 
 cfg_train = {
-    "dt": 0.1, # seconds
+    "dt": 0.05, # seconds
     "max_episode_steps": 256, # max steps per epsiode
 
     "model": {
@@ -9,21 +9,22 @@ cfg_train = {
         "mode": "train",
         "space": {
             "n_actions": 5,
-            "features": 4,
+            "features": 8,
         },
         "optimization": {
-            "gamma": 0.99,
-            "lr": 0.003,
+            "gamma": 0.995,
+            "actor_lr": 0.0003,
+            "critic_lr": 0.001,
             "gae_lambda": 0.95,
             "policy_clip": 0.2,
             "val_loss_coef": 0.5,
-            "entropy_coef": 0.01
+            "entropy_coef": 0.10
         },
         "sampling": {
-            "total_timesteps": 100*2048,
-            "rollout_steps": 2048,
+            "total_timesteps": 50*1024,
+            "rollout_steps": 1024,
             "mini_batch_size": 128,
-            "n_epochs": 10,
+            "n_epochs": 4,
         }
     },
     "drone": {
@@ -39,6 +40,7 @@ cfg_train = {
             "view_range": 150, # meters
             "spawn_dist": [40,100], # euclidean spawn distance from animal
             "view_dir": [1,0,-0.7], # camera direction
+            "max_altitude": 150
         },
     },
     "animal": {
