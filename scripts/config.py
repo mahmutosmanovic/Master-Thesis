@@ -58,4 +58,12 @@ cfg_train = {
             "max_spawn_radius": 200 # meters
         },
     },
+    "encounter": {
+        "p_freq": 0.006, # Frequency of encounter noise
+        "p_reduction": 0.4, # Reduction on raw encounter probability, p_raw - p_reduction = p_reduced
+        "p_scale": 0.4, # Scaling of reduced probability p_reduced * p_scale = p_final
+        "sample_res": 200, # Sample resolution for poi generation
+        "kernel_size": 49, # kernel size for poi generation (local maxima), prefer odd values
+        "min_poi_p": 1e-2, # minimum value for a local maxima to be considered a poi
+    },
 }

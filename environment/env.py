@@ -4,6 +4,7 @@ from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
 from .immutables import Behavior, MovementDim
+from .encounter import EncounterMap
 
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
@@ -24,6 +25,9 @@ class Env:
         self.drone_count = config["drone"]["env"]["count"]
         self.drones = [Drone(config=config) 
                        for _ in range(self.drone_count)]
+        
+        self.encounter_map = EncounterMap(config=config,
+                                          seed=self.encounter_map_seed)
         
         self._env_steps = 0
 
@@ -105,6 +109,7 @@ class Env:
         self.sample_action_rng = np.random.default_rng(self.seeds[1]) # sample action needs its own rng, otherwise it can influence env
 
         self.next_episode_seed = self.env_rng.integers(0, np.iinfo(np.int32).max) # generate next seed immediately -> episode length has no influence on next seed
+        self.encounter_map_seed = self.env_rng.integers(0, np.iinfo(np.int32).max) # generate next seed immediately -> episode length has no influence on next seed
 
     def reset(self, seed=None):
         """
@@ -129,9 +134,9 @@ class Env:
         n_actions = self.config.model.space.n_actions
         n_drones = self.config.drone.env.count
 
-        min_speed = self.config["drone"]["init"]["min_speed"]
-        max_speed = self.config["drone"]["init"]["max_speed"]
-        max_cam_rot = self.config["drone"]["init"]["max_cam_rot"]
+        min_speed = self.config.drone.init.min_speed
+        max_speed = self.config.drone.init.max_speed
+        max_cam_rot = self.config.drone.init.max_cam_rot
 
         packaged_actions = []
 
@@ -173,7 +178,7 @@ class Env:
 
             drone.update_pos()
             drone.enforce_position()
-            
+
             # camera
             drone.theta = action["theta"]
             drone.enforce_cam_rot()
@@ -182,8 +187,9 @@ class Env:
 
     def _step_animal(self):
         for animal in self.animals:
-            # movement
-            animal.update_vel(rng=self.env_rng)
+            pois = self.encounter_map.get_pois(animal.pos, rng=self.env_rng)
+            encounter = self.encounter_map.is_encounter(animal.pos, rng=self.env_rng)
+            animal.update_vel(pois=pois, encounter=encounter, rng=self.env_rng)
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
