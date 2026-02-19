@@ -9,10 +9,11 @@ from model import Agent
 
 # standard modules
 import collections
-import numpy as np
 from box import Box
 from tqdm import tqdm
 
+import numpy as np
+import time
 import os
 import neptune
 from neptune.utils import stringify_unsupported
@@ -20,11 +21,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def main(config):
-    NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT")
-    API_TOKEN = os.getenv("API_TOKEN")
-    run = neptune.init_run(project=NEPTUNE_PROJECT, api_token=API_TOKEN)
-    run["parameters"] = stringify_unsupported(config)
+def main(config, neptune_logging=False):
+    if neptune_logging:
+        NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT")
+        API_TOKEN = os.getenv("API_TOKEN")
+        run = neptune.init_run(project=NEPTUNE_PROJECT, api_token=API_TOKEN)
+        run["parameters"] = stringify_unsupported(config)
 
     config = Box(config)
     env = Env(config)
@@ -57,7 +59,8 @@ def main(config):
 
                         avg = np.mean(reward_queue)
                         reward_all_100.append(avg)
-                        run["train/reward"].append(avg)
+                        if neptune_logging: 
+                            run["train/reward"].append(avg)
                         pbar.set_postfix({"Avg100": f"{avg:.2f}"})
                         
                         episode_reward = 0
@@ -68,8 +71,9 @@ def main(config):
             
             agent.save_models()
     finally:
-        run.stop()
+        if neptune_logging:
+            run.stop()
 
 if __name__ == "__main__":
-    main(cfg_train)
+    main(cfg_train, neptune_logging=True)
     

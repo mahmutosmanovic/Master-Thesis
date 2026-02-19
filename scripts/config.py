@@ -18,10 +18,10 @@ cfg_train = {
             "gae_lambda": 0.95,
             "policy_clip": 0.2,
             "val_loss_coef": 0.5,
-            "entropy_coef": 0.05
+            "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 50*1024,
+            "total_timesteps": 200*1024,
             "rollout_steps": 1024,
             "mini_batch_size": 128,
             "n_epochs": 4,
@@ -57,13 +57,5 @@ cfg_train = {
             "movement_dim": MovementDim.TWO_D, # 2d or 3d
             "max_spawn_radius": 200 # meters
         },
-    },
-    "encounter": {
-        "p_freq": 0.006, # Frequency of encounter noise
-        "p_reduction": 0.2, # Reduction on raw encounter probability
-        "p_scale": 0.4, # Scaling of reduced probability
-        "sample_res": 1, # samples/meter Sample resolution for poi generation
-        "kernel_size": 49, # kernel size for poi generation (local maxima), prefer odd values
-        "min_poi_p": 1e-2, # minimum value for a local maxima to be considered a poi
     },
 }

@@ -129,19 +129,13 @@ class Env:
     
     def package_actions(self, actions):
 
-        n_actions = self.config.model.space.n_actions
-        n_drones = self.config.drone.env.count
-
         min_speed = self.config.drone.init.min_speed
         max_speed = self.config.drone.init.max_speed
         max_cam_rot = self.config.drone.init.max_cam_rot
 
         packaged_actions = []
 
-        for i in range(n_drones):
-            start = i * n_actions
-            end = start + n_actions
-            drone_actions = actions[start:end]
+        for drone_actions in actions:
 
             norm_speed = drone_actions[3]
             norm_theta = drone_actions[4]
@@ -313,7 +307,7 @@ class Env:
 
         reward = (
             0.6 * r_align +
-            0.4 * r_dist +
+            0.3 * r_dist +
             0.1 * r_vis
         )
 

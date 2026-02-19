@@ -20,7 +20,7 @@ class PPOMemory:
         return len(self.states)
 
     def store_memory(self, state, action, logp, val, reward, done):
-        self.states.append(state.reshape(-1).astype(np.float32))
+        self.states.append(state.astype(np.float32))
         self.actions.append(action.astype(np.float32))
         self.probs.append(np.float32(logp))
         self.vals.append(np.float32(val))
@@ -136,11 +136,12 @@ class Agent:
         self.space_hpt = config.model.space
         self.samp_hpt = config.model.sampling
 
-        self.act_dim = config.drone.env.count * self.space_hpt.n_actions
-        self.input_dims = config.drone.env.count * config.animal.env.count * self.space_hpt.features
+        self.act_dim = self.space_hpt.n_actions
+        self.actor_input_dims = config.animal.env.count * self.space_hpt.features
+        self.critic_input_dims = config.drone.env.count * config.animal.env.count * self.space_hpt.features
 
-        self.actor = ActorNetwork(self.act_dim, self.input_dims, self.optim_hpt.actor_lr)
-        self.critic = CriticNetwork(self.input_dims, self.optim_hpt.critic_lr)
+        self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr)
+        self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr)
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
 
     def remember(self, state, action, logp, val, reward, done):
@@ -157,23 +158,40 @@ class Agent:
         self.critic.load_checkpoint()
 
     def choose_action(self, observation, deterministic=False):
-        state = T.tensor(observation.reshape(-1), dtype=T.float32, device=self.actor.device).unsqueeze(0)
 
-        mu, std = self.actor(state)
-        dist = Normal(mu, std)
-        value = self.critic(state).squeeze(-1)
+        device = self.actor.device
+        obs_np = np.asarray(observation, dtype=np.float32)
+        n_drones = obs_np.shape[0]
 
-        if deterministic:
-            raw_action = mu
-        else:
-            raw_action = dist.rsample()
+        # ---------------- CENTRALIZED CRITIC ----------------
+        global_obs = T.as_tensor(
+            obs_np.reshape(-1),
+            dtype=T.float32,
+            device=device
+        ).unsqueeze(0)
 
-        action = T.tanh(raw_action)
-        logp = _squashed_log_prob(dist, raw_action, action)
+        with T.no_grad():
+            value = self.critic(global_obs).squeeze(-1)
+
+        # ---------------- DECENTRALIZED ACTOR ----------------
+        local_batch = T.as_tensor(
+            obs_np.reshape(n_drones, -1),
+            dtype=T.float32,
+            device=device
+        )
+
+        with T.no_grad():
+            mu, std = self.actor(local_batch)
+            dist = Normal(mu, std)
+
+            raw_action = mu if deterministic else dist.rsample()
+
+            actions = T.tanh(raw_action)
+            logps = _squashed_log_prob(dist, raw_action, actions)
 
         return (
-            action.squeeze(0).detach().cpu().numpy(),
-            float(logp.item()),
+            actions.detach().cpu().numpy(), # (num_drones, act_dim)
+            float(logps.sum(dim=0).item()),
             float(value.item())
         )
 
@@ -181,7 +199,7 @@ class Agent:
         if done:
             return 0.0
         with T.no_grad():
-            state = T.tensor(observation.reshape(-1), dtype=T.float32, device=self.actor.device).unsqueeze(0)
+            state = T.as_tensor(observation.reshape(-1), dtype=T.float32, device=self.actor.device).unsqueeze(0)
             return float(self.critic(state).item())
 
     def learn(self, last_value):
@@ -191,19 +209,29 @@ class Agent:
         state_arr, action_arr, old_logp_arr, vals_arr, reward_arr, done_arr, batches = self.memory.generate_batches()
         device = self.actor.device
 
-        states = T.tensor(state_arr, dtype=T.float32, device=device)
-        actions = T.tensor(action_arr, dtype=T.float32, device=device)
-        old_logp = T.tensor(old_logp_arr, dtype=T.float32, device=device)
-        values = T.tensor(vals_arr, dtype=T.float32, device=device)
-        rewards = T.tensor(reward_arr, dtype=T.float32, device=device)
-        dones = T.tensor(done_arr, dtype=T.float32, device=device)
+        # shapes:
+        # states:  (T, D, A, F)
+        # actions: (T, D, act_dim)
+        states = T.as_tensor(state_arr, dtype=T.float32, device=device)
+        actions = T.as_tensor(action_arr, dtype=T.float32, device=device)
+        old_logp = T.as_tensor(old_logp_arr, dtype=T.float32, device=device)   # (T,)
+        values = T.as_tensor(vals_arr, dtype=T.float32, device=device)         # (T,)
+        rewards = T.as_tensor(reward_arr, dtype=T.float32, device=device)       # (T,)
+        dones = T.as_tensor(done_arr, dtype=T.float32, device=device)           # (T,)
 
-        # GAE 
+        T_steps, n_drones, n_animals, n_feat = states.shape
+        act_dim = self.act_dim
+
+        # -------------------------------------------------
+        # GAE (critic is centralized; values are per timestep)
+        # -------------------------------------------------
         advantages = T.zeros_like(rewards, device=device)
         gae = T.tensor(0.0, device=device)
 
-        for t in reversed(range(len(rewards))):
-            next_value = T.tensor(last_value, device=device) if t == len(rewards) - 1 else values[t + 1]
+        last_v = T.as_tensor(last_value, dtype=T.float32, device=device)
+
+        for t in reversed(range(T_steps)):
+            next_value = last_v if t == T_steps - 1 else values[t + 1]
             delta = rewards[t] + self.optim_hpt.gamma * next_value * (1 - dones[t]) - values[t]
             gae = delta + self.optim_hpt.gamma * self.optim_hpt.gae_lambda * (1 - dones[t]) * gae
             advantages[t] = gae
@@ -211,38 +239,63 @@ class Agent:
         returns = advantages + values
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # PPO 
+        # Precompute flattened global state for critic: (T, D*A*F)
+        global_states = states.reshape(T_steps, -1)
+
+        # -------------------------------------------------
+        # PPO updates
+        # -------------------------------------------------
         for _ in range(self.samp_hpt.n_epochs):
-            indices = np.arange(len(states))
+            indices = np.arange(T_steps)
             np.random.shuffle(indices)
 
-            for start in range(0, len(indices), self.memory.batch_size):
+            for start in range(0, T_steps, self.memory.batch_size):
                 batch_idx = indices[start:start + self.memory.batch_size]
 
-                batch_states = states[batch_idx]
-                batch_actions = actions[batch_idx]
-                batch_old_logp = old_logp[batch_idx]
-                batch_adv = advantages[batch_idx]
-                batch_returns = returns[batch_idx]
+                batch_states = states[batch_idx]              # (B, D, A, F)
+                batch_global = global_states[batch_idx]       # (B, D*A*F)
+                batch_actions = actions[batch_idx]            # (B, D, act_dim)
+                batch_old_logp = old_logp[batch_idx]          # (B,)
+                batch_adv = advantages[batch_idx]             # (B,)
+                batch_returns = returns[batch_idx]            # (B,)
 
-                mu, std = self.actor(batch_states)
+                # -------- critic (centralized) --------
+                critic_value = self.critic(batch_global).squeeze(-1)  # (B,)
+
+                # -------- actor (decentralized, shared) --------
+                # local obs for all agents: (B*D, A*F)
+                local_obs = batch_states.reshape(-1, n_animals * n_feat)
+
+                mu, std = self.actor(local_obs)               # (B*D, act_dim)
                 dist = Normal(mu, std)
-                critic_value = self.critic(batch_states).squeeze(-1)
 
-                # IMPORTANT: invert tanh to get raw_action for correct log-prob
-                raw_action = _atanh(batch_actions)
-                new_logp = _squashed_log_prob(dist, raw_action, batch_actions)
+                # actions per agent: (B*D, act_dim)
+                agent_actions = batch_actions.reshape(-1, act_dim)
 
+                # PPO logp: use atanh to invert tanh squashing
+                raw_action = _atanh(agent_actions)
+                new_logp_per_agent = _squashed_log_prob(dist, raw_action, agent_actions)  # (B*D,)
+
+                # joint logp per timestep: sum over agents -> (B,)
+                new_logp = new_logp_per_agent.view(-1, n_drones).sum(dim=1)
+
+                # -------- PPO objective --------
                 ratio = (new_logp - batch_old_logp).exp()
                 unclipped = ratio * batch_adv
-                clipped = T.clamp(ratio,
-                                  1 - self.optim_hpt.policy_clip,
-                                  1 + self.optim_hpt.policy_clip) * batch_adv
+                clipped = T.clamp(
+                    ratio,
+                    1 - self.optim_hpt.policy_clip,
+                    1 + self.optim_hpt.policy_clip
+                ) * batch_adv
 
                 actor_loss = -T.min(unclipped, clipped).mean()
                 critic_loss = (batch_returns - critic_value).pow(2).mean()
 
-                entropy = 0.5 * dist.entropy().sum(dim=-1).mean()
+                # Entropy (per-agent, averaged)
+                entropy = dist.entropy().sum(dim=-1)              # (B*D,)
+                entropy = entropy.view(-1, n_drones).sum(dim=1)  # joint entropy (B,)
+                entropy = entropy.mean()
+
 
                 total_loss = (
                     actor_loss
