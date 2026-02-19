@@ -312,8 +312,8 @@ class Env:
         r_align /= self.drone_count
 
         reward = (
-            0.7 * r_align +
-            0.3 * r_dist +
+            0.6 * r_align +
+            0.4 * r_dist +
             0.1 * r_vis
         )
 

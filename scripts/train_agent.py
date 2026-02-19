@@ -27,7 +27,7 @@ def main(config):
     run["parameters"] = stringify_unsupported(config)
 
     config = Box(config)
-    env = Env(config, render_mode=None)
+    env = Env(config)
     agent = Agent(config)
     obs, info = env.reset()
 

@@ -21,7 +21,7 @@ cfg_train = {
             "entropy_coef": 0.05
         },
         "sampling": {
-            "total_timesteps": 200*1024,
+            "total_timesteps": 50*1024,
             "rollout_steps": 1024,
             "mini_batch_size": 128,
             "n_epochs": 4,
@@ -29,7 +29,7 @@ cfg_train = {
     },
     "drone": {
         "env": {
-            "count": 1, # drone count
+            "count": 2, # drone count
         },
         "init": {
             "min_speed": 8, # m/s
@@ -37,7 +37,7 @@ cfg_train = {
             "ver_angle": 90, # frustum, vertical angle
             "hor_angle": 140, # frustum, horizontal angle
             "max_cam_rot": 90, # abs(deg)
-            "view_range": 150, # meters
+            "view_range": 200, # meters
             "spawn_dist": [40,100], # euclidean spawn distance from animal
             "view_dir": [1,0,-0.7], # camera direction
             "max_altitude": 150
