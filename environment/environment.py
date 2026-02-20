@@ -20,6 +20,7 @@ class Environment:
         self.cfg = config
         self.seed_seq = None
         self.rng = None
+        self.episode_seed = None
         self.next_episode_seed = None
 
         self.pos_scale = np.array([self.cfg.map_size, self.cfg.map_size, self.cfg.map_altitude])

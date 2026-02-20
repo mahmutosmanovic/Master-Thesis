@@ -26,3 +26,6 @@ def decode_action(a: np.ndarray):
     view_yaw_rate = float(a[4])
 
     return (direction, speed, view_yaw_rate)
+
+def encode_joint_obs(obs):
+    return np.concatenate(list([obs.values()])).astype(np.float32)
