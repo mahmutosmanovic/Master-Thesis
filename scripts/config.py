@@ -29,7 +29,7 @@ cfg_train = {
     },
     "drone": {
         "env": {
-            "count": 2, # drone count
+            "count": 3, # drone count
         },
         "init": {
             "min_speed": 8, # m/s

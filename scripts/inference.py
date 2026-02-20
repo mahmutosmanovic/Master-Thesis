@@ -17,7 +17,7 @@ def main(config):
 
     config = Box(config)
 
-    env = Env(config, render_mode=None)
+    env = Env(config, render_mode=None, seed=99)
     obs, info = env.reset()
 
     agent = Agent(config)
@@ -25,36 +25,36 @@ def main(config):
     model_dir = "tmp/ppo"
 
     actor_path = os.path.join(model_dir, "actor_torch_ppo.pt")
-    critic_path = os.path.join(model_dir, "critic_torch_ppo.pt")
-
     agent.actor.load_state_dict(torch.load(actor_path, map_location="cpu"))
-    agent.critic.load_state_dict(torch.load(critic_path, map_location="cpu"))
-
     agent.actor.eval()
-    agent.critic.eval()
-
-    print("Models loaded successfully.")
 
     env.set_render_mode("human")
 
     terminated = False
     truncated = False
-    total_reward = 0
 
-    print("Recording episode...")
+    step_count = 0
+    episode_reward = 0.0
 
     while not (terminated or truncated):
 
-        # Deterministic action for inference
         with torch.no_grad():
-            # action, _, _ = agent.choose_action(obs, deterministic=True)
             action, _, _ = agent.choose_action(obs, deterministic=False)
 
         obs, reward, terminated, truncated, info = env.step(action)
 
-        total_reward += reward
-        
-    norm_reward = total_reward / config.max_episode_steps
+        step_count += 1
+        episode_reward += reward
+
+        env.viewer.draw(
+            env.drones,
+            env.animals,
+            env.render_mode,
+            fov=info["fov"],
+            reward=reward,
+        )
+            
+    norm_reward = episode_reward / config.max_episode_steps
     print(f"Episode finished. Total Reward: {norm_reward:.4f}")
 
     env.viewer.close()

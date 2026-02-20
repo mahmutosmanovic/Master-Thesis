@@ -163,7 +163,7 @@ class Agent:
         obs_np = np.asarray(observation, dtype=np.float32)
         n_drones = obs_np.shape[0]
 
-        # ---------------- CENTRALIZED CRITIC ----------------
+        # CENTRALIZED CRITIC
         global_obs = T.as_tensor(
             obs_np.reshape(-1),
             dtype=T.float32,
@@ -173,7 +173,7 @@ class Agent:
         with T.no_grad():
             value = self.critic(global_obs).squeeze(-1)
 
-        # ---------------- DECENTRALIZED ACTOR ----------------
+        # DECENTRALIZED ACTOR
         local_batch = T.as_tensor(
             obs_np.reshape(n_drones, -1),
             dtype=T.float32,
@@ -222,9 +222,7 @@ class Agent:
         T_steps, n_drones, n_animals, n_feat = states.shape
         act_dim = self.act_dim
 
-        # -------------------------------------------------
         # GAE (critic is centralized; values are per timestep)
-        # -------------------------------------------------
         advantages = T.zeros_like(rewards, device=device)
         gae = T.tensor(0.0, device=device)
 
@@ -242,9 +240,7 @@ class Agent:
         # Precompute flattened global state for critic: (T, D*A*F)
         global_states = states.reshape(T_steps, -1)
 
-        # -------------------------------------------------
         # PPO updates
-        # -------------------------------------------------
         for _ in range(self.samp_hpt.n_epochs):
             indices = np.arange(T_steps)
             np.random.shuffle(indices)
@@ -259,10 +255,10 @@ class Agent:
                 batch_adv = advantages[batch_idx]             # (B,)
                 batch_returns = returns[batch_idx]            # (B,)
 
-                # -------- critic (centralized) --------
+                # critic (centralized)
                 critic_value = self.critic(batch_global).squeeze(-1)  # (B,)
 
-                # -------- actor (decentralized, shared) --------
+                # actor (decentralized, shared)
                 # local obs for all agents: (B*D, A*F)
                 local_obs = batch_states.reshape(-1, n_animals * n_feat)
 
@@ -279,7 +275,7 @@ class Agent:
                 # joint logp per timestep: sum over agents -> (B,)
                 new_logp = new_logp_per_agent.view(-1, n_drones).sum(dim=1)
 
-                # -------- PPO objective --------
+                # PPO objective
                 ratio = (new_logp - batch_old_logp).exp()
                 unclipped = ratio * batch_adv
                 clipped = T.clamp(

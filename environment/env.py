@@ -316,8 +316,14 @@ class Env:
     def set_render_mode(self, mode):
         self.render_mode = mode
 
-    def render(self):
-        self.viewer.draw(self.drones, self.animals, self.render_mode)
+    def render(self, fov=None, reward=None):
+        self.viewer.draw(
+            self.drones,
+            self.animals,
+            self.render_mode,
+            fov=fov,
+            reward=reward
+        )
 
     def torch_to_vec(self, actions):
         actions = actions.detach().cpu().numpy()
@@ -347,7 +353,6 @@ class Env:
         """
         terminated = False
         truncated = False
-        info = {}
 
         if self._env_steps >= self.config["max_episode_steps"]:
             self._env_steps = 0
@@ -362,7 +367,13 @@ class Env:
         """
         observations = self.in_FoV(self.drones, self.animals)
 
+        info = {
+            "fov": observations
+        }
+
         reward = self.compute_reward(observations)
 
-        self.render()
+        if self.render_mode is not None:
+            self.render(fov=observations, reward=reward)
+            
         return observations, reward, terminated, truncated, info
