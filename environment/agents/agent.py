@@ -1,5 +1,5 @@
 import numpy as np
-from utils.vec_utils import *
+from environment.utils.vec_utils import unit
 
 class Agent:
     def __init__(self, agent_id, pos, direction, seed):
@@ -11,9 +11,9 @@ class Agent:
         self.direction = direction
 
     def move(self, dt):
-        self.pos = self.pos + (self.direction * self.norm_speed * self.params.max_speed) * float(dt)
+        self.pos = self.pos + (self.direction * self.norm_speed * self.cfg.max_speed) * float(dt)
 
-        if self.params.is_planar:
+        if self.cfg.is_planar:
             self.pos[2] = 0.0
         else:
             self.pos[2] = max(self.pos[2], 0.0)
@@ -21,7 +21,7 @@ class Agent:
     def apply_control(self, direction, norm_speed, dt):
         direction = np.asarray(direction, dtype=float)
 
-        if self.params.is_planar:
+        if self.cfg.is_planar:
             direction[2] = 0.0
 
         self.direction = unit(direction)
@@ -31,22 +31,22 @@ class Agent:
         if self.pos[0] < 0.0:
             self.pos[0] = -self.pos[0]
             self.direction[0] *= -1.0
-        elif self.pos[0] > self.x_bound:
-            self.pos[0] = 2.0 * self.x_bound - self.pos[0]
+        elif self.pos[0] > self.xy_bound:
+            self.pos[0] = 2.0 * self.xy_bound - self.pos[0]
             self.direction[0] *= -1.0
 
         if self.pos[1] < 0.0:
             self.pos[1] = -self.pos[1]
             self.direction[1] *= -1.0
-        elif self.pos[1] > self.y_bound:
-            self.pos[1] = 2.0 * self.y_bound - self.pos[1]
+        elif self.pos[1] > self.xy_bound:
+            self.pos[1] = 2.0 * self.xy_bound - self.pos[1]
             self.direction[1] *= -1.0
 
     def to_dict(self):
-        vx, vy, vz = self.direction * self.norm_speed * self.params.max_speed
+        vx, vy, vz = self.direction * self.norm_speed * self.cfg.max_speed
         return {
             "agent_id": self.agent_id,
-            "type": self.params.name,
+            "type": self.cfg.name,
 
             "x": self.pos[0],
             "y": self.pos[1],
@@ -56,6 +56,6 @@ class Agent:
             "vy": vy,
             "vz": vz,
 
-            "speed": self.norm_speed * self.params.max_speed,
+            "speed": self.norm_speed * self.cfg.max_speed,
         }
 

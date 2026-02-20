@@ -1,29 +1,24 @@
 import numpy as np
 from .agent import Agent
-from dataclasses import dataclass
-from utils.vec_utils import *
+from environment.utils.vec_utils import unit
+from environment.immutables import BehaviourState
 
 class Animal(Agent):
-    STATE_BASE  = "base"
-    STATE_AVOID = "avoid"
-    STATE_FLEE  = "flee"
-    STATES = [STATE_BASE, STATE_AVOID, STATE_FLEE]
-
-    def __init__(self, agent_id, pos, direction, params, behaviour, disturbance_field, resource_field, x_bound, y_bound, seed):
+    def __init__(self, agent_id, pos, direction, cfg, behaviour, disturbance_field, resource_map, force_bounds, xy_bound, seed):
         super().__init__(agent_id, pos, direction, seed)
-        self.params = params
+        self.cfg = cfg
         self.behaviour = behaviour
-        self.state = Animal.STATE_BASE
+        self.state = BehaviourState.EXPLORE
 
-        self.x_bound = x_bound
-        self.y_bound = y_bound
+        self.force_bounds = force_bounds
+        self.xy_bound = xy_bound
 
         self.disturbance_field = disturbance_field
         self.disturbance_info = None
         self.total_disturbance = None
 
-        self.resource_field = resource_field
-        self.pois = self.resource_field.get_pois()
+        self.resource_map = resource_map
+
         self.encounter = False
         self.p_resource = None
 
@@ -33,8 +28,7 @@ class Animal(Agent):
         self.total_disturbance = np.sum([d["val"] for d in self.disturbance_info.values()])
 
     def forage(self):
-        self.p_resource = self.resource_field.p_resource(self.pos[0:2])
-        self.encounter = self.rng.random() < self.p_resource
+        self.encounter, self.p_resource = self.resource_map.is_encounter(self.pos[0:2], self.rng)
 
     def observe(self):
         return {
@@ -43,24 +37,24 @@ class Animal(Agent):
             "direction": self.direction,
             "disturbance_info": self.disturbance_info,
             "encounter": bool(self.encounter),
-            "pois": self.pois,
+            "pois": self.resource_map.get_pois(),
         }
     
     def policy(self, obs, dt):
-        direction, norm_speed = self.behaviour.act(obs, dt) # always act, to maintain determinism
+        direction, norm_speed = self.behaviour.act(obs, self.rng, dt) # always act, to maintain determinism
         disturbance = np.sum([drone["val"] for drone in obs["disturbance_info"].values()])
 
-        if disturbance > self.params.flight_threshold: # Flee !!!
+        if disturbance > self.cfg.flight_threshold: # Flee !!!
             mean_disturbance_dir = self.calc_weighted_disturbance_dir(obs)
-            self.state = Animal.STATE_FLEE
+            self.state = BehaviourState.FLIGHT
             return mean_disturbance_dir, 1
-        elif disturbance > self.params.avoidance_threshold: # Avoid !
+        elif disturbance > self.cfg.avoidance_threshold: # Avoid !
             mean_disturbance_dir = self.calc_weighted_disturbance_dir(obs)
 
-            w = (disturbance - self.params.avoidance_threshold) / (self.params.flight_threshold - self.params.avoidance_threshold)
+            w = (disturbance - self.cfg.avoidance_threshold) / (self.cfg.flight_threshold - self.cfg.avoidance_threshold)
             w = np.clip(w, 0.0, 1.0)
             blended_dir = (1 - w) * direction + w * mean_disturbance_dir
-            self.state = Animal.STATE_AVOID
+            self.state = BehaviourState.AVOID
             return unit(blended_dir), norm_speed
         else: # Base
             self.state = self.behaviour.get_state()
@@ -76,12 +70,13 @@ class Animal(Agent):
         direction, norm_speed = action
         self.apply_control(direction, norm_speed, dt)
         self.move(dt)
-        self.reflect_bounds()
+        if self.force_bounds:
+            self.reflect_bounds()
     
     def to_dict(self):
         return{
             **super().to_dict(),
-            "behaviour_state": self.state,
+            "behaviour_state": self.state.name.lower(),
             "disturbance": self.total_disturbance,
             "behaviour": type(self.behaviour).__name__,
             "encounter": self.encounter,
@@ -91,4 +86,4 @@ class Animal(Agent):
 
     def __repr__(self):
         x, y, z = self.pos
-        return f"{self.params.name}([{round(x,1)}, {round(y,1)}, {round(z,1)}], behaviour={type(self.behaviour).__name__}, id={self.agent_id})"
+        return f"{self.cfg.name}([{round(x,1)}, {round(y,1)}, {round(z,1)}], behaviour={type(self.behaviour).__name__}, id={self.agent_id})"

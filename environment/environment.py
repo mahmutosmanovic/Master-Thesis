@@ -4,15 +4,15 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 
-from environment.paths import CirclePath
 from environment.agents.drone import Drone
 from environment.agents.behaviour import make_behaviour
 from environment.agents.animal import Animal
-from environment.agents.sensor import make_sensor
 from environment.agents.disturbance import DisturbanceField
 from environment.reward import tracking_reward
-from environment.resource import ResourceField
-from utils.vec_utils import position_on_cylinder, random_position, random_direction
+from environment.resource_map import ResourceMap
+from environment.utils.vec_utils import position_on_cylinder, position_in_view, random_position, random_direction
+from environment.viewer import animate_from_log
+from environment.immutables import BehaviourState
 
 
 class Environment:
@@ -20,63 +20,68 @@ class Environment:
         self.cfg = config
         self.seed_seq = None
         self.rng = None
+        self.next_episode_seed = None
 
-        self.pos_scale = np.array([self.cfg.map_width, self.cfg.map_height, self.cfg.map_altitude])
+        self.pos_scale = np.array([self.cfg.map_size, self.cfg.map_size, self.cfg.map_altitude])
 
         self.agents = []
         self.log = []
         self.t = 0.0
         self.max_t = config.max_t
-        self.resource_field = None
+        self.resource_map = None
         self.resource_seed = None
 
         self.drone_ids = []
         self.animal_ids = []
 
     # Setup
-
-    def reset(self, seed=None):
+    def set_seed(self, seed):
         # Optional reseed
-        if seed is None:
-            seed = int(self.rng.integers(0, 2**31 - 1))
-
-        self.episode_seed = int(seed)
+        if seed == None:
+            self.episode_seed = self.next_episode_seed
+        else:
+            self.episode_seed = int(seed)
 
         # reseed episode RNG tree
         self.seed_seq = np.random.SeedSequence(self.episode_seed)
         self.rng = np.random.default_rng(self.seed_seq.spawn(1)[0])
+        self.next_episode_seed = int(self.rng.integers(0, 2**31 - 1))
+        self.resource_seed = int(self.rng.integers(0, 2**31 - 1))
 
+    def reset(self, seed=None):
+        self.set_seed(seed)
         self.agents.clear()
         self.log.clear()
         self.drone_ids.clear()
         self.animal_ids.clear()
         self.t = 0.0
 
-        self.resource_seed = int(self.rng.integers(0, 2**31 - 1))
-        self.resource_field = ResourceField(world_x=self.cfg.map_width,
-                                            world_y=self.cfg.map_height,
-                                            freq=self.cfg.resource_frequency,
-                                            resource_scale=self.cfg.resource_scale,
-                                            resource_abundance=self.cfg.resource_scale,
-                                            seed=self.resource_seed)
+        self.resource_map = ResourceMap(
+            p_wavelenght=self.cfg.p_wavelenght,
+            p_reduction=self.cfg.p_reduction,
+            p_scale=self.cfg.p_scale,
+            sample_res=self.cfg.sample_res,
+            min_poi_p=self.cfg.min_poi_p,
+            world_size=self.cfg.map_size,
+            kernel_size=self.cfg.kernel_size,
+            seed=self.resource_seed
+            )
 
         for group in self.cfg.animals:
             self._spawn_animal(
-                group["params"],
+                group["config"],
                 group["count"],
                 group["behaviour_cfg"],
             )
 
         for group in self.cfg.drones:
             self._spawn_drone(
-                group["params"],
+                group["config"],
                 group["count"],
-                group["sensor_cfg"],
+                group["spawn_range"],
             )
 
-        info = {"drone_ids": self.drone_ids,
-                "animal_ids": self.animal_ids,
-                "seed": self.episode_seed,
+        info = {"seed": self.episode_seed,
                 "resource_seed": self.resource_seed}
 
         self.disturb_animals()
@@ -85,42 +90,52 @@ class Environment:
 
         return drone_obs, info
 
-    def _spawn_animal(self, animal_params, count, behaviour_cfg):
+    def _spawn_animal(self, animal_config, count, behaviour_cfg):
         for _ in range(count):
             agent = Animal(agent_id=len(self.agents),
-                           pos=random_position(self.rng, self.cfg.map_width, self.cfg.map_height, 0),
+                           pos=random_position(self.rng, self.cfg.map_size, self.cfg.map_size, 0),
                            direction=random_direction(self.rng),
-                           params=animal_params,
-                           behaviour=make_behaviour(behaviour_cfg, self.seed_seq.spawn(1)[0]),
+                           cfg=animal_config,
+                           behaviour=make_behaviour(behaviour_cfg),
                            disturbance_field=DisturbanceField(),
-                           resource_field = self.resource_field,
-                           x_bound=self.cfg.map_width,
-                           y_bound=self.cfg.map_height,
+                           resource_map=self.resource_map,
+                           force_bounds=self.cfg.force_bounds,
+                           xy_bound=self.cfg.map_size,
                            seed=self.seed_seq.spawn(1)[0])
             
             self.animal_ids.append(agent.agent_id)
             self.agents.append(agent)
     
-    def _spawn_drone(self, drone_params, count, sensor_cfg):
+    def select_drone_target_id(self):
+        match self.cfg.drone_target_order:
+            case "round_robin":
+                target_idx = len(self.drone_ids) % len(self.animal_ids)
+                return self.animal_ids[target_idx]
+            case "random":
+                return self.rng.choice(self.animal_ids)
+            case _:
+                raise NotImplementedError("valid options for target order [round_robin, random]")
+
+    def _spawn_drone(self, drone_config, count, spawn_range):
         for _ in range(count):
-            target_id = self.rng.choice(self.animal_ids)
-            target_pos = self.agents[target_id].pos.copy()
-            pos, yaw = position_on_cylinder(target_pos, self.rng)
+            target_agent_id = self.select_drone_target_id()
+            target_pos = self.agents[target_agent_id].pos.copy()
+            distance = self.rng.uniform(*spawn_range)
+            yaw_rad = self.rng.uniform(0, np.pi*2)
+            pos = position_in_view(target_pos, np.deg2rad(drone_config.camera_pitch), yaw_rad, distance)
 
             agent = Drone(agent_id=len(self.agents),
                           pos=pos,
                           direction=random_direction(self.rng),
-                          params=drone_params,
-                          sensor=make_sensor(sensor_cfg, self.seed_seq.spawn(1)[0]),
+                          cfg=drone_config,
                           seed=self.seed_seq.spawn(1)[0],
-                          yaw=yaw,
+                          yaw_rad=yaw_rad,
                           pos_scale=self.pos_scale)
             
             self.drone_ids.append(agent.agent_id)
             self.agents.append(agent)
     
     # Simulation
-
     def gather_actions(self, external_actions):
         animal_obs = {animal_id: self.agents[animal_id].observe() for animal_id in self.animal_ids}
         animal_actions = {animal_id: self.agents[animal_id].policy(animal_obs[animal_id], self.cfg.dt) for animal_id in self.animal_ids}
@@ -147,21 +162,40 @@ class Environment:
         observations = {}
         for drone_id in self.drone_ids:
             # keep separate and handle concat in env, easier to modify later with heterogeneous agents
-            drone_obs, sensor_obs = self.agents[drone_id].observe(animals)
-            sensor_metrics = self.agents[drone_id].sensor.metrics(sensor_obs)
+            drone_obs, camera_obs = self.agents[drone_id].observe(animals)
+            reward_metrics = self.agents[drone_id].reward_metrics(camera_obs)
 
             # per drone disturbance
             disturbances = np.array([animal.disturbance_info[drone_id]["val"] for animal in animals], dtype=np.float32)
             disturbance = np.mean(disturbances)
 
             # calculate reward from metrics, explicit reward stated in reward.py
-            rewards[drone_id] = tracking_reward(sensor_metrics, disturbance, actions[drone_id], self.cfg)
+            rewards[drone_id] = tracking_reward(reward_metrics, disturbance, actions[drone_id], self.cfg)
 
             # Assemble full observation
-            observations[drone_id] = np.concatenate([drone_obs, sensor_obs], axis=0)
+            observations[drone_id] = np.concatenate([drone_obs, camera_obs], axis=0)
         
         return observations, rewards
+    
+    def gather_global_state(self):
+        global_state = []
+        for animal_id in self.animal_ids:
+            animal = self.agents[animal_id]
+            global_state.append(np.concatenate([
+                animal.pos / self.pos_scale,
+                animal.direction * animal.norm_speed,
+            ]))
 
+        for drone_id in self.drone_ids:
+            drone = self.agents[drone_id]
+            global_state.append(np.concatenate([
+                drone.pos / self.pos_scale,
+                drone.direction * drone.norm_speed,
+                drone.view_dir
+            ]))
+        
+        return np.concatenate(global_state).astype(np.float32)
+            
     def is_done(self):
         if self.t > self.max_t:
             return True
@@ -179,11 +213,29 @@ class Environment:
         info = {}
         return drone_obs, rewards, done, info
 
+    @property
+    def global_state_dim(self):
+        return len(self.animal_ids) * 6 + len(self.drone_ids) * 9
+    
+    @property
+    def obs_dim(self):
+        return {drone_id: self.agents[drone_id].obs_dim for drone_id in self.drone_ids}
+    
+    @property
+    def action_dim(self):
+        return {drone_id: self.agents[drone_id].action_dim for drone_id in self.drone_ids}
+
     # Logging
+
+    def render_episode(self, save_path="recordings/default.mp4"):
+        animate_from_log(self.log,
+                         save_path=save_path,
+                         interval_ms=1000*self.cfg.dt)
+        
 
     def episode_statistics(self):
         log = self.log
-        scalars = {f"behaviour/{b}_percent": 0.0 for b in Animal.STATES} # Init with behaviour fallback values
+        scalars = {f"behaviour/{b.name.lower()}_percent": 0.0 for b in BehaviourState} # Init with behaviour fallback values
 
         behaviours = np.array(
             [r.get("behaviour_state") for r in log if r.get("behaviour_state") is not None],

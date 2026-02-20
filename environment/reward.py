@@ -1,7 +1,7 @@
 import numpy as np
-from environment.agents.sensor import SensorMetrics
+from environment.agents.drone import RewardMetrics
 
-def tracking_reward(sensor_metrics: SensorMetrics, disturbance: float, action, cfg):
+def tracking_reward(sensor_metrics: RewardMetrics, disturbance: float, action, cfg):
     direction, norm_speed, view_yaw_rate = action
     r_control = -cfg.control_scale * view_yaw_rate**2
 

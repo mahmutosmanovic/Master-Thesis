@@ -106,7 +106,7 @@ class DisturbanceField:
         z_hor = self.horizontal(horizontal_dist)
         g_ang = self.angle_gain(horizontal_dist, dz)
 
-        g_speed = self.speed_gain(drone.norm_speed * drone.params.max_speed)
+        g_speed = self.speed_gain(drone.norm_speed * drone.cfg.max_speed)
 
         # g_heading = self.heading_gain_soft(drone.direction, diff)
         g_heading = self.heading_gain_hard(drone.direction, diff)
@@ -117,6 +117,8 @@ class DisturbanceField:
         return {"val": float(Z), "dir": diff}
 
 def plot_3view_contours(df, extent=50.0, n=120, levels=30):
+    import os
+    
     vals = np.linspace(-extent, extent, n)
     X, Y, Z = np.meshgrid(vals, vals, vals, indexing="ij")
 
@@ -158,12 +160,9 @@ def plot_3view_contours(df, extent=50.0, n=120, levels=30):
     fig.colorbar(im3, cax=cax, label="Disturbance")
 
     fig.suptitle("3-View Disturbance Field Slices", fontsize=16)
-    plt.savefig("disturbance")
-    plt.show()
-
-# ======================================================
-# Main
-# ======================================================
+    os.makedirs("figs", exist_ok=True)
+    save_path = os.path.join("figs", "disturbance_field.png")
+    plt.savefig(save_path)
 
 def main():
     df = DisturbanceField()
