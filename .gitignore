@@ -3,6 +3,7 @@
 /logs
 /recordings
 /.vscode
+/neptune
 /tmp
 
 # Byte-compiled / optimized / DLL files
