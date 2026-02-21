@@ -18,18 +18,18 @@ cfg_train = {
             "gae_lambda": 0.95,
             "policy_clip": 0.2,
             "val_loss_coef": 0.5,
-            "entropy_coef": 0.01
+            "entropy_coef": 0.03
         },
         "sampling": {
-            "total_timesteps": 200*1024,
+            "total_timesteps": 100*1024,
             "rollout_steps": 1024,
             "mini_batch_size": 128,
-            "n_epochs": 4,
+            "n_epochs": 3,
         }
     },
     "drone": {
         "env": {
-            "count": 3, # drone count
+            "count": 1, # drone count
         },
         "init": {
             "min_speed": 8, # m/s

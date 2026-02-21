@@ -39,7 +39,7 @@ def main(config):
     while not (terminated or truncated):
 
         with torch.no_grad():
-            action, _, _ = agent.choose_action(obs, deterministic=False)
+            action, _, _ = agent.choose_action(obs, deterministic=True)
 
         obs, reward, terminated, truncated, info = env.step(action)
 

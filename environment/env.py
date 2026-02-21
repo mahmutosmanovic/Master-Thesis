@@ -3,8 +3,8 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
+from .disturbance import disturbance_gain
 from .immutables import Behavior, MovementDim
-from .resource_map import ResourceMap
 
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
@@ -279,40 +279,6 @@ class Env:
 
         return np.array(in_FoV_obs, dtype=np.float32)
 
-    def compute_reward(self, observations):
-
-        r_vis = 0.0
-        r_dist = 0.0
-        r_align = 0.0
-
-        for d in range(self.drone_count):
-
-            drone_obs = observations[d]
-
-            in_view = drone_obs[:, 0]
-            dist = drone_obs[:, 1]
-            v = np.abs(drone_obs[:, 2])
-            h = np.abs(drone_obs[:, 3])
-
-            visible = in_view == 1.
-
-            if np.any(visible):
-                r_vis += np.mean(in_view)
-                r_dist += np.mean(1.0 - dist[visible])
-                r_align += np.mean(1.0 - (v[visible] + h[visible]) * 0.5)
-
-        r_vis /= self.drone_count
-        r_dist /= self.drone_count
-        r_align /= self.drone_count
-
-        reward = (
-            0.6 * r_align +
-            0.3 * r_dist +
-            0.1 * r_vis
-        )
-
-        return reward
-
     def set_render_mode(self, mode):
         self.render_mode = mode
 
@@ -337,6 +303,157 @@ class Env:
                 "theta": float(a[4]),
             })
         return formatted
+    
+    def _compute_geometry(self):
+
+        geometry = []
+
+        drone_positions = [d.pos.to_numpy() for d in self.drones]
+        animal_positions = [a.pos.to_numpy() for a in self.animals]
+
+        for drone_pos in drone_positions:
+
+            drone_geom = []
+
+            for animal_pos in animal_positions:
+
+                rel_vec = animal_pos - drone_pos
+                distance = np.linalg.norm(rel_vec)
+
+                if distance > 1e-8:
+                    dir_unit = rel_vec / distance
+                else:
+                    dir_unit = np.zeros(3, dtype=np.float32)
+
+                drone_geom.append({
+                    "rel_vec": rel_vec,
+                    "distance": distance,
+                    "dir_unit": dir_unit,
+                })
+
+            geometry.append(drone_geom)
+
+        return geometry
+    
+    def _build_observations(self, geometry):
+        """
+        Builds FoV observations using precomputed geometry.
+        """
+
+        in_FoV_obs = []
+        world_z = np.array([0, 0, 1], dtype=np.float32)
+
+        for d, drone in enumerate(self.drones):
+
+            drone_obs = []
+
+            # forward axis
+            x = drone.view_dir.to_numpy()
+            x = x / (np.linalg.norm(x) + 1e-8)
+
+            view_x, view_y, view_z = x
+
+            altitude = drone.pos.to_numpy()[2]
+            altitude_norm = altitude / (self.config.drone.init.max_altitude + 1e-8)
+
+            # camera basis
+            y = np.cross(world_z, x)
+            y = y / (np.linalg.norm(y) + 1e-8)
+
+            z = np.cross(x, y)
+            z = z / (np.linalg.norm(z) + 1e-8)
+
+            v_max = np.deg2rad(drone.ver_angle / 2)
+            h_max = np.deg2rad(drone.hor_angle / 2)
+
+            for a in range(self.animal_count):
+
+                rel_unit = geometry[d][a]["dir_unit"]
+                distance = geometry[d][a]["distance"]
+
+                cx = np.dot(rel_unit, x)
+                cy = np.dot(rel_unit, y)
+                cz = np.dot(rel_unit, z)
+
+                v_angle = np.arctan2(cz, cx)
+                h_angle = np.arctan2(cy, cx)
+
+                in_view = (
+                    cx > 0 and
+                    abs(v_angle) <= v_max and
+                    abs(h_angle) <= h_max and
+                    distance <= drone.view_range
+                )
+
+                if in_view:
+                    drone_obs.append([
+                        1.0,
+                        distance / drone.view_range,
+                        v_angle / v_max,
+                        h_angle / h_max,
+                        view_x, view_y, view_z,
+                        altitude_norm
+                    ])
+                else:
+                    drone_obs.append([
+                        0.0, 1.0, 0.0, 0.0,
+                        view_x, view_y, view_z,
+                        altitude_norm
+                    ])
+
+            in_FoV_obs.append(np.array(drone_obs, dtype=np.float32))
+
+        return np.array(in_FoV_obs, dtype=np.float32)
+    
+    def compute_reward(self, observations, geometry):
+
+        r_vis = 0.0
+        r_dist = 0.0
+        r_align = 0.0
+        r_disturbance = 0.0
+
+        for d in range(self.drone_count):
+
+            drone_obs = observations[d]
+
+            in_view = drone_obs[:, 0]
+            dist = drone_obs[:, 1]
+            v = np.abs(drone_obs[:, 2])
+            h = np.abs(drone_obs[:, 3])
+
+            visible = in_view == 1.0
+
+            # monitor reward
+            if np.any(visible):
+                r_vis += np.mean(in_view)
+                r_dist += np.mean(1.0 - dist[visible])
+                r_align += np.mean(1.0 - (v[visible] + h[visible]) * 0.5)
+
+            # disturbance penalty
+            for a in range(self.animal_count):
+                rel_vec = geometry[d][a]["rel_vec"]
+                r_disturbance += disturbance_gain(rel_vec)
+
+        r_vis /= self.drone_count
+        r_dist /= self.drone_count
+        r_align /= self.drone_count
+        r_disturbance /= (self.drone_count * self.animal_count)
+
+
+        monitor_reward = (
+            0.6 * r_align +
+            0.3 * r_dist +
+            0.1 * r_vis
+        )
+        disturbance_penalty = np.clip(r_disturbance, 0.0, 1.0)
+
+        alpha = 0.3
+        final_reward = (
+            (1 - alpha) * monitor_reward +
+            alpha * (1.0 - disturbance_penalty)
+        )
+
+        return final_reward
 
     def step(self, actions):
         self._env_steps += 1
@@ -348,7 +465,7 @@ class Env:
         reward = 0
 
         """
-        Lost tracking → failure
+        Lost tracking > failure
         Animal stress > threshold → failure
         """
         terminated = False
@@ -358,20 +475,13 @@ class Env:
             self._env_steps = 0
             terminated = True
 
-        """
-        observations.shape =
-            (
-                num_drones,
-                num_animals * [in_view, dist_norm, h_norm, v_norm]
-            )
-        """
-        observations = self.in_FoV(self.drones, self.animals)
+        geometry = self._compute_geometry()
+        observations = self._build_observations(geometry)
+        reward = self.compute_reward(observations, geometry)
 
         info = {
             "fov": observations
         }
-
-        reward = self.compute_reward(observations)
 
         if self.render_mode is not None:
             self.render(fov=observations, reward=reward)
