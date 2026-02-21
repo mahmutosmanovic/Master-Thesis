@@ -1,5 +1,6 @@
 import random
 from .vec import Vector
+from .immutables import Drone_Type
 from .behaviors import BEHAVIOR_FNs
     
 class Entity:
@@ -18,25 +19,30 @@ class Entity:
             self.vel_speed = self.max_speed
         elif self.vel_speed < self.min_speed:
             self.vel_speed = self.min_speed
-
+        
 class Drone(Entity):
-    def __init__(self, config):
+    def __init__(self, config, d_type="small"):
         super().__init__(config)
+        # type
+        self.drone_type = Drone_Type.SMALL if d_type == "small" else Drone_Type.LARGE 
+
         # camera
-        self.ver_angle = int(config["drone"]["init"]["ver_angle"])
-        self.hor_angle = int(config["drone"]["init"]["hor_angle"])
-        self.view_range = int(config["drone"]["init"]["view_range"])
-        self.max_cam_rot = int(config["drone"]["init"]["max_cam_rot"])
-        self.view_dir = Vector(*config["drone"]["init"]["view_dir"])
+        self.ver_angle = int(config["drone"][d_type]["ver_angle"])
+        self.hor_angle = int(config["drone"][d_type]["hor_angle"])
+        self.disturbance_mult = config["drone"][d_type]["disturbance_mult"]
+        self.view_range = int(config["drone"][d_type]["view_range"])
+        self.max_cam_rot = int(config["drone"][d_type]["max_cam_rot"])
+        self.max_altitude = int(config["drone"][d_type]["max_altitude"])
+        self.view_dir = Vector(*config["drone"][d_type]["view_dir"])
         self.theta = 0 # camera rotation in degrees per timestep
 
         # pos
-        self.spawn_dist = int(random.uniform(*config["drone"]["init"]["spawn_dist"]))
+        self.spawn_dist = int(random.uniform(*config["drone"][d_type]["spawn_dist"]))
         self.pos = Vector()
 
         # movement
-        self.min_speed = int(config["drone"]["init"]["min_speed"])
-        self.max_speed = int(config["drone"]["init"]["max_speed"])
+        self.min_speed = int(config["drone"][d_type]["min_speed"])
+        self.max_speed = int(config["drone"][d_type]["max_speed"])
         self.vel_speed = 0
         self.vel_dir = Vector()
         

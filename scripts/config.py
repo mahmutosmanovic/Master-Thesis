@@ -1,8 +1,8 @@
 from environment import Behavior, MovementDim
 
 cfg_train = {
-    "dt": 0.05, # seconds
-    "max_episode_steps": 256, # max steps per epsiode
+    "dt": 0.01, # seconds
+    "max_episode_steps": 2048, # max steps per epsiode
 
     "model": {
         "path": "checkpoints",
@@ -12,45 +12,57 @@ cfg_train = {
             "features": 8,
         },
         "optimization": {
-            "gamma": 0.995,
+            "gamma": 0.998,
             "actor_lr": 0.0003,
-            "critic_lr": 0.0003,
+            "critic_lr": 0.0005,
             "gae_lambda": 0.95,
             "policy_clip": 0.2,
             "val_loss_coef": 0.5,
-            "entropy_coef": 0.03
+            "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 100*1024,
-            "rollout_steps": 1024,
-            "mini_batch_size": 128,
-            "n_epochs": 3,
+            "total_timesteps": 500*4096,
+            "rollout_steps": 4096,
+            "mini_batch_size": 256,
+            "n_epochs": 10,
         }
     },
     "drone": {
-        "env": {
-            "count": 1, # drone count
-        },
-        "init": {
-            "min_speed": 8, # m/s
-            "max_speed": 16, # m/s
-            "ver_angle": 90, # frustum, vertical angle
-            "hor_angle": 140, # frustum, horizontal angle
-            "max_cam_rot": 90, # abs(deg)
-            "view_range": 200, # meters
-            "spawn_dist": [40,100], # euclidean spawn distance from animal
-            "view_dir": [1,0,-0.7], # camera direction
+        "small": {
+            "count": 1,
+            "view_range": 200,
+            "disturbance_mult": 1,
+            "min_speed": 0,
+            "max_speed": 16,
+            "ver_angle": 90,
+            "hor_angle": 140,
+            "max_cam_rot": 90,
+            "spawn_dist": [20, 80],
+            "view_dir": [1, 0, -0.7],
             "max_altitude": 150
         },
+        "large": {
+            "count": 1,
+            "view_range": 400,
+            "disturbance_mult": 2.5,
+            "min_speed": 0,
+            "max_speed": 20,
+            "ver_angle": 90,
+            "hor_angle": 140,
+            "max_cam_rot": 90,
+            "spawn_dist": [40, 160],
+            "view_dir": [1, 0, -0.7],
+            "max_altitude": 300
+        }
     },
     "animal": {
         "env": {
             "count": 1, # animal count
         },
         "init": {
-            "min_speed": 8, # min animal speed
-            "max_speed": 12, # max animal speed
-            "epsilon": 0.0, # how often dir change
+            "min_speed": 0, # min animal speed
+            "max_speed": 14, # max animal speed
+            "epsilon": 0.1, # how often dir change
             "ver_dir_angle": 0, # max animal vertical abs(deg) change
             "hor_dir_angle": 60, # max animal horizontal abs(deg) change
             "behavior": Behavior.RANDOM, # type of behavior

@@ -138,7 +138,9 @@ class Agent:
 
         self.act_dim = self.space_hpt.n_actions
         self.actor_input_dims = config.animal.env.count * self.space_hpt.features
-        self.critic_input_dims = config.drone.env.count * config.animal.env.count * self.space_hpt.features
+
+        total_drone_count = config.drone.small.count + config.drone.large.count
+        self.critic_input_dims = total_drone_count * config.animal.env.count * self.space_hpt.features
 
         self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr)
         self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr)

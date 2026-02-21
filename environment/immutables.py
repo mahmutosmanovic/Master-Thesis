@@ -8,3 +8,7 @@ class Behavior(Enum):
 class MovementDim(Enum):
     TWO_D = 43
     THREE_D = 47
+
+class Drone_Type(Enum):
+    SMALL = 7
+    LARGE = 11

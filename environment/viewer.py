@@ -9,6 +9,9 @@ from collections import deque
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from .immutables import Drone_Type
 
 def _frustum_segments(pos, forward, hfov, vfov, depth):
 
@@ -51,11 +54,13 @@ class Viewer:
         self.interval_ms = int(self.dt * 1000)
         self.fps = int(1 / self.dt)
 
-        drone_cfg = config["drone"]["init"]
+        drone_cfg_small = config["drone"]["small"]
+        self.hfov_small = np.deg2rad(drone_cfg_small["hor_angle"])
+        self.vfov_small = np.deg2rad(drone_cfg_small["ver_angle"])
 
-        self.hfov = np.deg2rad(drone_cfg["hor_angle"])
-        self.vfov = np.deg2rad(drone_cfg["ver_angle"])
-        self.frustum_depth = 10.0
+        drone_cfg_large = config["drone"]["large"]
+        self.hfov_large = np.deg2rad(drone_cfg_large["hor_angle"])
+        self.vfov_large = np.deg2rad(drone_cfg_large["ver_angle"])
 
         self.drone_trail_len = 200
         self.animal_trail_len = 200
@@ -87,6 +92,7 @@ class Viewer:
         # store frame
         self.frames.append({
             "drones": np.array([d.pos.to_numpy() for d in drones]),
+            "drone_types": [d.drone_type for d in drones],
             "animals": np.array([a.pos.to_numpy() for a in animals]),
             "views": np.array([d.view_dir.to_numpy() for d in drones]),
             "visible": visible,
@@ -94,155 +100,130 @@ class Viewer:
         })
 
     def stop_recording(self):
-
         if not self.frames:
             return
 
-        print("[Viewer] Rendering video...")
-
+        print(f"[Viewer] Rendering video ({len(self.frames)} frames)...")
         frames = self.frames
-
+        
+        # 1. Setup Filepath
         save_dir = Path(__file__).parent.parent / "recordings"
         save_dir.mkdir(exist_ok=True)
         filename = save_dir / f"recording_{time.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
 
-        # ---------- figure ----------
-        fig = plt.figure(figsize=(10, 8))
+        # 2. Figure Setup
+        fig = plt.figure(figsize=(12, 9))
         ax = fig.add_subplot(projection="3d")
         ax.set_proj_type("ortho")
-        ax.grid(True)
-
-        pts = np.concatenate(
-            [f["drones"] for f in frames] +
-            [f["animals"] for f in frames], axis=0)
-
+        
+        # Calculate global bounds so the camera doesn't jump/zoom mid-video
+        pts = np.concatenate([f["drones"] for f in frames] + [f["animals"] for f in frames], axis=0)
         low, high = pts.min(0), pts.max(0)
-        span = np.maximum(high - low, 1e-6)
-        pad = 0.05 * span
+        pad = 0.1 * (high - low + 1e-6)
+        ax.set_xlim(low[0]-pad[0], high[0]+pad[0])
+        ax.set_ylim(low[1]-pad[1], high[1]+pad[1])
+        ax.set_zlim(low[2]-pad[2], high[2]+pad[2])
+        ax.set_box_aspect((high-low+2*pad))
 
-        xmin, ymin, zmin = low - pad
-        xmax, ymax, zmax = high + pad
+        # 3. Styling Map (using your Enum and __init__ variables)
+        type_style = {
+            Drone_Type.SMALL: {
+                "color": "blue", 
+                "hfov": self.hfov_small, 
+                "vfov": self.vfov_small,
+                "depth": 10.0,
+                "f_color": "cornflowerblue"
+            },
+            Drone_Type.LARGE: {
+                "color": "purple", 
+                "hfov": self.hfov_large, 
+                "vfov": self.vfov_large,
+                "depth": 15.0,
+                "f_color": "mediumpurple"
+            }
+        }
 
-        ax.set_xlim(xmin, xmax)
-        ax.set_ylim(ymin, ymax)
-        ax.set_zlim(zmin, zmax)
-        ax.set_box_aspect([xmax-xmin, ymax-ymin, zmax-zmin])
-
-        # ---------- legend ----------
         legend_elements = [
-            Line2D([0], [0], marker='o', color='w',
-                   markerfacecolor='blue', label='Drone'),
-            Line2D([0], [0], marker='o', color='w',
-                   markerfacecolor='green', label='Animal (Visible)'),
-            Line2D([0], [0], marker='o', color='w',
-                   markerfacecolor='red', label='Animal (Not Visible)'),
-            Line2D([0], [0], color='blue', lw=2, label='Camera FoV')
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', label='Small Drone'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='purple', label='Large Drone'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='green', label='Visible'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='red', label='Hidden'),
         ]
+        ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0.0, 0.9))
 
-        # legend
-        ax.legend(
-            handles=legend_elements,
-            bbox_to_anchor=(0.304, 0.90),
-        )
+        # 4. Initialize Plot Objects
+        n_drones = len(frames[0]["drones"])
+        n_animals = len(frames[0]["animals"])
+        drone_types = frames[0]["drone_types"]
 
-        drone_scatter = ax.scatter([], [], [], s=64, color="blue", depthshade=False)
-        animal_scatter = ax.scatter([], [], [], s=64, depthshade=False)
+        drone_scatter = ax.scatter([], [], [], s=80, edgecolors='black', linewidth=0.3)
+        animal_scatter = ax.scatter([], [], [], s=60, depthshade=False)
+        
+        hud_text = ax.text2D(0.0185, 0.91, "", transform=ax.transAxes, family="monospace", 
+                            bbox=dict(facecolor="white", alpha=0.3))
 
-        # reward
-        hud_text = ax.text2D(
-            0.0, 0.92, "",
-            transform=ax.transAxes,
-            fontsize=13,
-            family="monospace",
-            bbox=dict(facecolor="white", alpha=0.2, boxstyle="round,pad=0.4")
-        )
+        drone_trails = [ax.plot([], [], [], color=type_style[drone_types[j]]["color"], 
+                                lw=1.5, alpha=1.0)[0] for j in range(n_drones)]
+        
+        animal_trails = [ax.plot([], [], [], color="gray", lw=1.5, alpha=1.0)[0] 
+                        for _ in range(n_animals)]
 
-        drone_hist = deque(maxlen=self.drone_trail_len)
-        animal_hist = deque(maxlen=self.animal_trail_len)
+        # Use a Collection for frustums - much faster than creating 100+ Line3D objects
+        dummy_seg = [np.array([[0, 0, 0], [0, 0, 0]])]
+        frustum_collection = Line3DCollection(dummy_seg, colors="cornflowerblue", linewidths=0.7, alpha=0.6)
+        ax.add_collection3d(frustum_collection)
 
-        n_drones = frames[0]["drones"].shape[0]
-        n_animals = frames[0]["animals"].shape[0]
+        d_hist = deque(maxlen=self.drone_trail_len)
+        a_hist = deque(maxlen=self.animal_trail_len)
 
-        drone_trails = [ax.plot([], [], [], color="blue", lw=1)[0]
-                        for _ in range(n_drones)]
-
-        animal_trails = [ax.plot([], [], [], color="green", lw=1)[0]
-                         for _ in range(n_animals)]
-
-        frustum_lines = []
-
-        def update(i):
-
-            frame = frames[i]
-
-            drones = frame["drones"]
-            animals = frame["animals"]
-            views = frame["views"]
-
-            if frame["reward"] is not None:
-                self._last_reward = frame["reward"]
+        # 5. Animation Update
+        def update(idx):
+            f = frames[idx]
+            d_pos, a_pos, views = f["drones"], f["animals"], f["views"]
+            d_hist.append(d_pos)
+            a_hist.append(a_pos)
             
-            if self._last_reward is not None:
-                hud_text.set_text(f"Reward: {self._last_reward:.2f}")
+            # HUD
+            if f["reward"] is not None:
+                hud_text.set_text(f"Frame: {idx:03d} \nReward: {f['reward']:.2f}")
 
-            drone_hist.append(drones)
-            animal_hist.append(animals)
+            # Update Scatters
+            drone_scatter._offsets3d = (d_pos[:,0], d_pos[:,1], d_pos[:,2])
+            drone_scatter.set_facecolors([type_style[t]["color"] for t in f["drone_types"]])
+            
+            animal_scatter._offsets3d = (a_pos[:,0], a_pos[:,1], a_pos[:,2])
+            animal_scatter.set_facecolors(np.where(f["visible"], "green", "red"))
 
-            dh = np.array(drone_hist)
-            ah = np.array(animal_hist)
+            # Update Trails
+            dh, ah = np.array(d_hist), np.array(a_hist)
+            for j in range(n_drones):
+                drone_trails[j].set_data(dh[:, j, 0], dh[:, j, 1])
+                drone_trails[j].set_3d_properties(dh[:, j, 2])
+            for j in range(n_animals):
+                animal_trails[j].set_data(ah[:, j, 0], ah[:, j, 1])
+                animal_trails[j].set_3d_properties(ah[:, j, 2])
 
-            drone_scatter._offsets3d = (drones[:,0], drones[:,1], drones[:,2])
-            animal_scatter._offsets3d = (animals[:,0], animals[:,1], animals[:,2])
+            # Update Frustums with dynamic FOV per drone type
+            all_segs = []
+            seg_colors = []
+            for j in range(n_drones):
+                style = type_style[f["drone_types"][j]]
+                segs = _frustum_segments(d_pos[j], views[j], style["hfov"], 
+                                        style["vfov"], style["depth"])
+                all_segs.extend(segs)
+                seg_colors.extend([style["f_color"]] * 8)
 
-            cols = np.where(frame["visible"], "green", "red")
-            cols_rgba = plt.cm.colors.to_rgba_array(cols)
+            frustum_collection.set_segments(all_segs)
+            frustum_collection.set_colors(seg_colors)
 
-            animal_scatter.set_facecolors(cols_rgba)
-            animal_scatter.set_edgecolors(cols_rgba)
-            animal_scatter._facecolor3d = cols_rgba
-            animal_scatter._edgecolor3d = cols_rgba
+            return [drone_scatter, animal_scatter, frustum_collection, hud_text] + drone_trails
 
-            # trails
-            for j, line in enumerate(drone_trails):
-                line.set_data(dh[:, j, 0], dh[:, j, 1])
-                line.set_3d_properties(dh[:, j, 2])
-
-            for j, line in enumerate(animal_trails):
-                line.set_data(ah[:, j, 0], ah[:, j, 1])
-                line.set_3d_properties(ah[:, j, 2])
-
-            # frustums
-            for l in frustum_lines:
-                l.remove()
-            frustum_lines.clear()
-
-            for p, v in zip(drones, views):
-                for a, b in _frustum_segments(
-                        p, v, self.hfov, self.vfov, self.frustum_depth):
-
-                    line, = ax.plot(
-                        [a[0], b[0]],
-                        [a[1], b[1]],
-                        [a[2], b[2]],
-                        color="cornflowerblue",
-                        lw=0.6,
-                        alpha=0.98
-                    )
-                    frustum_lines.append(line)
-
-            ax.set_title("Inference Playback")
-
-        anim = FuncAnimation(
-            fig,
-            update,
-            frames=len(frames),
-            interval=self.interval_ms
-        )
-
+        # 6. Save
+        anim = FuncAnimation(fig, update, frames=len(frames), interval=self.interval_ms)
         anim.save(filename, writer=FFMpegWriter(fps=self.fps))
         plt.close(fig)
-
-        print(f"[Viewer] Saved: {filename.name}")
+        
+        print(f"[Viewer] Video saved: {filename.name}")
         self.recording = False
 
     def close(self):

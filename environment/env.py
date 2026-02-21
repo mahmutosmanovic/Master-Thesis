@@ -9,11 +9,8 @@ from .immutables import Behavior, MovementDim
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
         self.set_seed(seed)
-
         self.render_mode = render_mode
-
         self.config = config
-
         self.viewer = Viewer(config)
         
         self.animal_count = config["animal"]["env"]["count"]
@@ -23,10 +20,14 @@ class Env:
                                )
                         for _ in range(self.animal_count)]
         
-        self.drone_count = config["drone"]["env"]["count"]
-        self.drones = [Drone(config=config) 
-                       for _ in range(self.drone_count)]
-        
+        self.drones = []
+        for drone_type in ["small", "large"]:
+            count = config["drone"][drone_type]["count"]
+            for _ in range(count):
+                self.drones.append(Drone(config=config, 
+                                         d_type=drone_type))
+            
+        self.drone_count = len(self.drones)
         self._env_steps = 0
 
     def _init_animal(self):
@@ -128,30 +129,21 @@ class Env:
         return observations, info
     
     def package_actions(self, actions):
-
-        min_speed = self.config.drone.init.min_speed
-        max_speed = self.config.drone.init.max_speed
-        max_cam_rot = self.config.drone.init.max_cam_rot
-
         packaged_actions = []
 
-        for drone_actions in actions:
+        for i, drone_actions in enumerate(actions):
+            drone = self.drones[i]
+
+            min_speed = drone.min_speed
+            max_speed = drone.max_speed
+            max_cam_rot = drone.max_cam_rot
 
             norm_speed = drone_actions[3]
             norm_theta = drone_actions[4]
 
             package_action = {
-                # direction (already [-1,1])
-                "vel_dir": Vector(drone_actions[0],
-                                drone_actions[1],
-                                drone_actions[2]),
-                # speed: [-1,1] -> [min,max]
-                "vel_speed": (
-                    (norm_speed + 1.0) * 0.5 *
-                    (max_speed - min_speed)
-                    + min_speed),
-                # camera rotation
-                # [-1,1] -> [-max,+max] degrees
+                "vel_dir": Vector(drone_actions[0], drone_actions[1], drone_actions[2]),
+                "vel_speed": ((norm_speed + 1.0) * 0.5 * (max_speed - min_speed) + min_speed),
                 "theta": norm_theta * max_cam_rot
             }
 
@@ -206,7 +198,7 @@ class Env:
 
             # Altitude sensor
             altitude = drone.pos.to_numpy()[2]
-            altitude_norm = altitude / (self.config.drone.init.max_altitude + 1e-8)
+            altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
             # Camera basis
             y = np.cross(world_z, x)
@@ -354,7 +346,7 @@ class Env:
             view_x, view_y, view_z = x
 
             altitude = drone.pos.to_numpy()[2]
-            altitude_norm = altitude / (self.config.drone.init.max_altitude + 1e-8)
+            altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
             # camera basis
             y = np.cross(world_z, x)
@@ -432,7 +424,8 @@ class Env:
             # disturbance penalty
             for a in range(self.animal_count):
                 rel_vec = geometry[d][a]["rel_vec"]
-                r_disturbance += disturbance_gain(rel_vec)
+                k = self.drones[d].disturbance_mult
+                r_disturbance += (k * disturbance_gain(rel_vec))
 
         r_vis /= self.drone_count
         r_dist /= self.drone_count
