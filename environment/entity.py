@@ -1,4 +1,5 @@
 import random
+import numpy as np
 from .vec import Vector
 from .immutables import Drone_Type
 from .behaviors import BEHAVIOR_FNs
@@ -80,6 +81,9 @@ class Animal(Entity):
         self.movement_dim = config["animal"]["init"]["movement_dim"]
         self.use_random_unit_3d = (self.movement_dim == self.movement_dims.THREE_D)
         
+        self.disturbance = 0
+        self.escape_vector = np.zeros(3)
+
         self.vel_speed = 0
         self.vel_dir = Vector()
 

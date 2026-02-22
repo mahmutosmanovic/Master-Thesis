@@ -33,6 +33,8 @@ class Env:
     def _init_animal(self):
         # randomization using animal.rng, animal seed decides spawn location, spawn heading and behaviour
         for i, animal in enumerate(self.animals):
+            animal.disturbance = 0.0
+            animal.escape_dir = np.zeros(3, dtype=np.float32)
             animal.vel_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
             spawn_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
@@ -118,12 +120,14 @@ class Env:
         :param seed: makes every episode the same
         """
 
+        self._env_steps = 0
         self.set_seed(seed)
 
         self._init_animal()
         self._init_drone()
 
-        observations = self.in_FoV(self.drones, self.animals)
+        geometry = self._compute_geometry()
+        observations = self._build_observations(geometry)
 
         info = {}
         return observations, info
@@ -170,8 +174,30 @@ class Env:
             drone.reset_theta()
 
     def _step_animal(self):
+
         for animal in self.animals:
-            animal.update_vel(rng=self.env_rng)
+
+            D = animal.disturbance
+
+            if D > 0.7:
+                # FULL ESCAPE
+                animal.vel_dir.setter(Vector(*animal.escape_dir))
+                animal.vel_speed = animal.max_speed
+
+            elif D > 0.4:
+                # AVOIDANCE BLEND
+                animal.update_vel(rng=self.env_rng)
+
+                base = animal.vel_dir.to_numpy()
+                flee = animal.escape_dir
+
+                blended = 0.5 * base + 0.5 * flee
+                animal.vel_dir.setter(Vector(*blended))
+
+            else:
+                # NORMAL BEHAVIOUR
+                animal.update_vel(rng=self.env_rng)
+
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
@@ -397,13 +423,53 @@ class Env:
 
         return np.array(in_FoV_obs, dtype=np.float32)
     
-    def compute_reward(self, observations, geometry):
+    def _compute_disturbance(self, geometry):
+
+
+        for a, animal in enumerate(self.animals):
+
+            instant_disturbance = 0.0
+            escape_vec = np.zeros(3, dtype=np.float32)
+
+            for d, drone in enumerate(self.drones):
+
+                rel_vec = geometry[d][a]["rel_vec"]
+                distance = geometry[d][a]["distance"]
+
+                gain = disturbance_gain(rel_vec) * drone.disturbance_mult
+                instant_disturbance += gain
+
+                if distance > 1e-8:
+                    escape_vec += (-rel_vec / distance) * gain
+
+            instant_disturbance = np.clip(instant_disturbance, 0.0, 1.0)
+            if instant_disturbance > animal.disturbance:
+                beta = 0.35   # fast panic
+            else:
+                beta = 0.05   # slow recovery
+
+            # INERTIA
+            animal.disturbance = (
+                (1.0 - beta) * animal.disturbance +
+                beta * instant_disturbance
+            )
+
+            animal.disturbance = np.clip(animal.disturbance, 0.0, 1.0)
+
+            # escape direction
+            norm = np.linalg.norm(escape_vec)
+            if norm > 1e-8:
+                animal.escape_dir = escape_vec / norm
+            else:
+                animal.escape_dir = animal.vel_dir.to_numpy()
+        
+    def compute_reward(self, observations):
 
         r_vis = 0.0
         r_dist = 0.0
         r_align = 0.0
-        r_disturbance = 0.0
 
+        # MONITORING QUALITY
         for d in range(self.drone_count):
 
             drone_obs = observations[d]
@@ -415,32 +481,37 @@ class Env:
 
             visible = in_view == 1.0
 
-            # monitor reward
             if np.any(visible):
-                r_vis += np.mean(in_view)
-                r_dist += np.mean(1.0 - dist[visible])
-                r_align += np.mean(1.0 - (v[visible] + h[visible]) * 0.5)
+                r_vis   += np.mean(in_view)
+                r_dist  += np.mean(1.0 - dist[visible])
+                r_align += np.mean(1.0 - 0.5 * (v[visible] + h[visible]))
 
-            # disturbance penalty
-            for a in range(self.animal_count):
-                rel_vec = geometry[d][a]["rel_vec"]
-                k = self.drones[d].disturbance_mult
-                r_disturbance += (k * disturbance_gain(rel_vec))
-
-        r_vis /= self.drone_count
-        r_dist /= self.drone_count
+        r_vis   /= self.drone_count
+        r_dist  /= self.drone_count
         r_align /= self.drone_count
-        r_disturbance /= (self.drone_count * self.animal_count)
 
+        # DISTURBANCE (STATE-BASED)
+        animal_disturbances = np.array(
+            [animal.disturbance for animal in self.animals],
+            dtype=np.float32
+        )
 
+        # mean stress in herd
+        disturbance_penalty = np.clip(
+            np.mean(animal_disturbances),
+            0.0,
+            1.0
+        )
+
+        # FINAL REWARD
         monitor_reward = (
             0.6 * r_align +
             0.3 * r_dist +
             0.1 * r_vis
         )
-        disturbance_penalty = np.clip(r_disturbance, 0.0, 1.0)
 
         alpha = 0.3
+
         final_reward = (
             (1 - alpha) * monitor_reward +
             alpha * (1.0 - disturbance_penalty)
@@ -451,26 +522,28 @@ class Env:
     def step(self, actions):
         self._env_steps += 1
 
-        actions = self.package_actions(actions)
-        self._step_drone(self.drones, actions)
-        self._step_animal()
-
-        reward = 0
-
-        """
-        Lost tracking > failure
-        Animal stress > threshold → failure
-        """
         terminated = False
         truncated = False
 
         if self._env_steps >= self.config["max_episode_steps"]:
-            self._env_steps = 0
             terminated = True
 
+        actions = self.package_actions(actions)
+
+        # 1. apply actions
+        self._step_drone(self.drones, actions)
+
+        # 2. animals react to new drone positions
+        geometry = self._compute_geometry()
+        self._compute_disturbance(geometry)
+        self._step_animal()
+
+        # 3. observe resulting state
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
-        reward = self.compute_reward(observations, geometry)
+
+        # 4. compute reward FROM RESULT
+        reward = self.compute_reward(observations)
 
         info = {
             "fov": observations

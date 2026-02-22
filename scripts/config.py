@@ -2,7 +2,7 @@ from environment import Behavior, MovementDim
 
 cfg_train = {
     "dt": 0.01, # seconds
-    "max_episode_steps": 2048, # max steps per epsiode
+    "max_episode_steps": 1024, # max steps per epsiode
 
     "model": {
         "path": "checkpoints",
@@ -12,7 +12,7 @@ cfg_train = {
             "features": 8,
         },
         "optimization": {
-            "gamma": 0.998,
+            "gamma": 0.997,
             "actor_lr": 0.0003,
             "critic_lr": 0.0005,
             "gae_lambda": 0.95,
@@ -21,8 +21,8 @@ cfg_train = {
             "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 500*4096,
-            "rollout_steps": 4096,
+            "total_timesteps": 500*2048,
+            "rollout_steps": 2048,
             "mini_batch_size": 256,
             "n_epochs": 10,
         }
