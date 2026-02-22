@@ -9,9 +9,14 @@ def disturbance_gain(dist_vec):
 
     g_alt = altitude_gain(dist_vec)
     g_hor = horizontal_gain(dist_vec)
-    g_ang = angle_gain(dist_vec)
+    g_ang = (angle_gain(dist_vec) - 1.0) / 1.0
 
-    return g_alt * g_hor * g_ang
+    D = (
+    0.4 * g_hor +
+    0.4 * g_alt +
+    0.2 * g_ang
+)
+    return np.clip(D, 0.0, 1.0)
 
 def altitude_gain(dist_vec):
     _, _, z = dist_vec
@@ -52,10 +57,6 @@ def angle_gain(dist_vec):
     elif theta <= 90:
         return 1.0 + (theta - 60) / 30
     return 1.0
-
-
-def speed_gain(v, v_safe=5.0):
-    return 1.0 if v <= v_safe else 1.0 + (v - v_safe) / v_safe
 
 
 # Visualization helpers (grid evaluation)

@@ -21,7 +21,7 @@ cfg_train = {
             "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 500*2048,
+            "total_timesteps": 100*2048,
             "rollout_steps": 2048,
             "mini_batch_size": 256,
             "n_epochs": 10,
@@ -37,20 +37,20 @@ cfg_train = {
             "ver_angle": 90,
             "hor_angle": 140,
             "max_cam_rot": 90,
-            "spawn_dist": [20, 80],
+            "spawn_dist": [40, 80],
             "view_dir": [1, 0, -0.7],
             "max_altitude": 150
         },
         "large": {
             "count": 1,
             "view_range": 400,
-            "disturbance_mult": 2.5,
+            "disturbance_mult": 1.25,
             "min_speed": 0,
             "max_speed": 20,
             "ver_angle": 90,
             "hor_angle": 140,
             "max_cam_rot": 90,
-            "spawn_dist": [40, 160],
+            "spawn_dist": [80, 160],
             "view_dir": [1, 0, -0.7],
             "max_altitude": 300
         }

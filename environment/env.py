@@ -28,6 +28,16 @@ class Env:
                                          d_type=drone_type))
             
         self.drone_count = len(self.drones)
+
+        self.state_counts = {
+            "calm": 0,
+            "avoid": 0,
+            "flee": 0,
+        }
+
+        self.total_state_steps = 0
+        self.disturbance_sum = 0.0
+
         self._env_steps = 0
 
     def _init_animal(self):
@@ -181,11 +191,13 @@ class Env:
 
             if D > 0.7:
                 # FULL ESCAPE
+                state = "flee"
                 animal.vel_dir.setter(Vector(*animal.escape_dir))
                 animal.vel_speed = animal.max_speed
 
             elif D > 0.4:
                 # AVOIDANCE BLEND
+                state = "avoid"
                 animal.update_vel(rng=self.env_rng)
 
                 base = animal.vel_dir.to_numpy()
@@ -196,11 +208,28 @@ class Env:
 
             else:
                 # NORMAL BEHAVIOUR
+                state = "calm"
                 animal.update_vel(rng=self.env_rng)
+
+            self.state_counts[state] += 1
+            self.total_state_steps += 1
+            self.disturbance_sum += D
 
             animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
+
+    def get_behavior_stats(self):
+
+        if self.total_state_steps == 0:
+            return None
+
+        return {
+            "calm_frac": self.state_counts["calm"] / self.total_state_steps,
+            "avoid_frac": self.state_counts["avoid"] / self.total_state_steps,
+            "flee_frac": self.state_counts["flee"] / self.total_state_steps,
+            "mean_disturbance": self.disturbance_sum / self.total_state_steps,
+        }
 
     def in_FoV(self, drones, animals):
         """
@@ -437,7 +466,7 @@ class Env:
                 distance = geometry[d][a]["distance"]
 
                 gain = disturbance_gain(rel_vec) * drone.disturbance_mult
-                instant_disturbance += gain
+                instant_disturbance = max(instant_disturbance, gain)
 
                 if distance > 1e-8:
                     escape_vec += (-rel_vec / distance) * gain
@@ -446,7 +475,7 @@ class Env:
             if instant_disturbance > animal.disturbance:
                 beta = 0.35   # fast panic
             else:
-                beta = 0.05   # slow recovery
+                beta = 0.35 * (1.0 - instant_disturbance)   # slow recovery
 
             # INERTIA
             animal.disturbance = (

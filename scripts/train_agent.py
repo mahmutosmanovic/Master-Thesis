@@ -8,9 +8,11 @@ from environment import Env
 from model import Agent
 
 # standard modules
+import subprocess
 import collections
 from box import Box
 from tqdm import tqdm
+from pathlib import Path
 
 import numpy as np
 import time
@@ -20,13 +22,32 @@ from neptune.utils import stringify_unsupported
 from dotenv import load_dotenv
 load_dotenv()
 
+def init_neptune_log(run, config):
+        # parameters upload
+        run["parameters"] = stringify_unsupported(config)
+
+        # source code upload
+        project_root = Path(__file__).resolve().parents[1]
+        code_dirs = [
+            project_root / "scripts",
+            project_root / "environment",
+            project_root / "model",
+        ]
+        files_to_upload = []
+        for d in code_dirs:
+            files_to_upload.extend(str(p) for p in d.rglob("*.py"))
+        run["source_code/files"].upload_files(files_to_upload)
+
+        commit = subprocess.getoutput("git rev-parse HEAD")
+        run["source_code/git_commit"] = commit
+    
 
 def main(config, neptune_logging=False):
     if neptune_logging:
         NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT")
         API_TOKEN = os.getenv("API_TOKEN")
         run = neptune.init_run(project=NEPTUNE_PROJECT, api_token=API_TOKEN)
-        run["parameters"] = stringify_unsupported(config)
+        init_neptune_log(run, config)
 
     config = Box(config)
     env = Env(config)
@@ -60,7 +81,14 @@ def main(config, neptune_logging=False):
                         avg = np.mean(reward_queue)
                         reward_all_100.append(avg)
                         if neptune_logging: 
-                            run["train/reward"].append(avg)
+                            run["train_stats/reward"].append(avg)
+
+                            stats = env.get_behavior_stats()
+                            run["train_stats/calm_frac"].append(stats["calm_frac"])
+                            run["train_stats/avoid_frac"].append(stats["avoid_frac"])
+                            run["train_stats/flee_frac"].append(stats["flee_frac"])
+                            run["train_stats/mean_disturbance"].append(stats["mean_disturbance"])
+
                         pbar.set_postfix({"Avg100": f"{avg:.2f}"})
                         
                         episode_reward = 0
