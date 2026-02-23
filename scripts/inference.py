@@ -17,7 +17,7 @@ def main(config):
 
     config = Box(config)
 
-    env = Env(config, render_mode=None, seed=99)
+    env = Env(config, render_mode="human", seed=99)
     obs, info = env.reset()
 
     agent = Agent(config)
@@ -27,8 +27,6 @@ def main(config):
     actor_path = os.path.join(model_dir, "actor_torch_ppo.pt")
     agent.actor.load_state_dict(torch.load(actor_path, map_location="cpu"))
     agent.actor.eval()
-
-    env.set_render_mode("human")
 
     terminated = False
     truncated = False
@@ -46,14 +44,6 @@ def main(config):
         step_count += 1
         episode_reward += reward
 
-        env.viewer.draw(
-            env.drones,
-            env.animals,
-            env.render_mode,
-            fov=info["fov"],
-            reward=reward,
-        )
-            
     norm_reward = episode_reward / config.max_episode_steps
     print(f"Episode finished. Total Reward: {norm_reward:.4f}")
 

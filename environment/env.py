@@ -200,13 +200,13 @@ class Env:
 
             D = animal.disturbance / self.scale_factor
 
-            if D > 0.6:
+            if D > 0.68:
                 # FULL ESCAPE
                 state = "flee"
                 animal.vel_dir.setter(Vector(*animal.escape_dir))
                 animal.vel_speed = animal.max_speed
 
-            elif D > 0.5:
+            elif D > 0.52:
                 # AVOIDANCE BLEND
                 state = "avoid"
                 animal.update_vel(rng=self.env_rng)
@@ -525,16 +525,15 @@ class Env:
 
         # mean stress in herd
         D = np.mean(animal_disturbances) / self.scale_factor
-        disturbance_penalty = D + 2.0 * max(0.0, D - 0.5)**2
 
         # FINAL REWARD
         monitor_reward = (
-            0.4 * r_align +
-            0.4 * r_dist +
-            0.2 * r_vis
+            0.6 * r_align +
+            0.3 * r_dist +
+            0.1 * r_vis
         )
 
-        alpha = 0.1
+        alpha = 0.20
 
         """
         Each animal can have a max disturbance of max(disturbance)*disturbance_factor
@@ -543,7 +542,7 @@ class Env:
 
         final_reward = (
             ((1 - alpha) * monitor_reward) -
-            (alpha * disturbance_penalty)
+            (alpha * D)
         )
 
         return final_reward
