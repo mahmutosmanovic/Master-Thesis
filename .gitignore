@@ -5,6 +5,9 @@ __pycache__/
 /data
 /recordings
 /tmp
+/.vscode
+/.neptune
+/logs
 
 # C extensions
 *.so

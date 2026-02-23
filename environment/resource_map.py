@@ -8,19 +8,23 @@ class ResourceMap:
     def __init__(self, config, seed=0):
         self.gen = OpenSimplex(seed)
 
-        self.freq = config.encounter.p_freq
-        self.p_reduction = config.encounter.p_reduction
-        self.p_scale = config.encounter.p_scale
-        self.sample_resolution = config.encounter.sample_res
-        self.kernel_size = config.encounter.kernel_size
-        self.threshold = config.encounter.min_poi_p
+        self.p_wavelenght = config.resource.p_wavelenght
+        self.p_reduction = config.resource.p_reduction
+        self.p_scale = config.resource.p_scale
+        self.sample_resolution = config.resource.sample_res
+        self.threshold = config.resource.min_poi_p
         self.world_size = config.animal.init.max_spawn_radius*2
 
-        self.pois = self.generate_pois()
+        self.kernel_size = config.resource.kernel_size//config.resource.sample_res
+        # odd values are better, otherwise kernel can shift values (not same distance on each side of center)
+        if self.kernel_size % 2 == 0:
+            self.kernel_size += 1
 
+        self.generate_pois()
+    
     def p(self, pos):
-        x = pos.x * self.freq
-        y = pos.y * self.freq
+        x = pos.x / self.p_wavelenght
+        y = pos.y / self.p_wavelenght
 
         # two octave perlin noise
         val  = self.gen.noise2(x, y) # [-1, 1]
@@ -36,7 +40,7 @@ class ResourceMap:
     def sample_map(self):
         x_space = np.arange(-self.world_size/2, self.world_size/2, self.sample_resolution)
         y_space = np.arange(-self.world_size/2, self.world_size/2, self.sample_resolution)
-        p_map = np.zeros((self.sample_resolution, self.sample_resolution))
+        p_map = np.zeros((len(x_space), len(x_space)))
 
         for i, x in enumerate(x_space):
             for j, y in enumerate(y_space):
@@ -63,6 +67,45 @@ class ResourceMap:
             pois = pois[np.argsort(pois[:, 2])[::-1]]
 
         self.pois = pois
+    
+    def reset(self, seed):
+        self.gen = OpenSimplex(seed)
 
-def plot_encounter_p():
-    pass
+
+def plot_resource_map():
+    import os
+    from box import Box
+    from scripts.config import cfg_train
+
+    rm = ResourceMap(Box(cfg_train), 0)
+
+    p_map, x_space, y_space = rm.sample_map()
+    
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        p_map.T,
+        origin="lower",
+        extent=[min(x_space), max(x_space), min(y_space), max(y_space)],
+        interpolation="bilinear",
+        cmap="CMRmap"
+    )
+    plt.colorbar(label="p(encounter)")
+
+    pois = rm.get_pois()
+    poi_x = [x for x, _, _ in pois]
+    poi_y = [y for _, y, _ in pois]
+    plt.scatter(poi_x, poi_y, edgecolor="black", label="POIs")
+
+    plt.title("Encounter Probability Field")
+    plt.xlabel("x (m)")
+    plt.ylabel("y (m)")
+    plt.legend()
+
+    plt.tight_layout()
+    # ---- Save figure ----
+    os.makedirs("figs", exist_ok=True)
+    save_path = os.path.join("figs", "resource_prob.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+if __name__ == "__main__":
+    plot_resource_map()

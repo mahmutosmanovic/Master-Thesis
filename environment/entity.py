@@ -1,8 +1,8 @@
 import random
 import numpy as np
 from .vec import Vector
-from .immutables import Drone_Type
-from .behaviors import BEHAVIOR_FNs
+from .immutables import BehaviorState, MovementDim
+from .behaviors import BEHAVIOR_LOOKUP
     
 class Entity:
     next_id = 1
@@ -25,7 +25,7 @@ class Drone(Entity):
     def __init__(self, config, d_type="small"):
         super().__init__(config)
         # type
-        self.drone_type = Drone_Type.SMALL if d_type == "small" else Drone_Type.LARGE 
+        self.drone_type = d_type
 
         # camera
         self.ver_angle = int(config["drone"][d_type]["ver_angle"])
@@ -65,21 +65,16 @@ class Drone(Entity):
             self.pos.z = 0
 
 class Animal(Entity):
-    def __init__(self, config, behaviors, movement_dims):
+    def __init__(self, config):
         super().__init__(config)
-        # enums
-        self.behaviors = behaviors
-        self.movement_dims = movement_dims
+        self.resource_map = None # set in init
 
         # movement
         self.min_speed = float(config["animal"]["init"]["min_speed"])
         self.max_speed = float(config["animal"]["init"]["max_speed"])
-        self.epsilon = float(config["animal"]["init"]["epsilon"])
-        self.ver_dir_angle = int(config["animal"]["init"]["ver_dir_angle"])
-        self.hor_dir_angle = int(config["animal"]["init"]["hor_dir_angle"])
-        self.behavior = config["animal"]["init"]["behavior"]
+        behavior_cfg = config["animal"]["init"]["behavior"]
+        self.behavior = BEHAVIOR_LOOKUP[type(behavior_cfg)](behavior_cfg)
         self.movement_dim = config["animal"]["init"]["movement_dim"]
-        self.use_random_unit_3d = (self.movement_dim == self.movement_dims.THREE_D)
         
         self.disturbance = 0
         self.escape_vector = np.zeros(3)
@@ -96,9 +91,9 @@ class Animal(Entity):
             self.pos.z = 0 
 
     def enforce_position(self):
-        if self.use_random_unit_3d:
+        if self.movement_dim == MovementDim.THREE_D:
             self._enforce_position_3d()
-        elif ~self.use_random_unit_3d:
+        elif self.movement_dim == MovementDim.TWO_D:
             self._enforce_position_2d()
         else:
             raise ValueError(f"Unexpected value: Choose 2D or 3D")
@@ -107,5 +102,4 @@ class Animal(Entity):
         """
         Updates velocity (magnitude and direction) according to specified behavior (random walk, points of interest, path following) and movement dimensions (2D or 3D).
         """
-        fn = BEHAVIOR_FNs[self.behavior]
-        fn(self, rng)
+        self.behavior.fn(self, rng, self.dt)

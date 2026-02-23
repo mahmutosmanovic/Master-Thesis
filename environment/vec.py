@@ -20,6 +20,7 @@ class Vector:
         self.x /= n 
         self.y /= n 
         self.z /= n
+        return self
 
     def distance(self, vec_other):
         dist_vec = self.add(vec_other.scale(-1))
@@ -28,12 +29,11 @@ class Vector:
     def random_unit(self, dim, rng):
         match dim:
             case MovementDim.TWO_D:
-                self.random_unit_2d(rng)
+                return self.random_unit_2d(rng)
             case MovementDim.THREE_D:
-                self.random_unit_3d(rng)
+                return self.random_unit_3d(rng)
             case _:
                 raise NotImplementedError()
-        return self
 
     def random_unit_2d(self, rng):
         if rng == None:
@@ -43,6 +43,7 @@ class Vector:
         self.y = rng.uniform(-1, 1)
         self.z = float(0)
         self.unit()
+        return self
 
     def random_unit_3d(self, rng):
         if rng == None:
@@ -52,6 +53,7 @@ class Vector:
         self.y = rng.uniform(-1, 1)
         self.z = rng.uniform(-1, 1)
         self.unit()
+        return self
 
     def to_numpy(self):
         return np.array([self.x, self.y, self.z])
@@ -68,23 +70,27 @@ class Vector:
         # rotate around z-axis
         self.x = x * cos_t - y * sin_t
         self.y = x * sin_t + y * cos_t
+        return self
     
     def scale(self, k, in_place=False):
         if in_place:
             self.x *= k
             self.y *= k
             self.z *= k
+            return self
         else:
             x = self.x * k
             y = self.y * k
             z = self.z * k
             return Vector(x, y, z)
         
+        
     def add(self, vec3d, in_place=False):
         if in_place:
             self.x += vec3d.x
             self.y += vec3d.y
             self.z += vec3d.z
+            return self
         else:
             x = self.x + vec3d.x
             y = self.y + vec3d.y

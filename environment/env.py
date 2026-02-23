@@ -4,7 +4,9 @@ from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
 from .disturbance import disturbance_gain
-from .immutables import Behavior, MovementDim
+from .resource_map import ResourceMap
+from .immutables import MovementDim
+from .config import CRW_CFG
 
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
@@ -12,16 +14,14 @@ class Env:
         self.render_mode = render_mode
         self.config = config
         self.viewer = Viewer(config)
+        self.resource_map = None
         
         self.animal_count = config["animal"]["env"]["count"]
-        self.animals = [Animal(config=config, 
-                               behaviors=Behavior, 
-                               movement_dims=MovementDim,
-                               )
+        self.animals = [Animal(config=config)
                         for _ in range(self.animal_count)]
         
         self.drones = []
-        for drone_type in ["small", "large"]:
+        for drone_type in self.config.drone:
             count = config["drone"][drone_type]["count"]
             for _ in range(count):
                 self.drones.append(Drone(config=config, 
@@ -37,11 +37,18 @@ class Env:
 
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
-        self.scale_factor = (self.config.drone.large.disturbance_mult * self.config.drone.large.count + 
-                             self.config.drone.small.disturbance_mult * self.config.drone.small.count)
+        # This makes disturbance of animals dependent on number of drones!!!, with two drones one drone can get twice as close for same disturbance with
+        # D = animal.disturbance / self.scale_factor
+        self.scale_factor = sum([drone_type.count * drone_type.disturbance_mult for drone_type in self.config.drone.values()])
 
         self._env_steps = 0
-
+    
+    def _create_resource_map(self):
+        if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
+            return None
+        else:
+            return ResourceMap(config=self.config, seed=self.resource_map_seed)
+        
     def _init_animal(self):
         # randomization using animal.rng, animal seed decides spawn location, spawn heading and behaviour
         for i, animal in enumerate(self.animals):
@@ -52,6 +59,8 @@ class Env:
             spawn_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
             radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
+            animal.resource_map = self.resource_map
+            animal.behavior.reset()
 
     def _init_drone(self):
             for i in range(self.drone_count):
@@ -122,7 +131,7 @@ class Env:
         self.sample_action_rng = np.random.default_rng(self.seeds[1]) # sample action needs its own rng, otherwise it can influence env
 
         self.next_episode_seed = self.env_rng.integers(0, np.iinfo(np.int32).max) # generate next seed immediately -> episode length has no influence on next seed
-        self.encounter_map_seed = self.env_rng.integers(0, np.iinfo(np.int32).max) # generate next seed immediately -> episode length has no influence on next seed
+        self.resource_map_seed = int(self.env_rng.integers(0, np.iinfo(np.int32).max))
 
     def reset(self, seed=None):
         """
@@ -138,6 +147,7 @@ class Env:
         self.disturbance_sum = 0.0
 
         self.set_seed(seed)
+        self.resource_map = self._create_resource_map()
 
         self._init_animal()
         self._init_drone()

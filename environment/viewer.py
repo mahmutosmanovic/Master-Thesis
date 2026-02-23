@@ -11,7 +11,6 @@ from matplotlib.animation import FuncAnimation, FFMpegWriter
 from matplotlib.lines import Line2D
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
-from .immutables import Drone_Type
 
 def _frustum_segments(pos, forward, hfov, vfov, depth):
 
@@ -52,15 +51,9 @@ class Viewer:
 
         self.dt = config["dt"]
         self.interval_ms = int(self.dt * 1000)
-        self.fps = int(1 / self.dt)
+        self.fps = int(1 / self.dt)*4
 
-        drone_cfg_small = config["drone"]["small"]
-        self.hfov_small = np.deg2rad(drone_cfg_small["hor_angle"])
-        self.vfov_small = np.deg2rad(drone_cfg_small["ver_angle"])
-
-        drone_cfg_large = config["drone"]["large"]
-        self.hfov_large = np.deg2rad(drone_cfg_large["hor_angle"])
-        self.vfov_large = np.deg2rad(drone_cfg_large["ver_angle"])
+        self.drone_cfg = config["drone"]
 
         self.drone_trail_len = 200
         self.animal_trail_len = 200
@@ -126,22 +119,31 @@ class Viewer:
         ax.set_box_aspect((high-low+2*pad))
 
         # 3. Styling Map (using your Enum and __init__ variables)
-        type_style = {
-            Drone_Type.SMALL: {
-                "color": "blue", 
-                "hfov": self.hfov_small, 
-                "vfov": self.vfov_small,
-                "depth": 10.0,
-                "f_color": "cornflowerblue"
-            },
-            Drone_Type.LARGE: {
-                "color": "purple", 
-                "hfov": self.hfov_large, 
-                "vfov": self.vfov_large,
-                "depth": 15.0,
-                "f_color": "mediumpurple"
-            }
-        }
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+        type_style = {drone_type: {
+            "color": colors[i % len(colors)], 
+            "hfov": np.deg2rad(drone_type_cfg["hor_angle"]), 
+            "vfov": np.deg2rad(drone_type_cfg["ver_angle"]),
+            "depth": drone_type_cfg["view_range"]/20,
+            "f_color": colors[i % len(colors)]} for i, (drone_type, drone_type_cfg) in enumerate(self.drone_cfg.items())}
+        
+        # type_style = {
+        #     Drone_Type.SMALL: {
+        #         "color": "blue", 
+        #         "hfov": self.hfov_small, 
+        #         "vfov": self.vfov_small,
+        #         "depth": 10.0,
+        #         "f_color": "cornflowerblue"
+        #     },
+        #     Drone_Type.LARGE: {
+        #         "color": "purple", 
+        #         "hfov": self.hfov_large, 
+        #         "vfov": self.vfov_large,
+        #         "depth": 15.0,
+        #         "f_color": "mediumpurple"
+        #     }
+        # }
 
         legend_elements = [
             Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', label='Small Drone'),
