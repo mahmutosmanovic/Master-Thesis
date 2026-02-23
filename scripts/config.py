@@ -1,7 +1,7 @@
 from environment import Behavior, MovementDim
 
 cfg_train = {
-    "dt": 0.01, # seconds
+    "dt": 0.02, # seconds
     "max_episode_steps": 1024, # max steps per epsiode
 
     "model": {
@@ -21,10 +21,10 @@ cfg_train = {
             "entropy_coef": 0.01
         },
         "sampling": {
-            "total_timesteps": 100*2048,
-            "rollout_steps": 2048,
-            "mini_batch_size": 256,
-            "n_epochs": 10,
+            "total_timesteps": 100*1024,
+            "rollout_steps": 1024,
+            "mini_batch_size": 128,
+            "n_epochs": 8,
         }
     },
     "drone": {
@@ -37,7 +37,7 @@ cfg_train = {
             "ver_angle": 90,
             "hor_angle": 140,
             "max_cam_rot": 90,
-            "spawn_dist": [40, 80],
+            "spawn_dist": [30, 80],
             "view_dir": [1, 0, -0.7],
             "max_altitude": 150
         },
@@ -50,7 +50,7 @@ cfg_train = {
             "ver_angle": 90,
             "hor_angle": 140,
             "max_cam_rot": 90,
-            "spawn_dist": [80, 160],
+            "spawn_dist": [40, 100],
             "view_dir": [1, 0, -0.7],
             "max_altitude": 300
         }

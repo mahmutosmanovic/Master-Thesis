@@ -9,13 +9,14 @@ def disturbance_gain(dist_vec):
 
     g_alt = altitude_gain(dist_vec)
     g_hor = horizontal_gain(dist_vec)
-    g_ang = (angle_gain(dist_vec) - 1.0) / 1.0
+    g_ang = (angle_gain(dist_vec) - 1.0)
 
     D = (
-    0.4 * g_hor +
-    0.4 * g_alt +
-    0.2 * g_ang
-)
+    (1/3) * g_hor +
+    (1/3) * g_alt +
+    (1/3) * g_ang
+    )
+
     return np.clip(D, 0.0, 1.0)
 
 def altitude_gain(dist_vec):

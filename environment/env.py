@@ -37,6 +37,8 @@ class Env:
 
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
+        self.scale_factor = (self.config.drone.large.disturbance_mult * self.config.drone.large.count + 
+                             self.config.drone.small.disturbance_mult * self.config.drone.small.count)
 
         self._env_steps = 0
 
@@ -131,6 +133,10 @@ class Env:
         """
 
         self._env_steps = 0
+        self.state_counts = {"calm":0, "avoid":0, "flee":0}
+        self.total_state_steps = 0
+        self.disturbance_sum = 0.0
+
         self.set_seed(seed)
 
         self._init_animal()
@@ -187,15 +193,20 @@ class Env:
 
         for animal in self.animals:
 
-            D = animal.disturbance
+            """
+            For small drone: between 0 and ITS max_disturbance (e.g., 0-1.0) * COUNT
+            For large drone: between 0 and ITS max_disturbance (e.g., 0-1.5) * COUNT
+            """
 
-            if D > 0.7:
+            D = animal.disturbance / self.scale_factor
+
+            if D > 0.6:
                 # FULL ESCAPE
                 state = "flee"
                 animal.vel_dir.setter(Vector(*animal.escape_dir))
                 animal.vel_speed = animal.max_speed
 
-            elif D > 0.4:
+            elif D > 0.5:
                 # AVOIDANCE BLEND
                 state = "avoid"
                 animal.update_vel(rng=self.env_rng)
@@ -457,33 +468,20 @@ class Env:
 
         for a, animal in enumerate(self.animals):
 
-            instant_disturbance = 0.0
             escape_vec = np.zeros(3, dtype=np.float32)
+            animal.disturbance = 0.0
 
             for d, drone in enumerate(self.drones):
 
                 rel_vec = geometry[d][a]["rel_vec"]
                 distance = geometry[d][a]["distance"]
 
+                # accumulate disturbance
                 gain = disturbance_gain(rel_vec) * drone.disturbance_mult
-                instant_disturbance = max(instant_disturbance, gain)
+                animal.disturbance += gain
 
                 if distance > 1e-8:
                     escape_vec += (-rel_vec / distance) * gain
-
-            instant_disturbance = np.clip(instant_disturbance, 0.0, 1.0)
-            if instant_disturbance > animal.disturbance:
-                beta = 0.35   # fast panic
-            else:
-                beta = 0.35 * (1.0 - instant_disturbance)   # slow recovery
-
-            # INERTIA
-            animal.disturbance = (
-                (1.0 - beta) * animal.disturbance +
-                beta * instant_disturbance
-            )
-
-            animal.disturbance = np.clip(animal.disturbance, 0.0, 1.0)
 
             # escape direction
             norm = np.linalg.norm(escape_vec)
@@ -526,24 +524,26 @@ class Env:
         )
 
         # mean stress in herd
-        disturbance_penalty = np.clip(
-            np.mean(animal_disturbances),
-            0.0,
-            1.0
-        )
+        D = np.mean(animal_disturbances) / self.scale_factor
+        disturbance_penalty = D + 2.0 * max(0.0, D - 0.5)**2
 
         # FINAL REWARD
         monitor_reward = (
-            0.6 * r_align +
-            0.3 * r_dist +
-            0.1 * r_vis
+            0.4 * r_align +
+            0.4 * r_dist +
+            0.2 * r_vis
         )
 
-        alpha = 0.3
+        alpha = 0.1
+
+        """
+        Each animal can have a max disturbance of max(disturbance)*disturbance_factor
+        IF there are two factors, 1 and 1.5, then the max disturbance would be 2.5
+        """
 
         final_reward = (
-            (1 - alpha) * monitor_reward +
-            alpha * (1.0 - disturbance_penalty)
+            ((1 - alpha) * monitor_reward) -
+            (alpha * disturbance_penalty)
         )
 
         return final_reward

@@ -80,17 +80,19 @@ def main(config, neptune_logging=False):
 
                         avg = np.mean(reward_queue)
                         reward_all_100.append(avg)
+                        stats = env.get_behavior_stats()
                         if neptune_logging: 
                             run["train_stats/reward"].append(avg)
 
-                            stats = env.get_behavior_stats()
                             run["train_stats/calm_frac"].append(stats["calm_frac"])
                             run["train_stats/avoid_frac"].append(stats["avoid_frac"])
                             run["train_stats/flee_frac"].append(stats["flee_frac"])
                             run["train_stats/mean_disturbance"].append(stats["mean_disturbance"])
 
-                        pbar.set_postfix({"Avg100": f"{avg:.2f}"})
-                        
+                        pbar.set_postfix({
+                            "rew_100": f"{avg:.2f}",
+                            "mean_dist": f"{stats['mean_disturbance']:.2f}",
+                        })
                         episode_reward = 0
                         obs, info = env.reset()
                         
