@@ -1,8 +1,8 @@
 import random
 import numpy as np
 from .vec import Vector
-from .immutables import BehaviorState, MovementDim
-from .behaviors import BEHAVIOR_LOOKUP
+from .immutables import MovementDim
+from .behaviors import BEHAVIOR_REGISTRY
     
 class Entity:
     next_id = 1
@@ -72,8 +72,11 @@ class Animal(Entity):
         # movement
         self.min_speed = float(config["animal"]["init"]["min_speed"])
         self.max_speed = float(config["animal"]["init"]["max_speed"])
+
         behavior_cfg = config["animal"]["init"]["behavior"]
-        self.behavior = BEHAVIOR_LOOKUP[type(behavior_cfg)](behavior_cfg)
+        behavior_cls = BEHAVIOR_REGISTRY[type(behavior_cfg)]
+        self.behavior = behavior_cls(behavior_cfg)
+
         self.movement_dim = config["animal"]["init"]["movement_dim"]
         
         self.disturbance = 0

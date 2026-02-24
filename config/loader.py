@@ -6,6 +6,7 @@ from environment import MovementDim, POI_CFG, EE_CFG, CRW_CFG
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PROJECT_ROOT / "config"
 
+
 # Behavior factory
 def _build_behavior(name: str):
 

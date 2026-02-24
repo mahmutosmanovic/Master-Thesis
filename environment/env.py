@@ -6,7 +6,7 @@ from .entity import Drone, Animal
 from .disturbance import disturbance_gain
 from .resource_map import ResourceMap
 from .immutables import MovementDim
-from .config import CRW_CFG
+from .behaviors import CRW_CFG
 
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
@@ -19,6 +19,7 @@ class Env:
         self.animal_count = config["animal"]["env"]["count"]
         self.animals = [Animal(config=config)
                         for _ in range(self.animal_count)]
+        self.movement_dim = config["animal"]["init"]["movement_dim"]
         
         self.drones = []
         for drone_type in self.config.drone:
@@ -37,8 +38,8 @@ class Env:
 
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
-        # This makes disturbance of animals dependent on number of drones!!!, with two drones one drone can get twice as close for same disturbance with
-        # D = animal.disturbance / self.scale_factor
+
+        # needs proper fix
         self.scale_factor = sum([drone_type.count * drone_type.disturbance_mult for drone_type in self.config.drone.values()])
 
         self._env_steps = 0
@@ -54,9 +55,9 @@ class Env:
         for i, animal in enumerate(self.animals):
             animal.disturbance = 0.0
             animal.escape_dir = np.zeros(3, dtype=np.float32)
-            animal.vel_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
+            animal.vel_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
             animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
-            spawn_dir = Vector().random_unit(dim=self.config["animal"]["init"]["movement_dim"], rng=self.env_rng)
+            spawn_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
             radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
             animal.resource_map = self.resource_map

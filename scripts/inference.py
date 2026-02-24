@@ -1,6 +1,6 @@
 # config
 import argparse
-from config import load_config
+from .run_utils import load_run
 
 # environment
 from environment import Env
@@ -14,7 +14,7 @@ import torch
 import os
 
 
-def main(config):
+def main(config, model_dir):
 
     config = Box(config)
 
@@ -22,8 +22,6 @@ def main(config):
     obs, info = env.reset()
 
     agent = Agent(config)
-
-    model_dir = "tmp/ppo"
 
     actor_path = os.path.join(model_dir, "actor_torch_ppo.pt")
     agent.actor.load_state_dict(torch.load(actor_path, map_location="cpu"))
@@ -50,17 +48,25 @@ def main(config):
 
     env.viewer.close()
 
+def _init_argparse():
 
-if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
-        "--config",
+        "--run",
         type=str,
-        default="train",
+        required=True,
+        help="Run folder name or 'latest'",
     )
-    parser.add_argument("--seed", type=int, default=42)
+
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    print(f"Env. config: {cfg['_config_name']}")
-    main(cfg)
+    return args
+
+if __name__ == "__main__":
+
+    args = _init_argparse()
+
+    cfg, run_dir = load_run(args.run)
+
+    main(cfg, run_dir)

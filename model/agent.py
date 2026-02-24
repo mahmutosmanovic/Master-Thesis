@@ -142,8 +142,8 @@ class Agent:
         total_drone_count = config.drone.small.count + config.drone.large.count
         self.critic_input_dims = total_drone_count * config.animal.env.count * self.space_hpt.features
 
-        self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr)
-        self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr)
+        self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr, chkpt_dir=config.run_dir)
+        self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr, chkpt_dir=config.run_dir)
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
 
     def remember(self, state, action, logp, val, reward, done):

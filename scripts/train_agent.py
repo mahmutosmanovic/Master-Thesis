@@ -1,24 +1,24 @@
-# script folder
+# config
 from config import load_config
+from .run_utils import create_run_dir, save_config_snapshot
 
-# environment folder
+# environment
 from environment import Env
 
-# model folder
+# model
 from model import Agent
 
 # standard modules
-import subprocess
-import collections
-from box import Box
-from tqdm import tqdm
-from pathlib import Path
-
 import os
 import time
 import neptune
 import argparse
+import subprocess
+import collections
 import numpy as np
+from box import Box
+from tqdm import tqdm
+from pathlib import Path
 from neptune.utils import stringify_unsupported
 from dotenv import load_dotenv
 load_dotenv()
@@ -33,10 +33,13 @@ def init_neptune_log(run, config):
             project_root / "scripts",
             project_root / "environment",
             project_root / "model",
+            project_root / "config",
         ]
         files_to_upload = []
         for d in code_dirs:
             files_to_upload.extend(str(p) for p in d.rglob("*.py"))
+            files_to_upload.extend(str(p) for p in d.rglob("*.yaml"))
+            files_to_upload.extend(str(p) for p in d.rglob("*.yml"))
         run["source_code/files"].upload_files(files_to_upload)
 
         commit = subprocess.getoutput("git rev-parse HEAD")
@@ -105,24 +108,41 @@ def main(config, neptune_logging=False):
         if neptune_logging:
             run.stop()
 
-
-if __name__ == "__main__":
+def _init_argparse():
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--config",
         type=str,
         default="train",
         help="Config name inside config/ folder",
     )
-    parser.add_argument("--seed", type=int, default=42)
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed",
+    )
+
     parser.add_argument(
         "--neptune",
         action="store_true",
         help="Enable Neptune logging",
     )
 
-    args = parser.parse_args()
+    return parser.parse_args()
+    
+if __name__ == "__main__":
+
+    args = _init_argparse()
 
     cfg = load_config(args.config)
-    print(f"Loaded config: {cfg['_config_name']}")
+
+    run_dir = create_run_dir(cfg, args.seed)
+    save_config_snapshot(cfg, run_dir)
+
+    cfg["run_dir"] = str(run_dir)
+    cfg["seed"] = args.seed
+
     main(cfg, neptune_logging=args.neptune)
