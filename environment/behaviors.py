@@ -1,8 +1,5 @@
-import random
-from .immutables import Behavior, MovementDim, BehaviorState
-from .config import CRW_CFG, EE_CFG, POI_CFG
 from .vec import Vector
-import numpy as np
+from .immutables import MovementDim, BehaviorState
 
 # helpers
 def step_direction(animal, cfg, rng, bias_vec=None):
@@ -110,6 +107,60 @@ class PointOfInterest:
     
     def reset(self):
         self.time_since_arrival = 0.0
+
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class CRW_CFG:
+    persistence: float  = 0.9
+    turn_sigma: float   = 0.15
+    target_speed: float = 10   # (m/s)
+    speed_sigma: float  = 1    # (m/s)
+    speed_smooth: float = 0.2
+    bias_gain: float    = 0.0
+
+@dataclass(frozen=True)
+class EE_CFG:
+    explore_cfg: CRW_CFG = CRW_CFG(
+        persistence = 0.9,
+        turn_sigma = 0.15,
+        target_speed = 10,
+        speed_sigma = 1,
+        speed_smooth = 0.2,
+        bias_gain = 0.0
+        )
+    exploit_cfg: CRW_CFG = CRW_CFG(
+        persistence = 0.9,
+        turn_sigma = 0.3,
+        target_speed = 4,
+        speed_sigma = 1,
+        speed_smooth = 0.2,
+        bias_gain = 0.0
+        )
+    
+    time_to_leave: float = 10
+
+@dataclass(frozen=True)
+class POI_CFG:
+    explore_cfg: CRW_CFG = CRW_CFG(
+        persistence = 0.9,
+        turn_sigma = 0.15,
+        target_speed = 10,
+        speed_sigma = 1,
+        speed_smooth = 0.2,
+        bias_gain = 0.0
+        )
+    exploit_cfg: CRW_CFG = CRW_CFG(
+        persistence = 0.9,
+        turn_sigma = 0.3,
+        target_speed = 4,
+        speed_sigma = 1,
+        speed_smooth = 0.2,
+        bias_gain = 0.5
+        )
+
+    arrive_dist: float = 10.0
+    time_to_leave: float = 15.0
 
 BEHAVIOR_LOOKUP = {
     CRW_CFG: CorrelatedRandomWalk,

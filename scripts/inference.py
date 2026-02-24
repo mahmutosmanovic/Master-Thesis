@@ -1,5 +1,6 @@
 # config
-from scripts.config import cfg_train
+import argparse
+from config import load_config
 
 # environment
 from environment import Env
@@ -51,4 +52,15 @@ def main(config):
 
 
 if __name__ == "__main__":
-    main(cfg_train)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="train",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    print(f"Env. config: {cfg['_config_name']}")
+    main(cfg)

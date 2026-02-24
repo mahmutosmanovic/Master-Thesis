@@ -1,5 +1,5 @@
 # script folder
-from scripts.config import cfg_train
+from config import load_config
 
 # environment folder
 from environment import Env
@@ -14,10 +14,11 @@ from box import Box
 from tqdm import tqdm
 from pathlib import Path
 
-import numpy as np
-import time
 import os
+import time
 import neptune
+import argparse
+import numpy as np
 from neptune.utils import stringify_unsupported
 from dotenv import load_dotenv
 load_dotenv()
@@ -104,6 +105,24 @@ def main(config, neptune_logging=False):
         if neptune_logging:
             run.stop()
 
+
 if __name__ == "__main__":
-    main(cfg_train, neptune_logging=True)
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="train",
+        help="Config name inside config/ folder",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--neptune",
+        action="store_true",
+        help="Enable Neptune logging",
+    )
+
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    print(f"Loaded config: {cfg['_config_name']}")
+    main(cfg, neptune_logging=args.neptune)
