@@ -34,7 +34,7 @@ drone:
     view_range: 200
     disturbance_mult: 1.0
     min_speed: 0
-    max_speed: 16
+    max_speed: 6
     ver_angle: 90
     hor_angle: 140
     max_cam_rot: 90
@@ -47,7 +47,7 @@ drone:
     view_range: 400
     disturbance_mult: 1.25
     min_speed: 0
-    max_speed: 20
+    max_speed: 8
     ver_angle: 90
     hor_angle: 140
     max_cam_rot: 90
@@ -66,7 +66,7 @@ animal:
     max_speed: 14
     behavior: POI        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
-    max_spawn_radius: 500
+    max_spawn_radius: 200
 
 # -------------------------------------------------
 # Resource model

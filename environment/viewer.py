@@ -9,7 +9,6 @@ from collections import deque
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 def _frustum_segments(pos, forward, hfov, vfov, depth):
@@ -121,37 +120,46 @@ class Viewer:
         # 3. Styling Map (using your Enum and __init__ variables)
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-        type_style = {drone_type: {
-            "color": colors[i % len(colors)], 
-            "hfov": np.deg2rad(drone_type_cfg["hor_angle"]), 
-            "vfov": np.deg2rad(drone_type_cfg["ver_angle"]),
-            "depth": drone_type_cfg["view_range"]/20,
-            "f_color": colors[i % len(colors)]} for i, (drone_type, drone_type_cfg) in enumerate(self.drone_cfg.items())}
+        type_style = {
+            drone_type: {
+                "color": colors[i % len(colors)], 
+                "hfov": np.deg2rad(drone_type_cfg["hor_angle"]), 
+                "vfov": np.deg2rad(drone_type_cfg["ver_angle"]),
+                "depth": drone_type_cfg["view_range"]/20,
+                "f_color": colors[i % len(colors)]
+            } for i, (drone_type, drone_type_cfg) in enumerate(self.drone_cfg.items())
+        }
         
-        # type_style = {
-        #     Drone_Type.SMALL: {
-        #         "color": "blue", 
-        #         "hfov": self.hfov_small, 
-        #         "vfov": self.vfov_small,
-        #         "depth": 10.0,
-        #         "f_color": "cornflowerblue"
-        #     },
-        #     Drone_Type.LARGE: {
-        #         "color": "purple", 
-        #         "hfov": self.hfov_large, 
-        #         "vfov": self.vfov_large,
-        #         "depth": 15.0,
-        #         "f_color": "mediumpurple"
-        #     }
-        # }
+        legend_elements = []
 
-        legend_elements = [
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', label='Small Drone'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='purple', label='Large Drone'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='green', label='Visible'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='red', label='Hidden'),
-        ]
-        ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0.0, 0.9))
+        # drone types
+        for i, (d_type, style) in enumerate(type_style.items()):
+            legend_elements.append(
+                Line2D(
+                    [0], [0],
+                    marker='o',
+                    color='w',
+                    markerfacecolor=style["color"],
+                    markeredgecolor='black',
+                    markersize=6,
+                    label=f"drone_{d_type}"
+                )
+            )
+
+        # animal visibility
+        legend_elements.extend([
+            Line2D([0], [0], marker='o', color='w',
+                markerfacecolor='green', markeredgecolor='black',
+                label='Visible'),
+
+            Line2D([0], [0], marker='o', color='w',
+                markerfacecolor='red', markeredgecolor='black',
+                label='Hidden'),
+        ])
+
+        ax.legend(handles=legend_elements,
+                loc='upper left',
+                bbox_to_anchor=(0.0, 0.9))
 
         # 4. Initialize Plot Objects
         n_drones = len(frames[0]["drones"])
