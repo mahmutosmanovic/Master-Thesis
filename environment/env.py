@@ -1,4 +1,3 @@
-import random
 import numpy as np
 from .vec import Vector
 from .viewer import Viewer
@@ -56,7 +55,7 @@ class Env:
             animal.disturbance = 0.0
             animal.escape_dir = np.zeros(3, dtype=np.float32)
             animal.vel_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
-            animal.vel_speed = random.uniform(animal.min_speed, animal.max_speed)
+            animal.vel_speed = self.env_rng.uniform(animal.min_speed, animal.max_speed)
             spawn_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
             radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
             animal.pos = spawn_dir.scale(radius)
