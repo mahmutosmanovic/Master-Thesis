@@ -1,6 +1,6 @@
 import yaml
 from pathlib import Path
-from environment import MovementDim, POI_CFG, EE_CFG, CRW_CFG
+from environment import MovementDim, POI_CFG, EE_CFG, CRW_CFG, LPOI_CFG
 
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +14,7 @@ def _build_behavior(name: str):
         "POI": POI_CFG,
         "EE": EE_CFG,
         "CRW": CRW_CFG,
+        "LPOI": LPOI_CFG,
     }
 
     try:

@@ -40,7 +40,7 @@ class POI_CFG:
         target_speed = 10,
         speed_sigma = 1,
         speed_smooth = 0.2,
-        bias_gain = 0.0
+        bias_gain = 0.5
         )
     exploit_cfg: CRW_CFG = CRW_CFG(
         persistence = 0.9,
@@ -48,7 +48,7 @@ class POI_CFG:
         target_speed = 4,
         speed_sigma = 1,
         speed_smooth = 0.2,
-        bias_gain = 0.5
+        bias_gain = 0.0
         )
 
     arrive_dist: float = 10.0
@@ -129,6 +129,7 @@ class ExploreExploit(BehaviorBase):
                 raise NotImplementedError
     
     def reset(self):
+        self.state = BehaviorState.EXPLORE
         self.time_since_encounter = 0.0
         
 class PointOfInterest(BehaviorBase):
@@ -145,7 +146,10 @@ class PointOfInterest(BehaviorBase):
         if self.state == BehaviorState.EXPLORE:
             if self.target == None:
                 pois = animal.resource_map.get_pois()
-                poi = rng.choice(pois[0:1])   # choose from top candidate(s)
+                if len(pois) == 0:
+                    print("[Warning] POIS are empty")
+                    return
+                poi = rng.choice(pois)
                 self.target = Vector(poi[0], poi[1], 0) # pois are sorted based on probability of resource, could also be used for target selection
 
             bias_vec = self.target.add(animal.pos.scale(-1)) # scale is safe, other functions can mutate state...
@@ -173,4 +177,120 @@ class PointOfInterest(BehaviorBase):
                 raise NotImplementedError
     
     def reset(self):
+        self.state = BehaviorState.EXPLORE
         self.time_since_arrival = 0.0
+        self.target = None
+
+@dataclass(frozen=True)
+class LPOI_CFG:
+    explore_cfg: CRW_CFG = CRW_CFG(
+        persistence=0.9,
+        turn_sigma=0.15,
+        target_speed=10,
+        speed_sigma=1,
+        speed_smooth=0.2,
+        bias_gain=0.5
+    )
+    exploit_cfg: CRW_CFG = CRW_CFG(
+        persistence=0.9,
+        turn_sigma=0.3,
+        target_speed=4,
+        speed_sigma=1,
+        speed_smooth=0.2,
+        bias_gain=0.0
+    )
+
+    arrive_dist: float = 10.0
+    time_to_leave: float = 15.0
+
+    epsilon: float = 0.1        # chance for random POI selection
+    learning_rate: float = 0.3  # how fast POI values update
+    disturbance_penalty: float = 1.0   # how much disturbance adds to the internal reward
+
+class LearningPointOfInterest(BehaviorBase):
+    cfg_type = LPOI_CFG
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.state = BehaviorState.EXPLORE
+        self.time_since_arrival = 0.0
+        self.target = None
+        self.target_key = None
+
+        self.poi_values = {}   # (x, y) -> learned value
+        self.reward_sum = 0.0
+
+    def choose_target(self, animal, rng):
+        pois = animal.resource_map.get_pois()
+        if len(pois) == 0:
+            print("[Warning] POIS are empty")
+            return None, None
+
+        # populate poi_values
+        for poi in pois:
+            key = (poi[0], poi[1])
+            if key not in self.poi_values:
+                self.poi_values[key] = 0
+
+        # epsilon-greedy selection
+        if rng.random() < self.cfg.epsilon:
+            poi = rng.choice(pois)
+        else:
+            poi = max(pois, key=lambda p: self.poi_values[(p[0], p[1])])
+
+        key = (poi[0], poi[1])
+        target = Vector(poi[0], poi[1], 0)
+        return key, target
+
+    def fn(self, animal, rng, dt):
+        encounter, _ = animal.resource_map.is_encounter(animal.pos, rng)
+        bias_vec = None
+
+        if self.state == BehaviorState.EXPLORE:
+            if self.target is None:
+                self.target_key, self.target = self.choose_target(animal, rng)
+
+            if self.target is not None:
+                bias_vec = self.target.add(animal.pos.scale(-1))
+                dist = bias_vec.norm()
+
+                if dist < self.cfg.arrive_dist:
+                    self.state = BehaviorState.EXPLOIT
+                    self.time_since_arrival = 0.0
+                    self.reward_sum = 0.0
+
+        elif self.state == BehaviorState.EXPLOIT:
+            self.time_since_arrival += dt
+            self.reward_sum -= animal.disturbance * self.cfg.disturbance_penalty
+
+            if encounter:
+                self.reward_sum += 1.0
+
+            if self.time_since_arrival > self.cfg.time_to_leave:
+                old = self.poi_values[self.target_key]
+                reward = self.reward_sum
+                self.poi_values[self.target_key] = old + self.cfg.learning_rate * (reward - old)
+
+                self.state = BehaviorState.EXPLORE
+                self.time_since_arrival = 0.0
+                self.target = None
+                self.target_key = None
+                self.reward_sum = 0.0
+
+        match self.state:
+            case BehaviorState.EXPLORE:
+                step_direction(animal, self.cfg.explore_cfg, rng, bias_vec=bias_vec)
+                step_speed(animal, self.cfg.explore_cfg, rng)
+            case BehaviorState.EXPLOIT:
+                step_direction(animal, self.cfg.exploit_cfg, rng)
+                step_speed(animal, self.cfg.exploit_cfg, rng)
+            case _:
+                raise NotImplementedError
+
+    def reset(self):
+        self.state = BehaviorState.EXPLORE
+        self.time_since_arrival = 0.0
+        self.target = None
+        self.target_key = None
+        self.reward_sum = 0.0
+        self.poi_values = {}
