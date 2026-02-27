@@ -49,7 +49,7 @@ LPOI:
   arrive_dist: 10.0
   time_to_leave: 15.0
 
-  epsilon: 0.1
+  epsilon: 0.3
   learning_rate: 0.3
   disturbance_penalty: 1.0
 

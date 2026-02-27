@@ -208,7 +208,7 @@ class Env:
             For large drone: between 0 and ITS max_disturbance (e.g., 0-1.5) * COUNT
             """
 
-            D = animal.disturbance / self.scale_factor
+            D = animal.disturbance
 
             if D > 0.68:
                 # FULL ESCAPE
@@ -474,8 +474,6 @@ class Env:
         return np.array(in_FoV_obs, dtype=np.float32)
     
     def _compute_disturbance(self, geometry):
-
-
         for a, animal in enumerate(self.animals):
 
             escape_vec = np.zeros(3, dtype=np.float32)
@@ -487,11 +485,11 @@ class Env:
                 distance = geometry[d][a]["distance"]
 
                 # accumulate disturbance
-                gain = disturbance_gain(rel_vec) * drone.disturbance_mult
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
                 animal.disturbance += gain
 
                 if distance > 1e-8:
-                    escape_vec += (-rel_vec / distance) * gain
+                    escape_vec += (rel_vec / distance) * gain # needs to use positive rel_vec, otherwise animal will flee/avoid towards drone!
 
             # escape direction
             norm = np.linalg.norm(escape_vec)
@@ -534,7 +532,7 @@ class Env:
         )
 
         # mean stress in herd
-        D = np.mean(animal_disturbances) / self.scale_factor
+        D = np.mean(animal_disturbances)
 
         # FINAL REWARD
         monitor_reward = (

@@ -2,22 +2,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Spatial Gain Functions (scalar: one animal–drone pair)
-def disturbance_gain(dist_vec):
+def disturbance_gain(dist_vec, drone_vel_dir, config):
     """
     Combined disturbance for one animal-drone pair.
     """
+    g_altitude = np.clip(altitude_gain(dist_vec), 0.0, 1.0)
+    g_horizontal = np.clip(horizontal_gain(dist_vec), 0.0, 1.0)
 
-    g_alt = altitude_gain(dist_vec)
-    g_hor = horizontal_gain(dist_vec)
-    g_ang = (angle_gain(dist_vec) - 1.0)
+    g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
+    g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
 
-    D = (
-    (1/3) * g_hor +
-    (1/3) * g_alt +
-    (1/3) * g_ang
-    )
+    base = g_horizontal * g_altitude
 
-    return np.clip(D, 0.0, 1.0)
+    angle_boost = g_angle * config.max_angle_boost   # [0,1]
+    heading_boost = g_heading * config.max_heading_boost   # [0,1]
+
+    D = base + (1.0 - base) * angle_boost * base
+    D = D + (1.0 - D) * heading_boost * base
+
+    return D
 
 def altitude_gain(dist_vec):
     _, _, z = dist_vec
@@ -44,21 +47,34 @@ def horizontal_gain(dist_vec):
         return 0.8 * (1 - (d - 50) / 60)
     return 0.0
 
-
 def angle_gain(dist_vec):
     dx, dy, z = dist_vec
-    horizontal_dist = np.sqrt(dx*dx + dy*dy)
+    horizontal_dist = np.sqrt(dx * dx + dy * dy)
 
     theta = np.degrees(np.arctan2(z, abs(horizontal_dist)))
 
     if theta <= 20:
-        return 1.5 - 0.5 * (theta + 90) / 110
+        return 0.5 - 0.5 * (theta + 90) / 110
     elif theta <= 60:
-        return 1.0
+        return 0.0
     elif theta <= 90:
-        return 1.0 + (theta - 60) / 30
-    return 1.0
+        return (theta - 60) / 30
+    return 0.0
 
+def heading_gain(dist_vec, drone_vel_dir):
+    v = np.asarray(drone_vel_dir, dtype=float)
+    d = np.asarray(dist_vec, dtype=float)
+
+    v_norm = np.linalg.norm(v)
+    d_norm = np.linalg.norm(d)
+
+    if v_norm < 1e-8 or d_norm < 1e-8:
+        return 0.0
+
+    cos_theta = np.dot(v, d) / (v_norm * d_norm)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+    return max(0.0, cos_theta)
 
 # Visualization helpers (grid evaluation)
 def evaluate_on_grid(func, X, Y):
@@ -87,10 +103,12 @@ if __name__ == "__main__":
     HOR = evaluate_on_grid(horizontal_gain, X, Y)
     ANG = evaluate_on_grid(angle_gain, X, Y)
 
-    COMBINED = ALT * HOR * ANG
-    COMBINED = (COMBINED - COMBINED.min()) / (
-        COMBINED.max() - COMBINED.min()
-    )
+    base = ALT * HOR
+    max_angle_boost = 1
+
+    D = base + (1.0 - base) * (ANG * max_angle_boost) * base
+
+    COMBINED = D
 
     # FIGURE 1 — Combined disturbance
     fig1, ax = plt.subplots(figsize=(8, 7))
@@ -101,9 +119,9 @@ if __name__ == "__main__":
     ax.set_ylabel("Altitude (m)")
     ax.plot(0, 0, "wo", markersize=8)
 
-    fig1.colorbar(im, ax=ax, label="Normalized Intensity")
+    fig1.colorbar(im, ax=ax, label="Disturbance Intensity")
     plt.tight_layout()
-    plt.savefig("../figures/disturbance_combined.png", dpi=300)
+    plt.savefig("figures/disturbance_combined.png", dpi=300)
 
 
     # FIGURE 2 — Individual components
@@ -124,6 +142,6 @@ if __name__ == "__main__":
         fig2.colorbar(im, ax=ax)
 
     plt.tight_layout()
-    plt.savefig("../figures/disturbance_components.png", dpi=300)
+    plt.savefig("figures/disturbance_components.png", dpi=300)
 
     plt.show()
