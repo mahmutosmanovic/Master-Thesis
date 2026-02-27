@@ -32,7 +32,7 @@ drone:
   small:
     count: 1
     view_range: 200
-    disturbance_mult: 1.0
+    disturbance_mult: 0.8 # [0,1]
     min_speed: 0
     max_speed: 6
     ver_angle: 90
@@ -45,7 +45,7 @@ drone:
   large:
     count: 1
     view_range: 400
-    disturbance_mult: 1.25
+    disturbance_mult: 1.0 # [0,1]
     min_speed: 0
     max_speed: 8
     ver_angle: 90

@@ -478,18 +478,34 @@ class Env:
 
             escape_vec = np.zeros(3, dtype=np.float32)
             animal.disturbance = 0.0
+            disturbances = []
+            escape_vecs = []
 
+            # gather disturbances
             for d, drone in enumerate(self.drones):
-
                 rel_vec = geometry[d][a]["rel_vec"]
                 distance = geometry[d][a]["distance"]
 
-                # accumulate disturbance
-                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
-                animal.disturbance += gain
-
                 if distance > 1e-8:
-                    escape_vec += (rel_vec / distance) * gain # needs to use positive rel_vec, otherwise animal will flee/avoid towards drone!
+                    unit_escape_vec = rel_vec/distance # needs to use positive rel_vec, otherwise animal will flee/avoid towards drone!
+                else:
+                    unit_escape_vec = np.zeros(3)
+
+                escape_vecs.append(unit_escape_vec) # normalize to ensure gain drives influence
+
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
+                disturbances.append(gain)
+
+            sorted_idx = np.argsort(disturbances)[::-1]
+            for i in range(len(disturbances)):
+                if animal.disturbance >= 1: # no more contributions can be made
+                    break
+
+                idx = sorted_idx[i]
+                disturbance = disturbances[idx]
+                influence = (1 - animal.disturbance) * disturbance
+                animal.disturbance += influence
+                escape_vec += escape_vecs[idx] * influence
 
             # escape direction
             norm = np.linalg.norm(escape_vec)
