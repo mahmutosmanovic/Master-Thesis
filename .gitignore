@@ -5,6 +5,13 @@
 __pycache__/
 *.py[codz]
 *$py.class
+/data
+/recordings
+/tmp
+/.vscode
+/.neptune
+/logs
+/runs
 
 # C extensions
 *.so

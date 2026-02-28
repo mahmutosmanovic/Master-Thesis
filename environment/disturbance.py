@@ -1,204 +1,147 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from environment.agents.agent import Agent
 
-class DisturbanceField:
+# Spatial Gain Functions (scalar: one animal–drone pair)
+def disturbance_gain(dist_vec, drone_vel_dir, config):
     """
-    3D disturbance model based on:
-    - Altitude (z)
-    - Horizontal distance (sqrt(x² + y²))
-    - Approach angle
-    - Speed & acceleration gains
+    Combined disturbance for one animal-drone pair.
     """
+    g_altitude = np.clip(altitude_gain(dist_vec), 0.0, 1.0)
+    g_horizontal = np.clip(horizontal_gain(dist_vec), 0.0, 1.0)
 
-    # -------------------------
-    # Altitude component
-    # -------------------------
-    def altitude(self, z):
-        z = np.asarray(z, dtype=float)
-        out = np.zeros_like(z)
+    g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
+    g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
 
-        m1 = (z >= 0) & (z <= 20)
-        out[m1] = 1.0
+    base = g_horizontal * g_altitude
 
-        m2 = (z > 20) & (z <= 40)
-        out[m2] = 1 - 0.6 * (z[m2] - 20) / 20
+    angle_boost = g_angle * config.max_angle_boost   # [0,1]
+    heading_boost = g_heading * config.max_heading_boost   # [0,1]
 
-        m3 = (z > 40) & (z <= 110)
-        out[m3] = 0.4 * (1 - (z[m3] - 40) / 70)
+    D = base + (1.0 - base) * angle_boost * base
+    D = D + (1.0 - D) * heading_boost * base
 
-        return out
+    return D
 
-    # def altitude(self, z):
-    #     z = np.asarray(z, dtype=float)
-    #     # Smooth decay instead of flat plateau
-    #     # At z=0, val=1.0. At z=20, val=0.36. At z=100, val=0.0
-    #     # The '1.0 -' ensures high penalty at low altitude
-    #     # Adjust scale (e.g., 20.0) to control falloff speed
-    #     return np.exp(- (z / 60.0)**2)
-    
-    # -------------------------
-    # Horizontal distance
-    # -------------------------
-    def horizontal(self, d):
-        d = np.asarray(d, dtype=float)
-        out = np.zeros_like(d)
+def altitude_gain(dist_vec):
+    _, _, z = dist_vec
+    z = abs(z)
 
-        out[d <= 20] = 1.0
-
-        m1 = (d > 20) & (d <= 50)
-        out[m1] = 1 - 0.2 * (d[m1] - 20) / 30
-
-        m2 = (d > 50) & (d <= 110)
-        out[m2] = 0.8 * (1 - (d[m2] - 50) / 60)
-
-        return out
-
-    # def horizontal(self, d):
-    #     d = np.asarray(d, dtype=float)
-    #     # Similar smooth decay. 
-    #     # Even at d=5 vs d=10, the agent sees a difference now.
-    #     return np.exp(- (d / 100.0)**2)
+    if z <= 20:
+        return 1.0
+    elif z <= 40:
+        return 1.0 - 0.6 * (z - 20) / 20
+    elif z <= 110:
+        return 0.4 * (1 - (z - 40) / 70)
+    return 0.0
 
 
-    # -------------------------
-    # Angle gain (3D)
-    # -------------------------
-    def angle_gain(self, horizontal_dist, z):
-        """
-        Angle between horizontal plane and line of sight
-        """
-        theta = np.degrees(np.arctan2(z, horizontal_dist))
-        G = np.ones_like(theta)
+def horizontal_gain(dist_vec):
+    dx, dy, _ = dist_vec
+    d = np.sqrt(dx*dx + dy*dy)
 
-        # -90° – 20°
-        m1 = (theta >= -90) & (theta <= 20)
-        G[m1] = 1.5 + (1.0 - 1.5) * (theta[m1] + 90) / 110
+    if d <= 20:
+        return 1.0
+    elif d <= 50:
+        return 1.0 - 0.2 * (d - 20) / 30
+    elif d <= 110:
+        return 0.8 * (1 - (d - 50) / 60)
+    return 0.0
 
-        # 20° – 60°
-        m2 = (theta > 20) & (theta <= 60)
-        G[m2] = 1.0
+def angle_gain(dist_vec):
+    dx, dy, z = dist_vec
+    horizontal_dist = np.sqrt(dx * dx + dy * dy)
 
-        # 60° – 90°
-        m3 = (theta > 60) & (theta <= 90)
-        G[m3] = 1.0 + (2.0 - 1.0) * (theta[m3] - 60) / 30
+    theta = np.degrees(np.arctan2(z, abs(horizontal_dist)))
 
-        return G
+    if theta <= 20:
+        return 0.5 - 0.5 * (theta + 90) / 110
+    elif theta <= 60:
+        return 0.0
+    elif theta <= 90:
+        return (theta - 60) / 30
+    return 0.0
 
-    def heading_gain_hard(self, drone_vel, diff):
-        """
-        Gain:
-        2.0 -> straight toward
-        1.0 -> parallel
-        1.0 -> straight away
-        """
-        v = np.asarray(drone_vel, dtype=float)
-        d = np.asarray(diff, dtype=float)
+def heading_gain(dist_vec, drone_vel_dir):
+    v = np.asarray(drone_vel_dir, dtype=float)
+    d = np.asarray(dist_vec, dtype=float)
 
-        v_norm = np.linalg.norm(v)
-        d_norm = np.linalg.norm(d)
+    v_norm = np.linalg.norm(v)
+    d_norm = np.linalg.norm(d)
 
-        if v_norm < 1e-8 or d_norm < 1e-8:
-            return 1.0
+    if v_norm < 1e-8 or d_norm < 1e-8:
+        return 0.0
 
-        cos_theta = np.dot(v, d) / (v_norm * d_norm)
+    cos_theta = np.dot(v, d) / (v_norm * d_norm)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
-        return 1.0 + max(0.0, cos_theta)
+    return max(0.0, cos_theta)
 
-    def heading_gain_soft(self, drone_vel, diff):
-        """
-        Gain:
-        2.0 -> straight toward
-        1.5 -> parallel
-        1.0 -> straight away
-        """
-        v = np.asarray(drone_vel, dtype=float)
-        d = np.asarray(diff, dtype=float)
+# Visualization helpers (grid evaluation)
+def evaluate_on_grid(func, X, Y):
+    """Evaluate scalar gain function over a meshgrid."""
+    Z = np.zeros_like(X, dtype=float)
 
-        v_norm = np.linalg.norm(v)
-        d_norm = np.linalg.norm(d)
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            dist_vec = (X[i, j], 0.0, Y[i, j])
+            Z[i, j] = func(dist_vec)
 
-        if v_norm < 1e-8 or d_norm < 1e-8:
-            return 1.5
-
-        cos_theta = np.dot(v, d) / (v_norm * d_norm)
-
-        return 1.5 + 0.5 * cos_theta
-
-    # -------------------------
-    # Motion gains
-    # -------------------------
-    def speed_gain(self, v, v_safe=5.0):
-        return 1.0 if v <= v_safe else 1.0 + (v - v_safe) / v_safe
-
-    def accel_gain(self, a, a_safe=2.0):
-        return 1.0 if a <= a_safe else 1.0 + (a - a_safe) / a_safe
+    return Z
 
 
-    # -------------------------
-    # Disturbance between agents
-    # -------------------------
-    def disturbance_at(self, animal: Agent, drone: Agent):
-        """
-        Disturbance experienced by the animal caused by the drone
-        """
-        diff = drone.pos - animal.pos
-        horizontal_dist = np.linalg.norm(diff[0:2])
-        dz = abs(diff[2])
-
-        z_alt = self.altitude(dz)
-        z_hor = self.horizontal(horizontal_dist)
-        g_ang = self.angle_gain(horizontal_dist, dz)
-
-        g_speed = self.speed_gain(drone.speed)
-
-        # g_heading = self.heading_gain_soft(drone.direction, diff)
-        g_heading = self.heading_gain_hard(drone.direction, diff)
-        # g_accel = self.accel_gain(drone_accel)
-
-        Z = z_alt * z_hor * g_ang * g_speed * g_heading# * g_accel
-
-        return {"val": float(Z), "dir": diff}
-
-    # -------------------------
-    # Visualization
-    # -------------------------
-    def plot(self, cmap="tab20b"):
-
-        X, Y, Z = self.total_field()
-
-        plt.figure(figsize=(10, 9))
-
-        im = plt.imshow(
-            Z,
-            origin="lower",
-            extent=[
-                -self.size, self.size,
-                -self.size, self.size
-            ],
-            aspect="equal",
-            cmap=cmap
-        )
-
-        plt.colorbar(im, label="Total Disturbance")
-
-        plt.xlabel("Horizontal Distance (m)")
-        plt.ylabel("Altitude (m)")
-
-        plt.title("Combined Disturbance Field")
-
-        plt.tight_layout()
-        plt.show()
-
+# Main Visualization
 if __name__ == "__main__":
-    field = DisturbanceField()
-    # field.plot()
 
-    Z = field.disturbance_at(
-        x=20,
-        y=20,
-        v=0.0,
-        a=0.0
+    # Spatial grid
+    X, Y = np.meshgrid(
+        np.linspace(-110, 110, 300),
+        np.linspace(0, 110, 300)
     )
 
-    print("Disturbance:", Z)
+    # Evaluate components
+    ALT = evaluate_on_grid(altitude_gain, X, Y)
+    HOR = evaluate_on_grid(horizontal_gain, X, Y)
+    ANG = evaluate_on_grid(angle_gain, X, Y)
+
+    base = ALT * HOR
+    max_angle_boost = 1
+
+    D = base + (1.0 - base) * (ANG * max_angle_boost) * base
+
+    COMBINED = D
+
+    # FIGURE 1 — Combined disturbance
+    fig1, ax = plt.subplots(figsize=(8, 7))
+
+    im = ax.pcolormesh(X, Y, COMBINED, cmap="magma", shading="auto")
+    ax.set_title("Combined 360° Disturbance Field")
+    ax.set_xlabel("Horizontal Offset (m)")
+    ax.set_ylabel("Altitude (m)")
+    ax.plot(0, 0, "wo", markersize=8)
+
+    fig1.colorbar(im, ax=ax, label="Disturbance Intensity")
+    plt.tight_layout()
+    plt.savefig("figures/disturbance_combined.png", dpi=300)
+
+
+    # FIGURE 2 — Individual components
+    fig2, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+    components = [
+        (ALT, "Altitude Component", "Blues"),
+        (HOR, "Horizontal Component", "Greens"),
+        (ANG, "Angle Component", "Reds"),
+    ]
+
+    for ax, (Z, title, cmap) in zip(axs, components):
+        im = ax.pcolormesh(X, Y, Z, cmap=cmap, shading="auto")
+        ax.set_title(title)
+        ax.set_xlabel("Horizontal Offset (m)")
+        ax.set_ylabel("Altitude (m)")
+        ax.plot(0, 0, "wo", markersize=6)
+        fig2.colorbar(im, ax=ax)
+
+    plt.tight_layout()
+    plt.savefig("figures/disturbance_components.png", dpi=300)
+
+    plt.show()

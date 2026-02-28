@@ -1,0 +1,71 @@
+CRW:
+  persistence: 0.9
+  turn_sigma: 0.15
+  target_speed: 10
+  speed_sigma: 0.03
+  speed_smooth: 0.2
+  bias_gain: 0.0
+
+EE:
+  time_to_leave: 10
+
+  explore_cfg:
+    persistence: 0.9
+    turn_sigma: 0.15
+    target_speed: 10
+    speed_sigma: 0.03
+    speed_smooth: 0.2
+    bias_gain: 0.0
+
+  exploit_cfg:
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 3
+    speed_sigma: 0.03
+    speed_smooth: 0.2
+    bias_gain: 0.0
+
+POI:
+  arrive_dist: 10
+  time_to_leave: 10
+
+  explore_cfg:
+    persistence: 0.9
+    turn_sigma: 0.15
+    target_speed: 10
+    speed_sigma: 0.03
+    speed_smooth: 0.4
+    bias_gain: 0.3
+
+  exploit_cfg:
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 3
+    speed_sigma: 0.03
+    speed_smooth: 0.2
+    bias_gain: 0.0
+
+LPOI:
+  arrive_dist: 10.0
+  time_to_leave: 15.0
+
+  epsilon: 0.3
+  learning_rate: 0.3
+  disturbance_penalty: 1.0
+
+  explore_cfg:
+    persistence: 0.9
+    turn_sigma: 0.15
+    target_speed: 10
+    speed_sigma: 1
+    speed_smooth: 0.2
+    bias_gain: 0.5
+
+  exploit_cfg:
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 4
+    speed_sigma: 1
+    speed_smooth: 0.2
+    bias_gain: 0.0
+
