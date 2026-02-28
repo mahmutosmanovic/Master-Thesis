@@ -1,4 +1,3 @@
-import random
 import numpy as np
 from .vec import Vector
 from .immutables import MovementDim
@@ -38,7 +37,7 @@ class Drone(Entity):
         self.theta = 0 # camera rotation in degrees per timestep
 
         # pos
-        self.spawn_dist = int(random.uniform(*config["drone"][d_type]["spawn_dist"]))
+        self.spawn_dist = config["drone"][d_type]["spawn_dist"]
         self.pos = Vector()
 
         # movement

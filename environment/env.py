@@ -79,7 +79,7 @@ class Env:
                 view_dir = drone.view_dir.getter()
 
                 # Calculate position: move backwards from animal by spawn_dist
-                inv_scale_view_dir = view_dir.scale(-drone.spawn_dist)
+                inv_scale_view_dir = view_dir.scale(-self.env_rng.uniform(*drone.spawn_dist))
                 new_drone_pos = animal_pos.add(inv_scale_view_dir)
 
                 drone.pos.setter(new_drone_pos)
