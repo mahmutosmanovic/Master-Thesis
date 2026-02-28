@@ -50,9 +50,7 @@ class CentroidStandoff:
 
     def _unit(self, v, eps=1e-8):
         n = np.linalg.norm(v)
-        if n < eps:
-            return np.array([1.0, 0.0, 0.0], dtype=np.float32)
-        return v / n
+        return v / (n + eps)
 
     def _camera_basis_from_view_dir(self, view_dir):
         world_z = np.array([0.0, 0.0, 1.0], dtype=np.float32)

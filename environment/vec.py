@@ -16,11 +16,16 @@ class Vector:
         return (self.x**order + self.y**order + self.z**order)**(1/order)
 
     def unit(self):
-        n = self.norm()
-        self.x /= n 
-        self.y /= n 
-        self.z /= n
-        return self
+            n = self.norm()
+            if n > 1e-8:
+                self.x /= n
+                self.y /= n
+                self.z /= n
+            else:
+                self.x = 0
+                self.y = 0
+                self.z = 0
+            return self
 
     def distance(self, vec_other):
         dist_vec = self.add(vec_other.scale(-1))
