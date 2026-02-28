@@ -50,7 +50,9 @@ class CentroidStandoff:
 
     def _unit(self, v, eps=1e-8):
         n = np.linalg.norm(v)
-        return v / (n + eps)
+        if n < eps:
+            return np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        return v / n
 
     def _camera_basis_from_view_dir(self, view_dir):
         world_z = np.array([0.0, 0.0, 1.0], dtype=np.float32)
@@ -106,7 +108,10 @@ class CentroidStandoff:
                 )
 
                 move_dir = x + np.array([0.0, 0.0, z_action], dtype=np.float32)
-                move_dir = self._unit(move_dir)
+                if np.linalg.norm(move_dir) < 1e-6:
+                    move_dir = x
+                else:
+                    move_dir = self._unit(move_dir)
 
                 actions[d] = np.array([
                     move_dir[0], move_dir[1], move_dir[2],
@@ -148,7 +153,7 @@ class CentroidStandoff:
             centroid_xy = rel_centroid[:2]
             centroid_xy_norm = np.linalg.norm(centroid_xy)
 
-            dir_to_centroid_xy = centroid_xy / centroid_xy_norm
+            dir_to_centroid_xy = centroid_xy / (centroid_xy_norm + 1e-8)
 
             target_range = self.target_range_ratio * view_range
             xy_error = centroid_xy_norm - target_range
