@@ -79,7 +79,7 @@ class Animal(Entity):
         self.movement_dim = config["animal"]["init"]["movement_dim"]
         
         self.disturbance = 0
-        self.escape_vector = np.zeros(3)
+        self.escape_dir = np.zeros(3)
 
         self.vel_speed = 0
         self.vel_dir = Vector()

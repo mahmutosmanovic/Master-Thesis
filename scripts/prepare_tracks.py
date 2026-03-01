@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+from pathlib import Path
 from pyproj import Transformer
 from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
@@ -93,6 +95,12 @@ def reset_first_dt_in_segment(df, segment_col="segment", dt_col="dt", dt_seconds
 
     return out
 
+def segment_t_from_dt(df, segment_col="segment", dt_seconds_col="dt_seconds"):
+    out = df.copy()
+    out[dt_seconds_col] = out[dt_seconds_col].fillna(0)
+    out["segment_t"] = out.groupby(segment_col)[dt_seconds_col].cumsum()
+    return out
+
 def filter_min_segment_points(df, min_points=2, segment_col="segment"):
     out = df.copy()
     out["segment_n"] = out.groupby(segment_col)[segment_col].transform("size")
@@ -104,7 +112,57 @@ def filter_min_segment_time(df, min_time=120, dt_col="dt_seconds", segment_col="
     out["segment_duration"] = out.groupby(segment_col)[dt_col].transform("sum")
     return out[out["segment_duration"] >= min_time].copy()
 
-def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.csv", output_path="track_segments/peruvian_boobies"):
+def center_segment_coordinates(df, segment_col="segment", x_col="x", y_col="y"):
+    out = df.copy()
+
+    out[x_col] = out[x_col] - out.groupby(segment_col)[x_col].transform("mean")
+    out[y_col] = out[y_col] - out.groupby(segment_col)[y_col].transform("mean")
+
+    return out
+
+def save_segments_from_df(df, out_dir, segment_col="segment", t_col="segment_t", x_col="x", y_col="y", id_col="tag-local-identifier", time_col="timestamp"):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_rows = []
+
+    for segment_id, g in df.groupby(segment_col, sort=False):
+        t = g[t_col].to_numpy(dtype=np.float32)
+        x = g[x_col].to_numpy(dtype=np.float32)
+        y = g[y_col].to_numpy(dtype=np.float32)
+
+        path = out_dir / f"{int(segment_id):08d}.npz"
+        np.savez_compressed(path, t=t, x=x, y=y)
+
+        row = {
+            "segment": int(segment_id),
+            "path": path.name,
+            "n_points": int(len(g)),
+            "duration_s": float(g["segment_duration"].iloc[0]) if "segment_duration" in g.columns else float(t[-1]),
+            "xmin": float(np.min(x)),
+            "xmax": float(np.max(x)),
+            "ymin": float(np.min(y)),
+            "ymax": float(np.max(y)),
+        }
+
+        if id_col in g.columns:
+            row[id_col] = g[id_col].iloc[0]
+
+        if time_col in g.columns:
+            row["start_time"] = g[time_col].iloc[0]
+            row["end_time"] = g[time_col].iloc[-1]
+
+        if "segment_n" in g.columns:
+            row["segment_n"] = int(g["segment_n"].iloc[0])
+
+        manifest_rows.append(row)
+
+    manifest = pd.DataFrame(manifest_rows)
+    manifest.to_parquet(out_dir / "manifest.parquet", index=False)
+
+    return manifest
+
+def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.csv", out_dir="track_segments/peruvian_boobies"):
     print("--- Preparing gps tracks for peruvian boobies ---")
 
     df = pd.read_csv(input_path, na_values="NA", usecols=["location-lat", "location-long", "tag-local-identifier", "timestamp"])
@@ -118,11 +176,14 @@ def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=10)
     df = filter_min_segment_time(df)
-    print()
-    print(df)
-    print(pd.unique(df["segment_n"]))
+    df = segment_t_from_dt(df)
+    # df = center_segment_coordinates(df)
+    
+    print(f"--- Saving segments to {out_dir} ---")
+    save_segments_from_df(df, out_dir)
+    print("--- Finished preparation for peruvian boobies ---")
 
-def prepare_jackals(input_path="data/jackals/jackal_data.csv", output_path="track_segments/jackals"):
+def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_segments/jackals"):
     print("--- Preparing gps tracks for jackals ---")
 
     df = pd.read_csv(input_path, sep=",", na_values=["NA"], usecols=["lat", "lon", "TAG", "dateTime_local"])
@@ -133,15 +194,18 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", output_path="trac
     df
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
-    df = segments_from_dt(df, max_gap=20, id_col="TAG")
+    df = segments_from_dt(df, max_gap=2, id_col="TAG")
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
-    print()
-    print(df)
-    print(pd.unique(df["segment_n"]))
+    df = segment_t_from_dt(df)
+    # df = center_segment_coordinates(df)
 
-def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_winged_lapwings1.csv", output_path="track_segments/peruvian_boobies"):
+    print(f"--- Saving segments to {out_dir} ---")
+    save_segments_from_df(df, out_dir, id_col="TAG")
+    print("--- Finished preparation for jackals ---")
+
+def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_winged_lapwings1.csv", out_dir="track_segments/spur_winged_lapwings"):
     print("--- Preparing gps tracks for spur winged lapwings ---")
 
     df = pd.read_csv(input_path, na_values="NA", usecols=["location-lat", "location-long", "tag-local-identifier", "timestamp"])
@@ -155,10 +219,13 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
-    print()
-    print(df)
-    print(pd.unique(df["segment_n"]))
+    df = segment_t_from_dt(df)
+    # df = center_segment_coordinates(df)
+
+    print(f"--- Saving segments to {out_dir} ---")
+    save_segments_from_df(df, out_dir)
+    print("--- Finished preparation for spur winged lapwings ---")
 
 if __name__ == "__main__":
     prepare_jackals()
-    prepare_spur_winged_lapwings()
+    # prepare_spur_winged_lapwings()
