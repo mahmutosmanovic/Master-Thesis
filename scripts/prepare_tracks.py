@@ -1,5 +1,6 @@
-import pandas as pd
+import os
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from pyproj import Transformer
 from pyproj.aoi import AreaOfInterest
@@ -172,9 +173,9 @@ def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.
 
     df = transform_df_to_utm(df)
     df = dt_from_datetime(df)
-    df = segments_from_dt(df, max_gap=120)
+    df = segments_from_dt(df, max_gap=60)
     df = reset_first_dt_in_segment(df)
-    df = filter_min_segment_points(df, min_points=10)
+    df = filter_min_segment_points(df, min_points=50)
     df = filter_min_segment_time(df)
     df = segment_t_from_dt(df)
     # df = center_segment_coordinates(df)
@@ -226,6 +227,36 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     save_segments_from_df(df, out_dir)
     print("--- Finished preparation for spur winged lapwings ---")
 
+def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons"):
+    print("--- Preparing gps tracks for pigeons ---")
+
+    dfs = []
+    for i, path in enumerate(os.listdir(input_path)):
+        df = pd.read_csv(os.path.join(input_path, path), na_values="NA", usecols=["lat", "lon", "t"])
+        df["file_id"] = i
+        dfs.append(df)
+    df = pd.concat(dfs)
+
+    print("NA Values:")
+    df = df.dropna()
+    print(df.isna().any())
+    print()
+
+    df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
+    df = dt_from_t(df, id_col="file_id")
+    df = segments_from_dt(df, max_gap=20, id_col="file_id")
+    df = reset_first_dt_in_segment(df)
+    df = filter_min_segment_points(df, min_points=100)
+    df = filter_min_segment_time(df)
+    df = segment_t_from_dt(df)
+    # df = center_segment_coordinates(df)
+
+    print(f"--- Saving segments to {out_dir} ---")
+    save_segments_from_df(df, out_dir)
+    print("--- Finished preparation for pigeons ---")
+
 if __name__ == "__main__":
+    prepare_pigeons()
     prepare_jackals()
-    # prepare_spur_winged_lapwings()
+    prepare_spur_winged_lapwings()
+    prepare_peruvian_boobies()

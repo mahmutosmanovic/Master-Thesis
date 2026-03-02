@@ -348,8 +348,6 @@ class Replay(BehaviorBase):
         animal.pos = Vector(float(self.x[0]), float(self.y[0]), 0.0)
         animal.vel_dir = Vector(1.0, 0.0, 0.0)
         animal.vel_speed = 0.0
-        animal.disturbance = 0.0
-        animal.escape_vector = np.zeros(3, dtype=np.float32)
 
     def _interp_xy(self, t_now):
         if t_now >= self.t[-1]:
@@ -371,13 +369,6 @@ class Replay(BehaviorBase):
         return float(x), float(y)
 
     def fn(self, animal, rng, dt):
-        animal.disturbance = 0.0
-        animal.escape_vector = np.zeros(3, dtype=np.float32)
-
-        if self.t is None:
-            self._load_segment(animal, rng)
-            return
-
         if self.elapsed >= float(self.t[-1]):
             animal.vel_dir = Vector(0.0, 0.0, 0.0)
             animal.vel_speed = 0.0
