@@ -203,7 +203,7 @@ class Env:
             drone.reset_theta()
 
     def _step_animal(self):
-
+        segment_complete = False
         for animal in self.animals:
 
             """
@@ -239,7 +239,9 @@ class Env:
             else: # track folowing behaviour, no speed enforcement!
                 D = animal.disturbance
                 state = "calm"
-                animal.update_vel(rng=self.env_rng)
+                a_segment_complete = animal.update_vel(rng=self.env_rng)
+                if segment_complete == False and a_segment_complete:
+                    segment_complete = True
 
             self.state_counts[state] += 1
             self.total_state_steps += 1
@@ -247,6 +249,8 @@ class Env:
 
             animal.update_pos()
             animal.enforce_position()
+
+        return segment_complete
 
     def get_behavior_stats(self):
 
@@ -596,7 +600,10 @@ class Env:
         # 2. animals react to new drone positions
         geometry = self._compute_geometry()
         self._compute_disturbance(geometry)
-        self._step_animal()
+        segment_complete = self._step_animal()
+
+        if segment_complete: # A recorded gps segment terminated
+            terminated = True
 
         # 3. observe resulting state
         geometry = self._compute_geometry()

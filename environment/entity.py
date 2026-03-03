@@ -104,4 +104,4 @@ class Animal(Entity):
         """
         Updates velocity (magnitude and direction) according to specified behavior (random walk, points of interest, path following) and movement dimensions (2D or 3D).
         """
-        self.behavior.fn(self, rng, self.dt)
+        return self.behavior.fn(self, rng, self.dt)

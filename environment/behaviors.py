@@ -345,13 +345,13 @@ class Replay(BehaviorBase):
             self.y = self.y - np.mean(self.y)
 
         self.elapsed = 0.0
-        animal.pos = Vector(float(self.x[0]), float(self.y[0]), 0.0)
+        animal.pos = Vector(self.x[0], self.y[0], 0.0)
         animal.vel_dir = Vector(1.0, 0.0, 0.0)
         animal.vel_speed = 0.0
 
     def _interp_xy(self, t_now):
         if t_now >= self.t[-1]:
-            return float(self.x[-1]), float(self.y[-1])
+            return self.x[-1], self.y[-1]
 
         j = np.searchsorted(self.t, t_now, side="right") - 1
         j = max(0, min(j, len(self.t) - 2))
@@ -361,25 +361,25 @@ class Replay(BehaviorBase):
         y0, y1 = self.y[j], self.y[j + 1]
 
         if t1 == t0:
-            return float(x1), float(y1)
+            return x1, y1
 
         a = (t_now - t0) / (t1 - t0)
         x = x0 + a * (x1 - x0)
         y = y0 + a * (y1 - y0)
-        return float(x), float(y)
+        return x, y
 
     def fn(self, animal, rng, dt):
-        if self.elapsed >= float(self.t[-1]):
+        if self.elapsed >= self.t[-1]:
             animal.vel_dir = Vector(0.0, 0.0, 0.0)
             animal.vel_speed = 0.0
-            return
+            return True
 
-        t_next = min(self.elapsed + dt, float(self.t[-1]))
+        t_next = min(self.elapsed + dt, self.t[-1])
         x_target, y_target = self._interp_xy(t_next)
 
         dx = x_target - animal.pos.x
         dy = y_target - animal.pos.y
-        dist = float(np.sqrt(dx * dx + dy * dy))
+        dist = np.sqrt(dx * dx + dy * dy)
 
         if dist == 0.0:
             animal.vel_dir = Vector(0.0, 0.0, 0.0)

@@ -113,6 +113,18 @@ def filter_min_segment_time(df, min_time=120, dt_col="dt_seconds", segment_col="
     out["segment_duration"] = out.groupby(segment_col)[dt_col].transform("sum")
     return out[out["segment_duration"] >= min_time].copy()
 
+def filter_min_segment_extent(df, min_extent=1.0, segment_col="segment", x_col="x", y_col="y"):
+    out = df.copy()
+
+    x_span = out.groupby(segment_col)[x_col].transform("max") - out.groupby(segment_col)[x_col].transform("min")
+    y_span = out.groupby(segment_col)[y_col].transform("max") - out.groupby(segment_col)[y_col].transform("min")
+
+    out["segment_x_span"] = x_span
+    out["segment_y_span"] = y_span
+    out["segment_extent"] = np.hypot(x_span, y_span)
+
+    return out[out["segment_extent"] >= min_extent].copy()
+
 def center_segment_coordinates(df, segment_col="segment", x_col="x", y_col="y"):
     out = df.copy()
 
@@ -177,6 +189,7 @@ def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=50)
     df = filter_min_segment_time(df)
+    df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
     # df = center_segment_coordinates(df)
     
@@ -195,10 +208,11 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_se
     df
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
-    df = segments_from_dt(df, max_gap=2, id_col="TAG")
+    df = segments_from_dt(df, max_gap=20, id_col="TAG")
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
+    df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
     # df = center_segment_coordinates(df)
 
@@ -220,6 +234,7 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
+    df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
     # df = center_segment_coordinates(df)
 
@@ -248,6 +263,7 @@ def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons")
     df = reset_first_dt_in_segment(df)
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
+    df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
     # df = center_segment_coordinates(df)
 
