@@ -14,14 +14,14 @@ model:
   optimization:
     gamma: 0.997
     actor_lr: 0.0003
-    critic_lr: 0.0005
+    critic_lr: 0.0003
     gae_lambda: 0.95
     policy_clip: 0.2
     val_loss_coef: 0.5
-    entropy_coef: 0.01
+    entropy_coef: 0.02
 
   sampling:
-    total_timesteps: 204800
+    total_timesteps: 1_000_000
     rollout_steps: 1024
     mini_batch_size: 128
     n_epochs: 8
@@ -63,7 +63,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 14
-    behavior: REPLAY        # mapped -> POI_CFG()
+    behavior: CRW        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
     max_spawn_radius: 200
 

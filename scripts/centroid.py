@@ -45,7 +45,7 @@ class CentroidStandoff:
         self.search_theta = search_theta
         self.min_speed_norm = min_speed_norm
 
-        self.drone_specs = build_drone_specs(config_box)
+        self.drone_specs = build_drone_specs(self.config)
         self.drone_count = len(self.drone_specs)
 
     def _unit(self, v, eps=1e-8):

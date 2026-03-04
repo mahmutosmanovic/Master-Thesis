@@ -532,7 +532,8 @@ class Env:
         r_dist = 0.0
         r_align = 0.0
 
-        # MONITORING QUALITY
+        visible_any = False
+
         for d in range(self.drone_count):
 
             drone_obs = observations[d]
@@ -545,24 +546,27 @@ class Env:
             visible = in_view == 1.0
 
             if np.any(visible):
+                visible_any = True
                 r_vis   += np.mean(in_view)
                 r_dist  += np.mean(1.0 - dist[visible])
                 r_align += np.mean(1.0 - 0.5 * (v[visible] + h[visible]))
 
-        r_vis   /= self.drone_count
-        r_dist  /= self.drone_count
-        r_align /= self.drone_count
+        if visible_any:
+            r_vis   /= self.drone_count
+            r_dist  /= self.drone_count
+            r_align /= self.drone_count
+        else:
+            r_vis = 0.0
+            r_dist = 0.0
+            r_align = 0.0
 
-        # DISTURBANCE (STATE-BASED)
         animal_disturbances = np.array(
             [animal.disturbance for animal in self.animals],
             dtype=np.float32
         )
 
-        # mean stress in herd
         D = np.mean(animal_disturbances)
 
-        # FINAL REWARD
         monitor_reward = (
             0.6 * r_align +
             0.3 * r_dist +
@@ -571,11 +575,6 @@ class Env:
 
         alpha = 0.20
 
-        """
-        Each animal can have a max disturbance of max(disturbance)*disturbance_factor
-        IF there are two factors, 1 and 1.5, then the max disturbance would be 2.5
-        """
-
         final_reward = (
             ((1 - alpha) * monitor_reward) -
             (alpha * D)
@@ -583,14 +582,24 @@ class Env:
 
         return final_reward
 
+    def _check_termination(self, observations):
+        if self._env_steps >= self.config["max_episode_steps"]:
+            return True
+        
+        visible = observations[:, :, 0] == 1.0
+        animal_visible = np.any(visible, axis=0)
+
+        visible_count = np.sum(animal_visible)
+
+        # terminate episode if 50% of animals are not visible
+        if visible_count < (self.animal_count * 0.5):
+            return True
+        
+        return False
+        
+
     def step(self, actions):
         self._env_steps += 1
-
-        terminated = False
-        truncated = False
-
-        if self._env_steps >= self.config["max_episode_steps"]:
-            terminated = True
 
         actions = self.package_actions(actions)
 
@@ -611,6 +620,10 @@ class Env:
 
         # 4. compute reward FROM RESULT
         reward = self.compute_reward(observations)
+
+        # 5. termination and truncation
+        terminated = self._check_termination(observations)
+        truncated = False
 
         info = {
             "fov": observations
