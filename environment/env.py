@@ -54,13 +54,16 @@ class Env:
         for i, animal in enumerate(self.animals):
             animal.disturbance = 0.0
             animal.escape_dir = np.zeros(3, dtype=np.float32)
-            animal.vel_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
-            animal.vel_speed = self.env_rng.uniform(animal.min_speed, animal.max_speed)
-            spawn_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
-            radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
-            animal.pos = spawn_dir.scale(radius)
             animal.resource_map = self.resource_map
-            animal.behavior.reset()
+            if getattr(animal.behavior, "handles_spawn", False):
+                animal.behavior.reset(animal=animal, rng=self.env_rng)
+            else:
+                animal.vel_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
+                animal.vel_speed = self.env_rng.uniform(animal.min_speed, animal.max_speed)
+                spawn_dir = Vector().random_unit(dim=self.movement_dim, rng=self.env_rng)
+                radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
+                animal.pos = spawn_dir.scale(radius)
+                animal.behavior.reset()
 
     def _init_drone(self):
             for i in range(self.drone_count):
@@ -200,7 +203,7 @@ class Env:
             drone.reset_theta()
 
     def _step_animal(self):
-
+        segment_complete = False
         for animal in self.animals:
 
             """
@@ -208,37 +211,46 @@ class Env:
             For large drone: between 0 and ITS max_disturbance (e.g., 0-1.5) * COUNT
             """
 
-            D = animal.disturbance
+            if animal.behavior.can_flee:
+                D = animal.disturbance
+                if D > 0.68:
+                    # FULL ESCAPE
+                    state = "flee"
+                    animal.vel_dir.setter(Vector(*animal.escape_dir))
+                    animal.vel_speed = animal.max_speed
 
-            if D > 0.68:
-                # FULL ESCAPE
-                state = "flee"
-                animal.vel_dir.setter(Vector(*animal.escape_dir))
-                animal.vel_speed = animal.max_speed
+                elif D > 0.52:
+                    # AVOIDANCE BLEND
+                    state = "avoid"
+                    animal.update_vel(rng=self.env_rng)
 
-            elif D > 0.52:
-                # AVOIDANCE BLEND
-                state = "avoid"
-                animal.update_vel(rng=self.env_rng)
+                    base = animal.vel_dir.to_numpy()
+                    flee = animal.escape_dir
 
-                base = animal.vel_dir.to_numpy()
-                flee = animal.escape_dir
+                    blended = 0.5 * base + 0.5 * flee
+                    animal.vel_dir.setter(Vector(*blended))
 
-                blended = 0.5 * base + 0.5 * flee
-                animal.vel_dir.setter(Vector(*blended))
+                else:
+                    # NORMAL BEHAVIOUR
+                    state = "calm"
+                    animal.update_vel(rng=self.env_rng)
 
-            else:
-                # NORMAL BEHAVIOUR
+                animal.enforce_speed()
+            else: # track folowing behaviour, no speed enforcement!
+                D = animal.disturbance
                 state = "calm"
-                animal.update_vel(rng=self.env_rng)
+                a_segment_complete = animal.update_vel(rng=self.env_rng)
+                if segment_complete == False and a_segment_complete:
+                    segment_complete = True
 
             self.state_counts[state] += 1
             self.total_state_steps += 1
             self.disturbance_sum += D
 
-            animal.enforce_speed()
             animal.update_pos()
             animal.enforce_position()
+
+        return segment_complete
 
     def get_behavior_stats(self):
 
@@ -588,7 +600,10 @@ class Env:
         # 2. animals react to new drone positions
         geometry = self._compute_geometry()
         self._compute_disturbance(geometry)
-        self._step_animal()
+        segment_complete = self._step_animal()
+
+        if segment_complete: # A recorded gps segment terminated
+            terminated = True
 
         # 3. observe resulting state
         geometry = self._compute_geometry()
