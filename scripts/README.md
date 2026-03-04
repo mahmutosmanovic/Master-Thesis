@@ -16,11 +16,11 @@ Example:
 
 `latest`: runs the latest locally trained model in ./runs folder
 
-    python -m scripts.inference --run train_seed42_2026-02-24_09-19-44
+    python -m scripts.vid_eval --run train_seed42_2026-02-24_09-19-44
 
 OR
 
-    python -m scripts.inference --run latest
+    python -m scripts.vid_eval --run latest
 
 ## Baseline Instructions
 

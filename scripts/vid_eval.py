@@ -14,11 +14,11 @@ import torch
 import os
 
 
-def main(config, model_dir):
+def main(config, model_dir, seed):
 
     config = Box(config)
 
-    env = Env(config, render_mode="human", seed=99)
+    env = Env(config, render_mode="human", seed=seed)
     obs, info = env.reset()
 
     agent = Agent(config)
@@ -48,6 +48,7 @@ def main(config, model_dir):
 
     env.viewer.close()
 
+
 def _init_argparse():
 
     parser = argparse.ArgumentParser()
@@ -59,9 +60,15 @@ def _init_argparse():
         help="Run folder name or 'latest'",
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=99,
+        help="Random seed for environment (default: 99)",
+    )
 
-    return args
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
 
@@ -69,4 +76,4 @@ if __name__ == "__main__":
 
     cfg, run_dir = load_run(args.run)
 
-    main(cfg, run_dir)
+    main(cfg, run_dir, seed=args.seed)
