@@ -3,7 +3,7 @@ from pathlib import Path
 from copy import deepcopy
 from datetime import datetime
 from environment import MovementDim
-from config.loader import _build_behavior
+from config.loader import _build_behavior, load_config
 
 def create_run_dir(config: dict, seed: int):
 
@@ -75,22 +75,23 @@ def load_run(run_name: str):
     run_dir = resolve_run_dir(run_name)
     config_path = run_dir / "config.yaml"
 
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
+    
+    with open("config/behaviors.yaml", "r") as f:
+        behavior_cfg = yaml.safe_load(f)
 
-    # enum
+    # --- enums ---
     cfg["animal"]["init"]["movement_dim"] = (
         MovementDim[cfg["animal"]["init"]["movement_dim"]]
     )
 
-    # behavior dataclass
+    # --- behaviors ---
     behavior_name = cfg["animal"]["init"]["behavior"]
-
-    # snapshot stores "POI_CFG"
-    if behavior_name.endswith("_CFG"):
-        behavior_name = behavior_name[:-4]
-
-    cfg["animal"]["init"]["behavior"] = _build_behavior(behavior_name)
+    cfg["animal"]["init"]["behavior"] = _build_behavior(behavior_name, behavior_cfg[behavior_name])
 
     cfg["run_dir"] = str(run_dir)
 

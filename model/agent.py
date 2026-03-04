@@ -137,10 +137,14 @@ class Agent:
         self.samp_hpt = config.model.sampling
 
         self.act_dim = self.space_hpt.n_actions
-        self.actor_input_dims = config.animal.env.count * self.space_hpt.features
-
+        n_animals = config.animal.env.count
         total_drone_count = config.drone.small.count + config.drone.large.count
-        self.critic_input_dims = total_drone_count * config.animal.env.count * self.space_hpt.features
+
+        drone_features = 4          # view_x, view_y, view_z, altitude_norm
+        animal_features = 4         # visible, dist_norm, v_norm, h_norm
+
+        self.actor_input_dims = drone_features + n_animals * animal_features
+        self.critic_input_dims = total_drone_count * self.actor_input_dims
 
         self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr, chkpt_dir=config.run_dir)
         self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr, chkpt_dir=config.run_dir)
@@ -221,7 +225,7 @@ class Agent:
         rewards = T.as_tensor(reward_arr, dtype=T.float32, device=device)       # (T,)
         dones = T.as_tensor(done_arr, dtype=T.float32, device=device)           # (T,)
 
-        T_steps, n_drones, n_animals, n_feat = states.shape
+        T_steps, n_drones, obs_dim = states.shape
         act_dim = self.act_dim
 
         # GAE (critic is centralized; values are per timestep)
@@ -262,7 +266,7 @@ class Agent:
 
                 # actor (decentralized, shared)
                 # local obs for all agents: (B*D, A*F)
-                local_obs = batch_states.reshape(-1, n_animals * n_feat)
+                local_obs = batch_states.reshape(-1, obs_dim)
 
                 mu, std = self.actor(local_obs)               # (B*D, act_dim)
                 dist = Normal(mu, std)

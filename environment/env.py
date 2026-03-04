@@ -264,101 +264,6 @@ class Env:
             "mean_disturbance": self.disturbance_sum / self.total_state_steps,
         }
 
-    def in_FoV(self, drones, animals):
-        """
-        x: view dir (forward)
-        y: right
-        z: up
-        """
-
-        in_FoV_obs = []
-        world_z = np.array([0, 0, 1], dtype=np.float32)
-
-        for drone in drones:
-
-            drone_obs = []
-
-            # View direction (forward axis)
-            x = drone.view_dir.to_numpy()
-            x = x / (np.linalg.norm(x) + 1e-8)
-
-            view_x, view_y, view_z = x
-
-            # Altitude sensor
-            altitude = drone.pos.to_numpy()[2]
-            altitude_norm = altitude / (drone.max_altitude + 1e-8)
-
-            # Camera basis
-            y = np.cross(world_z, x)
-            y = y / (np.linalg.norm(y) + 1e-8)
-
-            z = np.cross(x, y)
-            z = z / (np.linalg.norm(z) + 1e-8)
-
-            v_max = np.deg2rad(drone.ver_angle / 2)
-            h_max = np.deg2rad(drone.hor_angle / 2)
-
-            for animal in animals:
-
-                drone_pos = drone.pos.to_numpy()
-                animal_pos = animal.pos.to_numpy()
-
-                rel_vec = animal_pos - drone_pos
-                distance = np.linalg.norm(rel_vec)
-
-                drone_to_animal_vec = (
-                    rel_vec / distance if distance >= 1e-8
-                    else np.zeros(3)
-                )
-
-                cx = np.dot(drone_to_animal_vec, x)
-                cy = np.dot(drone_to_animal_vec, y)
-                cz = np.dot(drone_to_animal_vec, z)
-
-                v_angle = np.arctan2(cz, cx)
-                h_angle = np.arctan2(cy, cx)
-
-                in_view = (
-                    cx > 0 and
-                    abs(v_angle) <= v_max and
-                    abs(h_angle) <= h_max and
-                    distance <= drone.view_range
-                )
-
-                if in_view:
-
-                    dist_norm = distance / drone.view_range
-                    v_norm = v_angle / v_max
-                    h_norm = h_angle / h_max
-
-                    drone_obs.append([
-                        1.0,
-                        dist_norm,
-                        v_norm,
-                        h_norm,
-                        view_x,
-                        view_y,
-                        view_z,
-                        altitude_norm
-                    ])
-
-                else:
-
-                    drone_obs.append([
-                        0.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        view_x,
-                        view_y,
-                        view_z,
-                        altitude_norm
-                    ])
-
-            in_FoV_obs.append(np.array(drone_obs, dtype=np.float32))
-
-        return np.array(in_FoV_obs, dtype=np.float32)
-
     def set_render_mode(self, mode):
         self.render_mode = mode
 
@@ -416,35 +321,28 @@ class Env:
         return geometry
     
     def _build_observations(self, geometry):
-        """
-        Builds FoV observations using precomputed geometry.
-        """
-
-        in_FoV_obs = []
+        obs_all = []
         world_z = np.array([0, 0, 1], dtype=np.float32)
 
         for d, drone in enumerate(self.drones):
 
-            drone_obs = []
-
-            # forward axis
             x = drone.view_dir.to_numpy()
             x = x / (np.linalg.norm(x) + 1e-8)
-
-            view_x, view_y, view_z = x
 
             altitude = drone.pos.to_numpy()[2]
             altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
-            # camera basis
+            drone_features = [x[0], x[1], x[2], altitude_norm]
+
             y = np.cross(world_z, x)
             y = y / (np.linalg.norm(y) + 1e-8)
-
             z = np.cross(x, y)
             z = z / (np.linalg.norm(z) + 1e-8)
 
             v_max = np.deg2rad(drone.ver_angle / 2)
             h_max = np.deg2rad(drone.hor_angle / 2)
+
+            animal_features = []
 
             for a in range(self.animal_count):
 
@@ -466,24 +364,20 @@ class Env:
                 )
 
                 if in_view:
-                    drone_obs.append([
+                    animal_features.extend([
                         1.0,
                         distance / drone.view_range,
                         v_angle / v_max,
-                        h_angle / h_max,
-                        view_x, view_y, view_z,
-                        altitude_norm
+                        h_angle / h_max
                     ])
                 else:
-                    drone_obs.append([
-                        0.0, 1.0, 0.0, 0.0,
-                        view_x, view_y, view_z,
-                        altitude_norm
+                    animal_features.extend([
+                        0.0, 1.0, 0.0, 0.0
                     ])
 
-            in_FoV_obs.append(np.array(drone_obs, dtype=np.float32))
+            obs_all.append(np.array(drone_features + animal_features, dtype=np.float32))
 
-        return np.array(in_FoV_obs, dtype=np.float32)
+        return np.array(obs_all, dtype=np.float32)
     
     def _compute_disturbance(self, geometry):
         for a, animal in enumerate(self.animals):
@@ -538,15 +432,19 @@ class Env:
 
             drone_obs = observations[d]
 
-            in_view = drone_obs[:, 0]
-            dist = drone_obs[:, 1]
-            v = np.abs(drone_obs[:, 2])
-            h = np.abs(drone_obs[:, 3])
+            # skip drone features
+            animal_obs = drone_obs[4:].reshape(self.animal_count, 4)
+
+            in_view = animal_obs[:, 0]
+            dist = animal_obs[:, 1]
+            v = np.abs(animal_obs[:, 2])
+            h = np.abs(animal_obs[:, 3])
 
             visible = in_view == 1.0
 
             if np.any(visible):
                 visible_any = True
+
                 r_vis   += np.mean(in_view)
                 r_dist  += np.mean(1.0 - dist[visible])
                 r_align += np.mean(1.0 - 0.5 * (v[visible] + h[visible]))
@@ -556,9 +454,7 @@ class Env:
             r_dist  /= self.drone_count
             r_align /= self.drone_count
         else:
-            r_vis = 0.0
-            r_dist = 0.0
-            r_align = 0.0
+            r_vis = r_dist = r_align = 0.0
 
         animal_disturbances = np.array(
             [animal.disturbance for animal in self.animals],
@@ -568,16 +464,16 @@ class Env:
         D = np.mean(animal_disturbances)
 
         monitor_reward = (
-            0.6 * r_align +
-            0.3 * r_dist +
-            0.1 * r_vis
+            0.2 * r_align +
+            0.6 * r_dist +
+            0.2 * r_vis
         )
 
-        alpha = 0.20
+        dist_penalty_scale = 2.0
 
         final_reward = (
-            ((1 - alpha) * monitor_reward) -
-            (alpha * D)
+            (monitor_reward) -
+            (dist_penalty_scale * D)
         )
 
         return final_reward
@@ -585,8 +481,15 @@ class Env:
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:
             return True
-        
-        visible = observations[:, :, 0] == 1.0
+
+        # extract animal observations
+        animal_obs = observations[:, 4:].reshape(
+            self.drone_count,
+            self.animal_count,
+            4
+        )
+
+        visible = animal_obs[:, :, 0] == 1.0
         animal_visible = np.any(visible, axis=0)
 
         visible_count = np.sum(animal_visible)
@@ -594,9 +497,8 @@ class Env:
         # terminate episode if 50% of animals are not visible
         if visible_count < (self.animal_count * 0.5):
             return True
-        
+
         return False
-        
 
     def step(self, actions):
         self._env_steps += 1

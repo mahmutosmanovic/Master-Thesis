@@ -75,30 +75,37 @@ class CentroidStandoff:
         return np.array([cx, cy, cz], dtype=np.float32)
 
     def act(self, observations):
+
         actions = np.zeros((self.drone_count, 5), dtype=np.float32)
 
         for d in range(self.drone_count):
+
             drone = self.drone_specs[d]
             max_altitude = drone["max_altitude"]
             view_range = drone["view_range"]
             ver_angle = drone["ver_angle"]
             hor_angle = drone["hor_angle"]
-            
+
             obs_d = observations[d]
 
-            in_view = obs_d[:, 0] > 0.5
-            visible_idx = np.where(in_view)[0]
+            # --- split observation ---
+            drone_features = obs_d[:4]
+            animal_obs = obs_d[4:].reshape(self.config.animal.env.count, 4)
 
-            view_dir = obs_d[0, 4:7].astype(np.float32)
-            altitude_norm = obs_d[0, 7]
+            view_dir = drone_features[:3]
+            altitude_norm = drone_features[3]
             current_altitude = altitude_norm * (max_altitude + 1e-8)
+
+            in_view = animal_obs[:, 0] > 0.5
+            visible_idx = np.where(in_view)[0]
 
             x, y, z = self._camera_basis_from_view_dir(view_dir)
 
             if len(visible_idx) == 0:
-                # with no targets in view, spin
+
                 target_altitude = self.target_altitude_ratio * max_altitude
                 z_error = target_altitude - current_altitude
+
                 z_action = np.clip(
                     self.z_gain * (z_error / max(max_altitude, 1e-6)),
                     -1.0,
@@ -106,6 +113,7 @@ class CentroidStandoff:
                 )
 
                 move_dir = x + np.array([0.0, 0.0, z_action], dtype=np.float32)
+
                 if np.linalg.norm(move_dir) < 1e-6:
                     move_dir = x
                 else:
@@ -116,9 +124,9 @@ class CentroidStandoff:
                     self.min_speed_norm,
                     self.search_theta,
                 ], dtype=np.float32)
+
                 continue
 
-            # Reconstruct relative vectors to visible animals
             rel_vecs = []
             h_norms = []
 
@@ -126,7 +134,9 @@ class CentroidStandoff:
             h_max = np.deg2rad(hor_angle / 2.0)
 
             for a in visible_idx:
-                row = obs_d[a]
+
+                row = animal_obs[a]
+
                 dist_norm = row[1]
                 v_norm = row[2]
                 h_norm = row[3]
@@ -135,19 +145,19 @@ class CentroidStandoff:
                 v_angle = v_norm * v_max
                 h_angle = h_norm * h_max
 
-                # animal in camera vector -> world vector
                 cam_vector = self._cam_vector_from_angles(h_angle, v_angle)
+
                 world_vec = cam_vector[0] * x + cam_vector[1] * y + cam_vector[2] * z
                 world_vec = self._unit(world_vec)
 
                 rel_vec = distance * world_vec
+
                 rel_vecs.append(rel_vec)
                 h_norms.append(h_norm)
 
             rel_vecs = np.asarray(rel_vecs, dtype=np.float32)
             rel_centroid = rel_vecs.mean(axis=0)
 
-            # xy standoff
             centroid_xy = rel_centroid[:2]
             centroid_xy_norm = np.linalg.norm(centroid_xy)
 
@@ -162,28 +172,45 @@ class CentroidStandoff:
                 1.0,
             )
 
-            # z control
             target_altitude = self.target_altitude_ratio * max_altitude
             z_error = target_altitude - current_altitude
+
             z_action = np.clip(
                 self.z_gain * (z_error / max(max_altitude, 1e-6)),
                 -1.0,
                 1.0,
             )
 
-            # full movement direction
             move_xy = xy_action * dir_to_centroid_xy
-            move_dir = np.array([move_xy[0], move_xy[1], z_action], dtype=np.float32)
+
+            move_dir = np.array([
+                move_xy[0],
+                move_xy[1],
+                z_action
+            ], dtype=np.float32)
+
             move_dir = self._unit(move_dir)
 
-            # speed control
             speed_effort = 0.7 * abs(xy_action) + 0.3 * abs(z_action)
-            norm_speed = np.clip(self.min_speed_norm + speed_effort, 0.0, 1.0)
+
+            norm_speed = np.clip(
+                self.min_speed_norm + speed_effort,
+                0.0,
+                1.0
+            )
+
             h_center = np.mean(h_norms) if len(h_norms) > 0 else 0.0
-            norm_theta = -np.clip(-self.theta_gain * h_center, -1.0, 1.0)
+
+            norm_theta = -np.clip(
+                -self.theta_gain * h_center,
+                -1.0,
+                1.0
+            )
 
             actions[d] = np.array([
-                move_dir[0], move_dir[1], move_dir[2],
+                move_dir[0],
+                move_dir[1],
+                move_dir[2],
                 norm_speed,
                 norm_theta,
             ], dtype=np.float32)
@@ -295,7 +322,7 @@ def grid_search(config_box, args):
 def run_single(config_box, seed):
     env = Env(config_box, render_mode="human")
     policy = CentroidStandoff(
-        env,
+        config_box,
         target_range_ratio=0.45,
         target_altitude_ratio=0.45,
         xy_gain=1.5,

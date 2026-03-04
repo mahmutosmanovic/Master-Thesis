@@ -11,11 +11,11 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 def _build_behavior(name: str, params: dict):
 
     behaviors = {
-        "POI": POI_CFG,
-        "EE": EE_CFG,
-        "CRW": CRW_CFG,
-        "LPOI": LPOI_CFG,
-        "REPLAY": REPLAY_CFG
+        "POI_CFG": POI_CFG,
+        "EE_CFG": EE_CFG,
+        "CRW_CFG": CRW_CFG,
+        "LPOI_CFG": LPOI_CFG,
+        "REPLAY_CFG": REPLAY_CFG
     }
 
     try:

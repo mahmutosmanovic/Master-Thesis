@@ -77,7 +77,8 @@ class Viewer:
             self._start_recording()
 
         if fov is not None and len(animals) > 0:
-            visible = np.any(fov[..., 0] == 1.0, axis=1)
+            animal_obs = fov[:, 4:].reshape(len(drones), len(animals), 4)
+            visible = np.any(animal_obs[:, :, 0] == 1.0, axis=0)
         else:
             visible = np.zeros(len(animals), dtype=bool)
 
