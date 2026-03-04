@@ -1,4 +1,7 @@
+import numpy as np
+import pandas as pd
 from .vec import Vector
+from pathlib import Path
 from .immutables import MovementDim, BehaviorState
 from dataclasses import dataclass
 
@@ -6,6 +9,8 @@ BEHAVIOR_REGISTRY = {}
 
 class BehaviorBase:
     cfg_type = None
+    can_flee = True
+    handles_spawn = False
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -294,3 +299,103 @@ class LearningPointOfInterest(BehaviorBase):
         self.target_key = None
         self.reward_sum = 0.0
         self.poi_values = {}
+
+@dataclass(frozen=True)
+class REPLAY_CFG:
+    manifest_path: str
+    selection: str = "cycle"
+    zero_centered: bool = False
+
+class Replay(BehaviorBase):
+    cfg_type = REPLAY_CFG
+    can_flee = False
+    handles_spawn = True
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.state = BehaviorState.EXPLORE
+
+        self.manifest_path = Path(cfg.manifest_path)
+        self.base_dir = self.manifest_path.parent
+        self.manifest = pd.read_parquet(self.manifest_path).reset_index(drop=True)
+
+        self.current_idx = -1
+        self.t = None
+        self.x = None
+        self.y = None
+        self.elapsed = 0.0
+
+    def _pick_idx(self, rng):
+        if self.cfg.selection == "random":
+            return int(rng.integers(0, len(self.manifest)))
+        return (self.current_idx + 1) % len(self.manifest)
+
+    def _load_segment(self, animal, rng):
+        self.current_idx = self._pick_idx(rng)
+        row = self.manifest.iloc[self.current_idx]
+
+        path = self.base_dir / row["path"]
+        with np.load(path, allow_pickle=False) as z:
+            self.t = z["t"]
+            self.x = z["x"]
+            self.y = z["y"]
+        
+        if self.cfg.zero_centered:
+            self.x = self.x - np.mean(self.x)
+            self.y = self.y - np.mean(self.y)
+
+        self.elapsed = 0.0
+        animal.pos = Vector(self.x[0], self.y[0], 0.0)
+        animal.vel_dir = Vector(1.0, 0.0, 0.0)
+        animal.vel_speed = 0.0
+
+    def _interp_xy(self, t_now):
+        if t_now >= self.t[-1]:
+            return self.x[-1], self.y[-1]
+
+        j = np.searchsorted(self.t, t_now, side="right") - 1
+        j = max(0, min(j, len(self.t) - 2))
+
+        t0, t1 = self.t[j], self.t[j + 1]
+        x0, x1 = self.x[j], self.x[j + 1]
+        y0, y1 = self.y[j], self.y[j + 1]
+
+        if t1 == t0:
+            return x1, y1
+
+        a = (t_now - t0) / (t1 - t0)
+        x = x0 + a * (x1 - x0)
+        y = y0 + a * (y1 - y0)
+        return x, y
+
+    def fn(self, animal, rng, dt):
+        if self.elapsed >= self.t[-1]:
+            animal.vel_dir = Vector(0.0, 0.0, 0.0)
+            animal.vel_speed = 0.0
+            return True
+
+        t_next = min(self.elapsed + dt, self.t[-1])
+        x_target, y_target = self._interp_xy(t_next)
+
+        dx = x_target - animal.pos.x
+        dy = y_target - animal.pos.y
+        dist = np.sqrt(dx * dx + dy * dy)
+
+        if dist == 0.0:
+            animal.vel_dir = Vector(0.0, 0.0, 0.0)
+            animal.vel_speed = 0.0
+        else:
+            animal.vel_dir = Vector(dx, dy, 0.0).unit()
+            animal.vel_speed = dist / dt
+
+        self.elapsed = t_next
+
+    def reset(self, animal=None, rng=None):
+        self.state = BehaviorState.EXPLORE
+        self.t = None
+        self.x = None
+        self.y = None
+        self.elapsed = 0.0
+
+        if animal is not None and rng is not None:
+            self._load_segment(animal, rng)

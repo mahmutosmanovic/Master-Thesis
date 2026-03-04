@@ -69,3 +69,8 @@ LPOI:
     speed_smooth: 0.2
     bias_gain: 0.0
 
+REPLAY:
+  manifest_path: track_segments/jackals/manifest.parquet
+  selection: random
+  zero_centered: True
+

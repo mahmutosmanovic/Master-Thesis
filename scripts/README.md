@@ -97,3 +97,10 @@ This will:
 `save_plot`: saves a plot with mean and std of just the RL agent or if baseline is included, also includes in plot
 
     python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --save_plot
+    
+## Simulate Real GPS Behavior
+> GPS DATA PRE-PROCESSING
+
+Do not forget to set REPLAY in config
+
+    python -m scripts.prepare_tracks
