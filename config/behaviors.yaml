@@ -70,7 +70,7 @@ LPOI:
     bias_gain: 0.0
 
 REPLAY:
-  manifest_path: track_segments/spur_winged_lapwings/manifest.parquet
+  manifest_path: track_segments/jackals/manifest.parquet
   selection: random
-  zero_centered: False
+  zero_centered: True
 

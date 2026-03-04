@@ -274,5 +274,5 @@ def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons")
 if __name__ == "__main__":
     prepare_pigeons()
     prepare_jackals()
-    prepare_spur_winged_lapwings()
-    prepare_peruvian_boobies()
+    # prepare_spur_winged_lapwings()
+    # prepare_peruvian_boobies()

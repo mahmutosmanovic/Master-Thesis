@@ -83,3 +83,10 @@ This will:
 | theta_gain            | heading alignment sensitivity              |
 | search_theta          | scan rate during target loss               |
 | min_speed_norm        | baseline motion bias (anti-stall velocity) |
+
+## Simulate Real GPS Behavior
+> GPS DATA PRE-PROCESSING
+
+Do not forget to set REPLAY in config
+
+    python -m scripts.prepare_tracks
