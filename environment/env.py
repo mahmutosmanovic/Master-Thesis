@@ -513,9 +513,6 @@ class Env:
         self._compute_disturbance(geometry)
         segment_complete = self._step_animal()
 
-        if segment_complete: # A recorded gps segment terminated
-            terminated = True
-
         # 3. observe resulting state
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
@@ -524,7 +521,7 @@ class Env:
         reward = self.compute_reward(observations)
 
         # 5. termination and truncation
-        terminated = self._check_termination(observations)
+        terminated = segment_complete or self._check_termination(observations)
         truncated = False
 
         info = {
