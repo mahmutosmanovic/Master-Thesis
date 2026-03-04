@@ -83,3 +83,17 @@ This will:
 | theta_gain            | heading alignment sensitivity              |
 | search_theta          | scan rate during target loss               |
 | min_speed_norm        | baseline motion bias (anti-stall velocity) |
+
+# Evaluate Models Instructions
+
+`run`: expects a folder name within ./runs folder, which in turn contains *actor* and *critic* weights in addition to model configurations
+
+`baseline`: specifies the baseline to benchmark against, default is None
+
+`num-episodes`: specicies over how many episode to run baseline and RL model
+
+`start_seed`: specifies which the starting seed is, all ran episodes are seeded
+
+`save_plot`: saves a plot with mean and std of just the RL agent or if baseline is included, also includes in plot
+
+    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --save_plot
