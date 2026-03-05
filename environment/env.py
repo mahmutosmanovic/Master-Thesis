@@ -35,6 +35,14 @@ class Env:
             "flee": 0,
         }
 
+        self.reward_stats = {
+            "r_monitoring": 0,
+            "p_disturbance": 0,
+            "r_vis": 0,
+            "r_dist": 0,
+            "r_align": 0,
+        }
+
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
@@ -146,6 +154,13 @@ class Env:
 
         self._env_steps = 0
         self.state_counts = {"calm":0, "avoid":0, "flee":0}
+        self.reward_stats = {
+            "r_monitoring": 0,
+            "p_disturbance": 0,
+            "r_vis": 0,
+            "r_dist": 0,
+            "r_align": 0,
+        }
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
@@ -262,6 +277,18 @@ class Env:
             "avoid_frac": self.state_counts["avoid"] / self.total_state_steps,
             "flee_frac": self.state_counts["flee"] / self.total_state_steps,
             "mean_disturbance": self.disturbance_sum / self.total_state_steps,
+        }
+    
+    def get_reward_stats(self):
+        if self.total_state_steps == 0:
+            return None
+
+        return {
+            "r_monitoring": self.reward_stats["r_monitoring"] / self.total_state_steps,
+            "p_disturbance": self.reward_stats["p_disturbance"] / self.total_state_steps,
+            "r_vis": self.reward_stats["r_vis"] / self.total_state_steps,
+            "r_dist": self.reward_stats["r_dist"] / self.total_state_steps,
+            "r_align": self.reward_stats["r_align"] / self.total_state_steps,
         }
 
     def set_render_mode(self, mode):
@@ -399,7 +426,7 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec) # normalize to ensure gain drives influence
 
-                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), drone.vel_speed, self.config) * drone.disturbance_mult
                 disturbances.append(gain)
 
             sorted_idx = np.argsort(disturbances)[::-1]
@@ -483,10 +510,14 @@ class Env:
         D = np.mean(animal_disturbances)
 
         # monitoring reward
+        r_vis_scaled = 0.4 * r_vis
+        r_dist_scaled = 0.4 * r_dist
+        r_align_scaled = 0.2 * r_align
+        
         monitor_reward = (
-            0.4 * r_vis +
-            0.4 * r_dist +
-            0.2 * r_align
+            r_vis_scaled +
+            r_dist_scaled +
+            r_align_scaled
         )
 
         # smoother disturbance penalty
@@ -497,6 +528,12 @@ class Env:
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
+
+        self.reward_stats["r_monitoring"] += monitor_reward
+        self.reward_stats["p_disturbance"] += D
+        self.reward_stats["r_vis"] += r_vis
+        self.reward_stats["r_dist"] += r_dist
+        self.reward_stats["r_align"] += r_align
 
         return final_reward
 

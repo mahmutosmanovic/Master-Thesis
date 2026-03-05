@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Spatial Gain Functions (scalar: one animal–drone pair)
-def disturbance_gain(dist_vec, drone_vel_dir, config):
+def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, config):
     """
     Combined disturbance for one animal-drone pair.
     """
@@ -11,14 +11,17 @@ def disturbance_gain(dist_vec, drone_vel_dir, config):
 
     g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
     g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
+    g_speed = np.clip(speed_gain(drone_vel_speed), 0.0, 1.0)
 
     base = g_horizontal * g_altitude
 
     angle_boost = g_angle * config.max_angle_boost   # [0,1]
     heading_boost = g_heading * config.max_heading_boost   # [0,1]
+    speed_boost = g_speed * config.max_speed_boost   # [0,1]
 
     D = base + (1.0 - base) * angle_boost * base
     D = D + (1.0 - D) * heading_boost * base
+    D = D + (1.0 - D) * speed_boost * base
 
     return D
 
@@ -75,6 +78,13 @@ def heading_gain(dist_vec, drone_vel_dir):
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
     return max(0.0, cos_theta)
+
+def speed_gain(drone_vel_speed, v_min=2, v_max=8):
+    if drone_vel_speed <= v_min:
+        g = 0
+    else:
+        g = min(drone_vel_speed - v_min / (v_max - v_min), 1)
+    return g
 
 # Visualization helpers (grid evaluation)
 def evaluate_on_grid(func, X, Y):

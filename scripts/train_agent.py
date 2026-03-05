@@ -137,12 +137,20 @@ def main(config, agent_type="ppo", neptune_logging=False):
                         avg = np.mean(reward_queue)
                         reward_all_100.append(avg)
                         stats = env.get_behavior_stats()
+
+                        r_stats = env.get_reward_stats()
+
                         if neptune_logging: 
                             run["train_stats/reward"].append(avg)
 
                             run["train_stats/calm_frac"].append(stats["calm_frac"])
                             run["train_stats/avoid_frac"].append(stats["avoid_frac"])
                             run["train_stats/flee_frac"].append(stats["flee_frac"])
+                            run["train_stats/r_monitoring"].append(r_stats["r_monitoring"])
+                            run["train_stats/p_disturbance"].append(r_stats["p_disturbance"])
+                            run["train_stats/r_vis"].append(r_stats["r_vis"])
+                            run["train_stats/r_dist"].append(r_stats["r_dist"])
+                            run["train_stats/r_align"].append(r_stats["r_align"])
                             run["train_stats/mean_disturbance"].append(stats["mean_disturbance"])
 
                         pbar.set_postfix({
