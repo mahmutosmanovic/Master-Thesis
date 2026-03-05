@@ -200,11 +200,10 @@ if __name__ == "__main__":
 
     cfg = load_config(args.config)
 
+    cfg["seed"] = args.seed
+    cfg["agent_type"] = args.agent
     run_dir = create_run_dir(cfg, args.seed)
     save_config_snapshot(cfg, run_dir)
 
     cfg["run_dir"] = str(run_dir)
-    cfg["seed"] = args.seed
-    cfg["agent_type"] = args.agent
-
     main(cfg, agent_type=args.agent, neptune_logging=args.neptune)

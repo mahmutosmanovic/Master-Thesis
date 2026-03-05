@@ -428,6 +428,10 @@ class Env:
 
         visible_any = False
 
+        ALIGN_DEADZONE = 0.05   # prevents jitter when centered
+        DIST_EXP = 2.0          # smooth distance shaping
+        ALIGN_EXP = 2.0         # smooth alignment shaping
+
         for d in range(self.drone_count):
 
             drone_obs = observations[d]
@@ -442,17 +446,28 @@ class Env:
 
             visible = in_view == 1.0
 
-            # visibility reward (counts animals seen)
+            # visibility reward
             r_vis += np.sum(in_view) / self.animal_count
 
             if np.any(visible):
+
                 visible_any = True
 
-                # closer is better
-                r_dist += np.mean(1.0 - dist[visible])
+                # distance shaping (smooth, encourages closer tracking)
+                dist_term = 1.0 - dist[visible]
+                r_dist += np.mean(dist_term ** DIST_EXP)
 
-                # centered in view is better
-                r_align += np.mean(1.0 - 0.5 * (v[visible] + h[visible]))
+                # alignment with dead-zone
+                v_vis = v[visible]
+                h_vis = h[visible]
+
+                v_vis = np.maximum(0.0, v_vis - ALIGN_DEADZONE)
+                h_vis = np.maximum(0.0, h_vis - ALIGN_DEADZONE)
+
+                align_term = 1.0 - 0.5 * (v_vis + h_vis)
+                align_term = np.clip(align_term, 0.0, 1.0)
+
+                r_align += np.mean(align_term ** ALIGN_EXP)
 
         # normalize across drones
         r_vis /= self.drone_count
@@ -474,16 +489,16 @@ class Env:
             0.2 * r_align
         )
 
-        # smooth disturbance penalty
-        dist_penalty = 1.2 * D
+        # smoother disturbance penalty
+        dist_penalty = 1.2 * (D ** 1.5)
 
         final_reward = monitor_reward - dist_penalty
 
-        # small penalty if nothing visible
+        # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
 
-        return final_reward        
+        return final_reward
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:
