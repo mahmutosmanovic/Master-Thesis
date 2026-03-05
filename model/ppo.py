@@ -140,6 +140,11 @@ class PPOAgent:
 
         self.act_dim = self.space_hpt.n_actions
 
+        self.entropy_start = self.optim_hpt.entropy_start_coef
+        self.entropy_end = self.optim_hpt.entropy_end_coef
+        self.total_steps = config.max_episode_steps
+        self.train_step = 0
+
         drone_features = 4
         animal_features = 4 * config.animal.env.count
 
@@ -159,6 +164,10 @@ class PPOAgent:
         )
 
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
+
+    def get_entropy_coef(self):
+        frac = min(self.train_step / self.total_steps, 1.0)
+        return self.entropy_start + frac * (self.entropy_end - self.entropy_start)
 
     def remember(self, state, action, logp, val, reward, done):
         self.memory.store_memory(state, action, logp, val, reward, done)
@@ -287,11 +296,12 @@ class PPOAgent:
                 critic_loss = (batch_returns - critic_value).pow(2).mean()
 
                 entropy = dist.entropy().sum(dim=-1).mean()
+                entropy_coef = self.get_entropy_coef()
 
                 total_loss = (
                     actor_loss
                     + self.optim_hpt.val_loss_coef * critic_loss
-                    - self.optim_hpt.entropy_coef * entropy
+                    - entropy_coef * entropy
                 )
 
                 self.actor.optimizer.zero_grad()
@@ -305,4 +315,5 @@ class PPOAgent:
                 self.actor.optimizer.step()
                 self.critic.optimizer.step()
 
+        self.train_step += T_steps
         self.memory.clear_memory()

@@ -201,7 +201,6 @@ class Env:
             drone.theta = alpha * drone.theta + (1.0 - alpha) * action["theta"]
             drone.enforce_cam_rot()
             drone.view_dir.rotate_z(drone.theta)
-            # drone.reset_theta()
 
     def _step_animal(self):
         segment_complete = False
@@ -214,13 +213,13 @@ class Env:
 
             if animal.behavior.can_flee:
                 D = animal.disturbance
-                if D > 0.68:
+                if D > 0.70:
                     # FULL ESCAPE
                     state = "flee"
                     animal.vel_dir.setter(Vector(*animal.escape_dir))
                     animal.vel_speed = animal.max_speed
 
-                elif D > 0.52:
+                elif D > 0.50:
                     # AVOIDANCE BLEND
                     state = "avoid"
                     animal.update_vel(rng=self.env_rng)
@@ -491,9 +490,9 @@ class Env:
         )
 
         # smoother disturbance penalty
-        dist_penalty = 1.2 * (D ** 1.5)
+        disturbance_penalty = 1.2 * (D ** 1.5)
 
-        final_reward = monitor_reward - dist_penalty
+        final_reward = monitor_reward - disturbance_penalty
 
         # penalty if nothing visible
         if not visible_any:
