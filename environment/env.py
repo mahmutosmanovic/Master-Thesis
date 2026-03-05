@@ -464,7 +464,7 @@ class Env:
             drone_obs = observations[d]
 
             # skip drone features
-            animal_obs = drone_obs[4:].reshape(self.animal_count, 4)
+            animal_obs = drone_obs[4:].reshape(self.animal_count, 4)  # view_x, view_y, view_z, altitude, in_view, dist_norm, hor, ver
 
             in_view = animal_obs[:, 0]
             dist = animal_obs[:, 1]
