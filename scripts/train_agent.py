@@ -205,5 +205,6 @@ if __name__ == "__main__":
 
     cfg["run_dir"] = str(run_dir)
     cfg["seed"] = args.seed
+    cfg["agent_type"] = args.agent
 
     main(cfg, agent_type=args.agent, neptune_logging=args.neptune)

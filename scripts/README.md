@@ -7,7 +7,10 @@ Example:
 
 `neptune` activates neptune logging
 
-    python -m scripts.train_agent --config train --seed 42 --neptune
+`ppo` choices to train with "ppo" or "mappo"
+
+
+    python -m scripts.train_agent --config train --agent ppo --seed 42 --neptune
 
 ## Inference Instructions
 Example:
@@ -16,11 +19,11 @@ Example:
 
 `latest`: runs the latest locally trained model in ./runs folder
 
-    python -m scripts.vid_eval --run train_seed42_2026-02-24_09-19-44
+    python -m scripts.play --run train_seed42_2026-02-24_09-19-44
 
 OR
 
-    python -m scripts.vid_eval --run latest
+    python -m scripts.play --run latest
 
 ## Baseline Instructions
 

@@ -5,19 +5,71 @@ import torch
 import matplotlib.pyplot as plt
 
 from box import Box
-
 from tqdm import tqdm
+
 from environment import Env
-from model import Agent
+from model import PPOAgent, MAPPOAgent
 from .run_utils import load_run
 from .centroid import CentroidStandoff
 
-# Available baselines
+
 BASELINES = {
     "centroid": CentroidStandoff,
 }
 
-def run_episode(env, config, seed, agent=None, baseline=None):
+
+def init_agent(config, run_dir):
+    """
+    Initialize agent from run config and load weights.
+    """
+
+    agent_type = config.agent_type
+
+    if agent_type == "ppo":
+        agent = PPOAgent(config)
+        actor_path = os.path.join(run_dir, "actor_torch_ppo.pt")
+
+    elif agent_type == "mappo":
+        agent = MAPPOAgent(config)
+        actor_path = os.path.join(run_dir, "actor_torch_mappo.pt")
+
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+    state_dict = torch.load(actor_path, map_location="cpu")
+    agent.actor.load_state_dict(state_dict)
+    agent.actor.eval()
+
+    return agent, agent_type
+
+
+def choose_action(agent, obs, agent_type):
+    """
+    Handles PPO vs MAPPO inference logic.
+    """
+
+    if agent_type == "ppo":
+
+        actions = []
+
+        for drone_obs in obs:
+            action, _, _ = agent.choose_action(drone_obs, deterministic=True)
+            actions.append(action)
+
+        return np.array(actions)
+
+    elif agent_type == "mappo":
+
+        with torch.no_grad():
+            actions, _, _ = agent.choose_action(obs, deterministic=True)
+
+        return actions
+
+    else:
+        raise ValueError(agent_type)
+
+
+def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None):
 
     obs, info = env.reset(seed=seed)
 
@@ -29,8 +81,9 @@ def run_episode(env, config, seed, agent=None, baseline=None):
     while not (terminated or truncated):
 
         if agent is not None:
+
             with torch.no_grad():
-                action, _, _ = agent.choose_action(obs, deterministic=True)
+                action = choose_action(agent, obs, agent_type)
 
         else:
             action = baseline.act(obs)
@@ -42,7 +95,7 @@ def run_episode(env, config, seed, agent=None, baseline=None):
     return ep_reward / config.max_episode_steps
 
 
-def evaluate(env, config, seeds, agent, baseline=None):
+def evaluate(env, config, seeds, agent, agent_type, baseline=None):
 
     rl_rewards = []
     base_rewards = []
@@ -54,11 +107,23 @@ def evaluate(env, config, seeds, agent, baseline=None):
         for seed in seeds:
 
             if baseline is not None:
-                base_r = run_episode(env, config, seed, baseline=baseline)
+                base_r = run_episode(
+                    env,
+                    config,
+                    seed,
+                    baseline=baseline
+                )
                 base_rewards.append(base_r)
                 pbar.update(1)
 
-            rl_r = run_episode(env, config, seed, agent=agent)
+            rl_r = run_episode(
+                env,
+                config,
+                seed,
+                agent=agent,
+                agent_type=agent_type,
+            )
+
             rl_rewards.append(rl_r)
             pbar.update(1)
 
@@ -67,8 +132,10 @@ def evaluate(env, config, seeds, agent, baseline=None):
 
     return np.array(base_rewards), np.array(rl_rewards)
 
+
 def plot_results(base_rewards, rl_rewards):
-    plt.figure(figsize=(7,5))
+
+    plt.figure(figsize=(7, 5))
 
     rl_mean = rl_rewards.mean()
     rl_std = rl_rewards.std()
@@ -82,7 +149,6 @@ def plot_results(base_rewards, rl_rewards):
 
     x = np.linspace(xmin, xmax, 400)
 
-    # RL distribution
     rl_pdf = (
         1 / (rl_std * np.sqrt(2 * np.pi))
         * np.exp(-0.5 * ((x - rl_mean) / rl_std) ** 2)
@@ -98,7 +164,6 @@ def plot_results(base_rewards, rl_rewards):
 
     plt.fill_between(x, rl_pdf, alpha=0.2, color="tab:red")
 
-    # Baseline distribution if present
     if base_rewards is not None:
 
         base_mean = base_rewards.mean()
@@ -135,6 +200,7 @@ def plot_results(base_rewards, rl_rewards):
 
     plt.close()
 
+
 def _init_argparse():
 
     parser = argparse.ArgumentParser()
@@ -151,27 +217,24 @@ def _init_argparse():
         type=str,
         choices=list(BASELINES.keys()),
         default=None,
-        help="Baseline policy to compare against RL",
+        help="Baseline policy",
     )
 
     parser.add_argument(
         "--num-episodes",
         type=int,
         default=100,
-        help="Number of evaluation episodes",
     )
 
     parser.add_argument(
         "--start-seed",
         type=int,
         default=0,
-        help="Starting seed",
     )
 
     parser.add_argument(
         "--save_plot",
         action="store_true",
-        help="Save reward distribution plot",
     )
 
     return parser.parse_args()
@@ -184,13 +247,11 @@ def main():
     cfg, run_dir = load_run(args.run)
     config = Box(cfg)
 
-    env = Env(config, render_mode=None)
+    env = Env(config)
 
-    agent = Agent(config)
+    agent, agent_type = init_agent(config, run_dir)
 
-    actor_path = os.path.join(run_dir, "actor_torch_ppo.pt")
-    agent.actor.load_state_dict(torch.load(actor_path, map_location="cpu"))
-    agent.actor.eval()
+    print(f"Detected RL algorithm: {agent_type}")
 
     baseline = None
     if args.baseline is not None:
@@ -207,28 +268,27 @@ def main():
         config,
         seeds,
         agent,
+        agent_type,
         baseline,
     )
 
     print("\n=== RESULTS ===")
 
-    if base_rewards is not None:
-        base_mean = base_rewards.mean()
-        base_std = base_rewards.std()
-
-        print(
-            f"{args.baseline.capitalize()}: mean={base_mean:.4f} std={base_std:.4f}"
-        )
-
-    rl_mean = rl_rewards.mean()
-    rl_std = rl_rewards.std()
-
     print(
-        f"RL:       mean={rl_mean:.4f} std={rl_std:.4f}"
+        f">>> RL: mean={rl_rewards.mean():.4f} "
+        f"std={rl_rewards.std():.4f}"
     )
+
+    if base_rewards is not None:
+        print(
+            f">>> {args.baseline.capitalize()}: "
+            f"mean={base_rewards.mean():.4f} "
+            f"std={base_rewards.std():.4f}"
+        )
 
     if args.save_plot:
         plot_results(base_rewards, rl_rewards)
+
 
 if __name__ == "__main__":
     main()

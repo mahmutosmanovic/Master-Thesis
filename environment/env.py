@@ -419,7 +419,7 @@ class Env:
                 animal.escape_dir = escape_vec / norm
             else:
                 animal.escape_dir = animal.vel_dir.to_numpy()
-        
+
     def compute_reward(self, observations):
 
         r_vis = 0.0
@@ -442,20 +442,24 @@ class Env:
 
             visible = in_view == 1.0
 
+            # visibility reward (counts animals seen)
+            r_vis += np.sum(in_view) / self.animal_count
+
             if np.any(visible):
                 visible_any = True
 
-                r_vis   += np.mean(in_view)
-                r_dist  += np.mean(1.0 - dist[visible])
+                # closer is better
+                r_dist += np.mean(1.0 - dist[visible])
+
+                # centered in view is better
                 r_align += np.mean(1.0 - 0.5 * (v[visible] + h[visible]))
 
-        if visible_any:
-            r_vis   /= self.drone_count
-            r_dist  /= self.drone_count
-            r_align /= self.drone_count
-        else:
-            r_vis = r_dist = r_align = 0.0
+        # normalize across drones
+        r_vis /= self.drone_count
+        r_dist /= self.drone_count
+        r_align /= self.drone_count
 
+        # disturbance penalty
         animal_disturbances = np.array(
             [animal.disturbance for animal in self.animals],
             dtype=np.float32
@@ -463,20 +467,23 @@ class Env:
 
         D = np.mean(animal_disturbances)
 
+        # monitoring reward
         monitor_reward = (
-            0.2 * r_align +
-            0.6 * r_dist +
-            0.2 * r_vis
+            0.4 * r_vis +
+            0.4 * r_dist +
+            0.2 * r_align
         )
 
-        dist_penalty_scale = 2.0
+        # smooth disturbance penalty
+        dist_penalty = 1.2 * D
 
-        final_reward = (
-            (monitor_reward) -
-            (dist_penalty_scale * D)
-        )
+        final_reward = monitor_reward - dist_penalty
 
-        return final_reward
+        # small penalty if nothing visible
+        if not visible_any:
+            final_reward -= 0.2
+
+        return final_reward        
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:
