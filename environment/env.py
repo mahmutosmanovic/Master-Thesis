@@ -197,10 +197,11 @@ class Env:
             drone.enforce_position()
 
             # camera
-            drone.theta = action["theta"]
+            alpha = 0.8
+            drone.theta = alpha * drone.theta + (1.0 - alpha) * action["theta"]
             drone.enforce_cam_rot()
             drone.view_dir.rotate_z(drone.theta)
-            drone.reset_theta()
+            # drone.reset_theta()
 
     def _step_animal(self):
         segment_complete = False
@@ -428,7 +429,7 @@ class Env:
 
         visible_any = False
 
-        ALIGN_DEADZONE = 0.05   # prevents jitter when centered
+        ALIGN_DEADZONE = 0.20   # prevents jitter when centered
         DIST_EXP = 2.0          # smooth distance shaping
         ALIGN_EXP = 2.0         # smooth alignment shaping
 
@@ -497,6 +498,9 @@ class Env:
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
+
+        # anti jitter
+        final_reward -= 0.002 * np.mean(np.abs(observations[:,2:4]))
 
         return final_reward
 

@@ -29,19 +29,6 @@ model:
 # Drone configuration
 drone:
 
-  small:
-    count: 1
-    view_range: 200
-    disturbance_mult: 0.8 # [0,1]
-    min_speed: 0
-    max_speed: 6
-    ver_angle: 90
-    hor_angle: 140
-    max_cam_rot: 90
-    spawn_dist: [30, 80]
-    view_dir: [1, 0, -0.7]
-    max_altitude: 150
-
   large:
     count: 1
     view_range: 400
@@ -58,7 +45,7 @@ drone:
 # Animal configuration
 animal:
   env:
-    count: 2
+    count: 1
 
   init:
     min_speed: 0
