@@ -6,7 +6,8 @@ from .run_utils import create_run_dir, save_config_snapshot
 from environment import Env
 
 # model
-from model import Agent
+from model import PPOAgent
+from model import MAPPOAgent
 
 # standard modules
 import os
@@ -23,8 +24,9 @@ from neptune.utils import stringify_unsupported
 from dotenv import load_dotenv
 load_dotenv()
 
-def init_neptune_log(run, config):
+def init_neptune_log(run, config, agent_type):
         # parameters upload
+        config["agent_type"] = agent_type
         run["parameters"] = stringify_unsupported(config)
 
         # source code upload
@@ -45,18 +47,70 @@ def init_neptune_log(run, config):
         commit = subprocess.getoutput("git rev-parse HEAD")
         run["source_code/git_commit"] = commit
     
+def _init_agent(config, agent_type):
+    if agent_type == "ppo":
+        return PPOAgent(config)
+    elif agent_type == "mappo":
+        return MAPPOAgent(config)
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+    
+def agent_env_step(agent, env, obs, agent_type):
+    """
+    Executes one environment interaction step for PPO or MAPPO.
 
-def main(config, neptune_logging=False):
+    Returns:
+        next_obs, reward, done, terminated, truncated, info
+    """
+
+    if agent_type == "ppo":
+
+        actions = []
+        logps = []
+        vals = []
+
+        for drone_obs in obs:
+            a, lp, v = agent.choose_action(drone_obs)
+            actions.append(a)
+            logps.append(lp)
+            vals.append(v)
+
+        actions = np.array(actions)
+
+        next_obs, reward, terminated, truncated, info = env.step(actions)
+
+        done = terminated or truncated
+
+        for i in range(len(obs)):
+            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done)
+
+    elif agent_type == "mappo":
+
+        actions, log_prob, val = agent.choose_action(obs)
+
+        next_obs, reward, terminated, truncated, info = env.step(actions)
+
+        done = terminated or truncated
+
+        agent.remember(obs, actions, log_prob, val, reward, done)
+
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+    return next_obs, reward, done, terminated, truncated, info
+
+def main(config, agent_type="ppo", neptune_logging=False):
     if neptune_logging:
         NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT")
         API_TOKEN = os.getenv("API_TOKEN")
         run = neptune.init_run(project=NEPTUNE_PROJECT, api_token=API_TOKEN)
-        init_neptune_log(run, config)
+        init_neptune_log(run, config, agent_type)
 
     config = Box(config)
     env = Env(config)
-    agent = Agent(config)
+    agent = _init_agent(config, agent_type)
     obs, info = env.reset()
+    done = False
 
     total_steps = 0
     episode_reward = 0
@@ -70,15 +124,13 @@ def main(config, neptune_logging=False):
                     total_steps += 1
                     pbar.update(1)   
 
-                    action, log_prob, val = agent.choose_action(obs)
-                    next_obs, reward, terminated, truncated, info = env.step(action)
-
-                    done = terminated or truncated
-                    agent.remember(obs, action, log_prob, val, reward, done)
+                    next_obs, reward, done, terminated, truncated, info = agent_env_step(
+                        agent, env, obs, agent_type
+                    )
                     
                     obs = next_obs
-
                     episode_reward += reward
+
                     if terminated or truncated:
                         reward_queue.append(episode_reward / config.max_episode_steps)
 
@@ -99,6 +151,7 @@ def main(config, neptune_logging=False):
                         })
                         episode_reward = 0
                         obs, info = env.reset()
+                        done = False
                         
                 last_value = agent.get_last_value(obs, done)
                 agent.learn(last_value)
@@ -116,6 +169,14 @@ def _init_argparse():
         type=str,
         default="train",
         help="Config name inside config/ folder",
+    )
+
+    parser.add_argument(
+        "--agent",
+        type=str,
+        default="ppo",
+        choices=["ppo", "mappo"],
+        help="RL agent type (default: ppo)",
     )
 
     parser.add_argument(
@@ -145,4 +206,4 @@ if __name__ == "__main__":
     cfg["run_dir"] = str(run_dir)
     cfg["seed"] = args.seed
 
-    main(cfg, neptune_logging=args.neptune)
+    main(cfg, agent_type=args.agent, neptune_logging=args.neptune)

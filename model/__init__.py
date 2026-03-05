@@ -1,1 +1,2 @@
-from .agent import Agent
+from .ppo import *
+from .mappo import *

@@ -130,7 +130,7 @@ def _squashed_log_prob(normal_dist: Normal, raw_action: T.Tensor, squashed_actio
     return logp_raw - correction
 
 
-class Agent:
+class MAPPOAgent:
     def __init__(self, config):
         self.optim_hpt = config.model.optimization
         self.space_hpt = config.model.space
@@ -144,9 +144,11 @@ class Agent:
         animal_features = 4         # visible, dist_norm, v_norm, h_norm
 
         self.actor_input_dims = drone_features + n_animals * animal_features
+
         self.critic_input_dims = total_drone_count * self.actor_input_dims
 
         self.actor = ActorNetwork(self.act_dim, self.actor_input_dims, self.optim_hpt.actor_lr, chkpt_dir=config.run_dir)
+        
         self.critic = CriticNetwork(self.critic_input_dims, self.optim_hpt.critic_lr, chkpt_dir=config.run_dir)
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
 

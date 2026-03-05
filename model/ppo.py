@@ -1,0 +1,308 @@
+import os
+import numpy as np
+import torch as T
+from torch import nn, optim
+from torch.distributions import Normal
+
+EPS = 1e-6
+
+
+class PPOMemory:
+    def __init__(self, batch_size):
+        self.states = []
+        self.actions = []
+        self.probs = []
+        self.vals = []
+        self.rewards = []
+        self.dones = []
+        self.batch_size = batch_size
+
+    def get_length(self):
+        return len(self.states)
+
+    def store_memory(self, state, action, logp, val, reward, done):
+        self.states.append(state.astype(np.float32))
+        self.actions.append(action.astype(np.float32))
+        self.probs.append(np.float32(logp))
+        self.vals.append(np.float32(val))
+        self.rewards.append(np.float32(reward))
+        self.dones.append(np.float32(done))
+
+    def generate_batches(self):
+        n = self.get_length()
+        indices = np.arange(n, dtype=np.int64)
+        np.random.shuffle(indices)
+
+        batches = []
+        for start in range(0, n, self.batch_size):
+            batches.append(indices[start:start + self.batch_size])
+
+        return (
+            np.array(self.states, dtype=np.float32),
+            np.array(self.actions, dtype=np.float32),
+            np.array(self.probs, dtype=np.float32),
+            np.array(self.vals, dtype=np.float32),
+            np.array(self.rewards, dtype=np.float32),
+            np.array(self.dones, dtype=np.float32),
+            batches
+        )
+
+    def clear_memory(self):
+        self.states, self.actions = [], []
+        self.probs, self.vals = [], []
+        self.rewards, self.dones = [], []
+
+
+class ActorNetwork(nn.Module):
+    def __init__(self, n_actions, input_dims, alpha,
+                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
+        super().__init__()
+
+        os.makedirs(chkpt_dir, exist_ok=True)
+        self.checkpoint_file = os.path.join(chkpt_dir, "actor_torch_ppo.pt")
+
+        self.net = nn.Sequential(
+            nn.Linear(input_dims, fc1_dims),
+            nn.LeakyReLU(),
+            nn.Linear(fc1_dims, fc2_dims),
+            nn.LeakyReLU(),
+        )
+
+        self.mu = nn.Linear(fc2_dims, n_actions)
+        self.log_std = nn.Parameter(T.zeros(n_actions))
+
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+
+        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
+        self.to(self.device)
+
+    def forward(self, state):
+        x = self.net(state)
+        mu = self.mu(x)
+        std = self.log_std.exp().expand_as(mu)
+        return mu, std
+
+    def save_checkpoint(self):
+        T.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(T.load(self.checkpoint_file))
+
+
+class CriticNetwork(nn.Module):
+    def __init__(self, input_dims, alpha,
+                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
+        super().__init__()
+
+        os.makedirs(chkpt_dir, exist_ok=True)
+        self.checkpoint_file = os.path.join(chkpt_dir, "critic_torch_ppo.pt")
+
+        self.net = nn.Sequential(
+            nn.Linear(input_dims, fc1_dims),
+            nn.LeakyReLU(),
+            nn.Linear(fc1_dims, fc2_dims),
+            nn.LeakyReLU(),
+            nn.Linear(fc2_dims, 1)
+        )
+
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+
+        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
+        self.to(self.device)
+
+    def forward(self, state):
+        return self.net(state)
+
+    def save_checkpoint(self):
+        T.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(T.load(self.checkpoint_file))
+
+
+def _atanh(x: T.Tensor) -> T.Tensor:
+    x = T.clamp(x, -1 + EPS, 1 - EPS)
+    return 0.5 * (T.log1p(x) - T.log1p(-x))
+
+
+def _squashed_log_prob(dist: Normal, raw_action: T.Tensor, squashed_action: T.Tensor):
+    logp_raw = dist.log_prob(raw_action).sum(dim=-1)
+    correction = T.log(1 - squashed_action.pow(2) + EPS).sum(dim=-1)
+    return logp_raw - correction
+
+
+class PPOAgent:
+    def __init__(self, config):
+
+        self.optim_hpt = config.model.optimization
+        self.space_hpt = config.model.space
+        self.samp_hpt = config.model.sampling
+
+        self.act_dim = self.space_hpt.n_actions
+
+        drone_features = 4
+        animal_features = 4 * config.animal.env.count
+
+        self.obs_dim = drone_features + animal_features
+
+        self.actor = ActorNetwork(
+            self.act_dim,
+            self.obs_dim,
+            self.optim_hpt.actor_lr,
+            chkpt_dir=config.run_dir
+        )
+
+        self.critic = CriticNetwork(
+            self.obs_dim,
+            self.optim_hpt.critic_lr,
+            chkpt_dir=config.run_dir
+        )
+
+        self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
+
+    def remember(self, state, action, logp, val, reward, done):
+        self.memory.store_memory(state, action, logp, val, reward, done)
+
+    def save_models(self):
+        print("... saving models ...")
+        self.actor.save_checkpoint()
+        self.critic.save_checkpoint()
+
+    def load_models(self):
+        print("... loading models ...")
+        self.actor.load_checkpoint()
+        self.critic.load_checkpoint()
+
+    def choose_action(self, observation, deterministic=False):
+
+        device = self.actor.device
+
+        state = T.as_tensor(observation, dtype=T.float32, device=device).unsqueeze(0)
+
+        with T.no_grad():
+
+            mu, std = self.actor(state)
+            dist = Normal(mu, std)
+
+            raw_action = mu if deterministic else dist.rsample()
+
+            action = T.tanh(raw_action)
+
+            logp = _squashed_log_prob(dist, raw_action, action)
+
+            value = self.critic(state)
+
+        return (
+            action.squeeze(0).cpu().numpy(),
+            float(logp.item()),
+            float(value.item())
+        )
+
+    def get_last_value(self, observation, done):
+        if done:
+            return 0.0
+
+        device = self.actor.device
+
+        with T.no_grad():
+            obs = T.as_tensor(observation, dtype=T.float32, device=device)
+
+            # obs shape: (num_drones, obs_dim)
+            values = self.critic(obs).squeeze(-1)
+
+            # average value across drones (shared reward assumption)
+            value = values.mean()
+
+        return float(value.item())
+
+    def learn(self, last_value):
+
+        if self.memory.get_length() == 0:
+            return
+
+        states, actions, old_logp, values, rewards, dones, batches = \
+            self.memory.generate_batches()
+
+        device = self.actor.device
+
+        states = T.tensor(states, dtype=T.float32, device=device)
+        actions = T.tensor(actions, dtype=T.float32, device=device)
+        old_logp = T.tensor(old_logp, dtype=T.float32, device=device)
+        values = T.tensor(values, dtype=T.float32, device=device)
+        rewards = T.tensor(rewards, dtype=T.float32, device=device)
+        dones = T.tensor(dones, dtype=T.float32, device=device)
+
+        T_steps = len(rewards)
+
+        advantages = T.zeros_like(rewards, device=device)
+
+        gae = 0
+        last_v = T.tensor(last_value, dtype=T.float32, device=device)
+
+        for t in reversed(range(T_steps)):
+            next_value = last_v if t == T_steps - 1 else values[t + 1]
+
+            delta = rewards[t] + self.optim_hpt.gamma * next_value * (1 - dones[t]) - values[t]
+
+            gae = delta + self.optim_hpt.gamma * self.optim_hpt.gae_lambda * (1 - dones[t]) * gae
+
+            advantages[t] = gae
+
+        returns = advantages + values
+
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        for _ in range(self.samp_hpt.n_epochs):
+
+            for batch in batches:
+
+                batch_states = states[batch]
+                batch_actions = actions[batch]
+                batch_old_logp = old_logp[batch]
+                batch_adv = advantages[batch]
+                batch_returns = returns[batch]
+
+                mu, std = self.actor(batch_states)
+
+                dist = Normal(mu, std)
+
+                raw_action = _atanh(batch_actions)
+
+                new_logp = _squashed_log_prob(dist, raw_action, batch_actions)
+
+                ratio = (new_logp - batch_old_logp).exp()
+
+                unclipped = ratio * batch_adv
+
+                clipped = T.clamp(
+                    ratio,
+                    1 - self.optim_hpt.policy_clip,
+                    1 + self.optim_hpt.policy_clip
+                ) * batch_adv
+
+                actor_loss = -T.min(unclipped, clipped).mean()
+
+                critic_value = self.critic(batch_states).squeeze(-1)
+
+                critic_loss = (batch_returns - critic_value).pow(2).mean()
+
+                entropy = dist.entropy().sum(dim=-1).mean()
+
+                total_loss = (
+                    actor_loss
+                    + self.optim_hpt.val_loss_coef * critic_loss
+                    - self.optim_hpt.entropy_coef * entropy
+                )
+
+                self.actor.optimizer.zero_grad()
+                self.critic.optimizer.zero_grad()
+
+                total_loss.backward()
+
+                T.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                T.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+
+                self.actor.optimizer.step()
+                self.critic.optimizer.step()
+
+        self.memory.clear_memory()
