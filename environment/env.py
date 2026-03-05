@@ -428,7 +428,7 @@ class Env:
 
         visible_any = False
 
-        ALIGN_DEADZONE = 0.20   # prevents jitter when centered
+        ALIGN_DEADZONE = 0.10   # prevents jitter when centered
         DIST_EXP = 2.0          # smooth distance shaping
         ALIGN_EXP = 2.0         # smooth alignment shaping
 
@@ -497,9 +497,6 @@ class Env:
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
-
-        # anti jitter
-        final_reward -= 0.002 * np.mean(np.abs(observations[:,2:4]))
 
         return final_reward
 
