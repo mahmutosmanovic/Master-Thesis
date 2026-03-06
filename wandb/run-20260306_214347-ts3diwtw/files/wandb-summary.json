@@ -1,0 +1,1 @@
+{"mean_disturbance":0.010989290055308182,"calm_frac":1,"r_dist":0.23052437603473663,"flee_frac":0,"_timestamp":1.772830006155194e+09,"step":137527,"_wandb":{"runtime":179},"r_vis":0.9992967844009399,"r_align":0.43425169587135315,"_step":131,"r_monitoring":0.5787786841392517,"avoid_frac":0,"_runtime":179,"p_disturbance":0.010989286936819553,"reward_100_avg":0.40457481145858765}

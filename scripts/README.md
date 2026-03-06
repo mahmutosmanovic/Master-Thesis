@@ -5,12 +5,12 @@ Example:
 
 `seed`: specifies seed to run training run with
 
-`neptune` activates neptune logging
+`wandb` activates wandb logging
 
 `ppo` choices to train with "ppo" or "mappo"
 
 
-    python -m scripts.train_agent --config train --agent ppo --seed 42 --neptune
+    python -m scripts.train_agent --config train --agent ppo --seed 42 --wandb
 
 ## Inference Instructions
 Example:

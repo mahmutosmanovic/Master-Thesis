@@ -1,0 +1,46 @@
+{
+  "os":  "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python":  "CPython 3.12.12",
+  "startedAt":  "2026-03-06T20:15:11.664173Z",
+  "args":  [
+    "--config",
+    "train",
+    "--agent",
+    "ppo",
+    "--seed",
+    "42",
+    "--wandb"
+  ],
+  "program":  "-m scripts.train_agent",
+  "git":  {
+    "remote":  "git@github.com:mosmar99/Stealth-Fleet.git",
+    "commit":  "2999b47ff115df2af1c931b617c8bf9a0fdccf3f"
+  },
+  "email":  "mahmut.osmanovic@outlook.com",
+  "root":  "/home/maso/university/Stealth-Fleet",
+  "host":  "maso",
+  "executable":  "/home/maso/miniconda3/envs/msc/bin/python",
+  "cpu_count":  16,
+  "cpu_count_logical":  32,
+  "gpu":  "NVIDIA GeForce RTX 5090",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "1081101176832",
+      "used":  "64285081600"
+    }
+  },
+  "memory":  {
+    "total":  "58965725184"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 5090",
+      "memoryTotal":  "34190917632",
+      "architecture":  "Blackwell",
+      "uuid":  "GPU-591bfa15-4035-1069-2b67-e8d6224daa81"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "c0mje69qsxpywdmvm9nx00gcwk1ik29x"
+}

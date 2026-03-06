@@ -1,0 +1,24 @@
+{
+  "os":  "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python":  "CPython 3.12.12",
+  "startedAt":  "2026-03-06T20:40:44.718336Z",
+  "args":  [
+    "--config",
+    "train",
+    "--agent",
+    "ppo",
+    "--seed",
+    "42",
+    "--wandb"
+  ],
+  "program":  "-m scripts.train_agent",
+  "git":  {
+    "remote":  "git@github.com:mosmar99/Stealth-Fleet.git",
+    "commit":  "2999b47ff115df2af1c931b617c8bf9a0fdccf3f"
+  },
+  "email":  "mahmut.osmanovic@outlook.com",
+  "root":  "/home/maso/university/Stealth-Fleet",
+  "host":  "maso",
+  "executable":  "/home/maso/miniconda3/envs/msc/bin/python",
+  "writerId":  "q2fw93eyk4bxg1fnhx6hnnmqnj1ugqql"
+}
