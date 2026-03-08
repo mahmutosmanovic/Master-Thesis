@@ -76,7 +76,7 @@ class CentroidStandoff:
 
     def act(self, observations):
 
-        actions = np.zeros((self.drone_count, 5), dtype=np.float32)
+        actions = np.zeros((self.drone_count, self.config.model.space.n_actions), dtype=np.float32)
 
         for d in range(self.drone_count):
 
@@ -89,8 +89,8 @@ class CentroidStandoff:
             obs_d = observations[d]
 
             # --- split observation ---
-            drone_features = obs_d[:4]
-            animal_obs = obs_d[4:].reshape(self.config.animal.env.count, 4)
+            drone_features = obs_d[:self.config.model.space.drone_features]
+            animal_obs = obs_d[self.config.model.space.drone_features:].reshape(self.config.animal.env.count, self.config.model.space.animal_features)
 
             view_dir = drone_features[:3]
             altitude_norm = drone_features[3]

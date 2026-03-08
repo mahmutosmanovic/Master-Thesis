@@ -145,8 +145,8 @@ class PPOAgent:
         self.total_steps = config.max_episode_steps
         self.train_step = 0
 
-        drone_features = 4
-        animal_features = 4 * config.animal.env.count
+        drone_features = config.model.space.drone_features
+        animal_features = config.model.space.animal_features * config.animal.env.count
 
         self.obs_dim = drone_features + animal_features
 
