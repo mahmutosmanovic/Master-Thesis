@@ -36,7 +36,7 @@ OR
 
 `seed`: environment seed for reproducibility
 
-    python -m scripts.standoff_baseline --mode run --config train --seed 42
+    python -m scripts.centroid --mode run --config train --seed 42
 
 This will:
 
@@ -61,7 +61,7 @@ This will:
 
 `render-best`: optionally render the best-performing controller after search
 
-    python -m scripts.standoff_baseline --mode grid --config train --seed 42 --render-best
+    python -m scripts.centroid --mode grid --config train --seed 42 --render-best
 
 This will:
 
