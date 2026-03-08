@@ -510,9 +510,9 @@ class Env:
         D = np.mean(animal_disturbances)
 
         # monitoring reward
-        r_vis_scaled = 0.4 * r_vis
-        r_dist_scaled = 0.4 * r_dist
-        r_align_scaled = 0.2 * r_align
+        r_vis_scaled = 0.0 * r_vis
+        r_dist_scaled = 0.9 * r_dist
+        r_align_scaled = 0.1 * r_align
         
         monitor_reward = (
             r_vis_scaled +

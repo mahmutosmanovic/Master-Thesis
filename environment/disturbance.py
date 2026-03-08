@@ -6,6 +6,7 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, config):
     """
     Combined disturbance for one animal-drone pair.
     """
+
     g_altitude = np.clip(altitude_gain(dist_vec), 0.0, 1.0)
     g_horizontal = np.clip(horizontal_gain(dist_vec), 0.0, 1.0)
 
@@ -15,15 +16,15 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, config):
 
     base = g_horizontal * g_altitude
 
-    angle_boost = g_angle * config.max_angle_boost   # [0,1]
-    heading_boost = g_heading * config.max_heading_boost   # [0,1]
-    speed_boost = g_speed * config.max_speed_boost   # [0,1]
+    angle_boost = g_angle * config.max_angle_boost
+    heading_boost = g_heading * config.max_heading_boost
+    speed_boost = g_speed * config.max_speed_boost
 
-    D = base + (1.0 - base) * angle_boost * base
-    D = D + (1.0 - D) * heading_boost * base
-    D = D + (1.0 - D) * speed_boost * base
+    multiplier = 1 + angle_boost + heading_boost + speed_boost
 
-    return D
+    D = base * multiplier
+
+    return np.clip(D, 0.0, 1.0)
 
 def altitude_gain(dist_vec):
     _, _, z = dist_vec
