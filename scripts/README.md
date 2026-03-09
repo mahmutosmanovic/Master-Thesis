@@ -97,9 +97,11 @@ This will:
 
 `start_seed`: specifies which the starting seed is, all ran episodes are seeded
 
-`save_plot`: saves a plot with mean and std of just the RL agent or if baseline is included, also includes in plot
+`plot-rewards`: saves a plot with mean and std of the RL agent and baseline if both are present
 
-    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --save_plot
+`plot-heatmaps`: Plots radial occupancy of drones for included methods
+
+    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --plot-rewards --plot-heatmaps
     
 ## Simulate Real GPS Behavior
 > GPS DATA PRE-PROCESSING
