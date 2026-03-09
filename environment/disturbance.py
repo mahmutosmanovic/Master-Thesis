@@ -55,7 +55,7 @@ def angle_gain(dist_vec):
     dx, dy, z = dist_vec
     horizontal_dist = np.sqrt(dx * dx + dy * dy)
 
-    theta = np.degrees(np.arctan2(z, abs(horizontal_dist)))
+    theta = np.degrees(np.arctan2(-z, abs(horizontal_dist)))
 
     if theta <= 20:
         return 0.5 - 0.5 * (theta + 90) / 110
@@ -117,9 +117,12 @@ if __name__ == "__main__":
     base = ALT * HOR
     max_angle_boost = 1
 
-    D = base + (1.0 - base) * (ANG * max_angle_boost) * base
 
-    COMBINED = D
+    multiplier = 1 + ANG * max_angle_boost
+
+    D = base * multiplier
+
+    COMBINED = np.clip(D, 0.0, 1.0)
 
     # FIGURE 1 — Combined disturbance
     fig1, ax = plt.subplots(figsize=(8, 7))
