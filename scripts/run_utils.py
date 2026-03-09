@@ -22,6 +22,23 @@ def create_run_dir(config: dict, seed: int):
 
     return run_dir
 
+def create_eval_dir(config: dict, seed: int):
+
+    project_root = Path(__file__).resolve().parents[1]
+    evals_dir = project_root / "evals"
+    evals_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    config_name = config.get("_config_name", "exp")
+
+    run_name = f"{config_name}_seed{seed}_{timestamp}"
+
+    eval_dir = evals_dir / run_name
+    eval_dir.mkdir()
+
+    return eval_dir
+
 def save_config_snapshot(config: dict, run_dir: Path):
     """
     Saves exact config used for reproducibility.

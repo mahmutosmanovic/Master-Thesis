@@ -1,3 +1,4 @@
+import csv
 import argparse
 import os
 import numpy as np
@@ -9,14 +10,65 @@ from tqdm import tqdm
 
 from environment import Env
 from model import PPOAgent, MAPPOAgent
-from .run_utils import load_run
+from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
+from .plots.reward_distribution import plot_eval_reward_distribution
+from .plots.policy_heatmap import plot_policy_heatmap_from_csv
 
 
 BASELINES = {
     "centroid": CentroidStandoff,
 }
 
+STEP_LOG_FIELDS = [
+    "episode",
+    "step",
+    "entity_type",
+    "id",
+    "x",
+    "y",
+    "z",
+    "vx",
+    "vy",
+    "vz",
+    "speed",
+    "state",
+    "disturbance",
+    "view_x",
+    "view_y",
+    "view_z",
+]
+
+EPISODE_LOG_FIELDS = [
+    "episode",
+    "reward",
+    "calm_frac",
+    "avoid_frac",
+    "flee_frac",
+    "mean_disturbance",
+    "r_monitoring",
+    "p_disturbance",
+    "r_vis",
+    "r_dist",
+    "r_align",
+]
+
+def init_logger(path, fieldnames):
+    log_dir = os.path.dirname(path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    f = open(path, "w", newline="")
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    return f, writer
+
+def write_log_rows(writer, rows, fieldnames):
+    for row in rows:
+        writer.writerow({k: row.get(k, "") for k in fieldnames})
+
+def write_log_row(writer, row, fieldnames):
+    writer.writerow({k: row.get(k, "") for k in fieldnames})
 
 def init_agent(config, run_dir):
     """
@@ -69,7 +121,7 @@ def choose_action(agent, obs, agent_type):
         raise ValueError(agent_type)
 
 
-def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None):
+def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None):
 
     obs, info = env.reset(seed=seed)
 
@@ -90,48 +142,107 @@ def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None):
 
         obs, reward, terminated, truncated, info = env.step(action)
 
+        if step_writer is not None:
+            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+
         ep_reward += float(reward)
 
     return ep_reward / config.max_episode_steps
 
 
-def evaluate(env, config, seeds, agent, agent_type, baseline=None):
+def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None):
+    total = len(seeds) if baseline is None else 2 * len(seeds)
 
     rl_rewards = []
     base_rewards = []
 
-    total = len(seeds) if baseline is None else 2 * len(seeds)
-
     with tqdm(total=total, desc="Evaluation") as pbar:
 
-        for seed in seeds:
+        if baseline is not None:
+            env.reset_episode_id()
+            f, writer = init_logger(log_dir / f"{type(baseline).__name__}.csv", STEP_LOG_FIELDS)
+            ep_f, ep_writer = init_logger(log_dir / f"{type(baseline).__name__}_ep.csv", EPISODE_LOG_FIELDS)
 
-            if baseline is not None:
-                base_r = run_episode(
+            try:
+                for seed in seeds:
+                    base_r = run_episode(
+                        env,
+                        config,
+                        seed,
+                        baseline=baseline,
+                        step_writer=writer,
+                    )
+                    base_rewards.append(base_r)
+
+                    behavior_stats = env.get_behavior_stats()
+                    reward_stats = env.get_reward_stats()
+
+                    ep_row = {
+                        "episode": env.episode,
+                        "reward": base_r,
+                        **behavior_stats,
+                        **reward_stats,
+                    }
+                    write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
+
+                    pbar.update(1)
+            finally:
+                f.close()
+                ep_f.close()
+
+        env.reset_episode_id()
+        f, writer = init_logger(log_dir / f"{agent_type}.csv", STEP_LOG_FIELDS)
+        ep_f, ep_writer = init_logger(log_dir / f"{agent_type}_ep.csv", EPISODE_LOG_FIELDS)
+
+        try:
+            for seed in seeds:
+                rl_r = run_episode(
                     env,
                     config,
                     seed,
-                    baseline=baseline
+                    agent=agent,
+                    agent_type=agent_type,
+                    step_writer=writer,
                 )
-                base_rewards.append(base_r)
+                rl_rewards.append(rl_r)
+
+                behavior_stats = env.get_behavior_stats()
+                reward_stats = env.get_reward_stats()
+
+                ep_row = {
+                    "episode": env.episode,
+                    "reward": rl_r,
+                    **behavior_stats,
+                    **reward_stats,
+                }
+                write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
+
                 pbar.update(1)
+        finally:
+            f.close()
+            ep_f.close()
 
-            rl_r = run_episode(
-                env,
-                config,
-                seed,
-                agent=agent,
-                agent_type=agent_type,
-            )
+    report = {
+        "rl": {
+            "mean": float(np.mean(rl_rewards)),
+            "std": float(np.std(rl_rewards)),
+            "n": len(rl_rewards),
+            "csv": str(log_dir / f"{agent_type}.csv"),
+            "episode_csv": str(log_dir / f"{agent_type}_ep.csv"),
+        }
+    }
 
-            rl_rewards.append(rl_r)
-            pbar.update(1)
+    if baseline is not None:
+        report["baseline"] = {
+            "name": type(baseline).__name__,
+            "mean": float(np.mean(base_rewards)),
+            "std": float(np.std(base_rewards)),
+            "n": len(base_rewards),
+            "csv": str(log_dir / f"{type(baseline).__name__}.csv"),
+            "episode_csv": str(log_dir / f"{type(baseline).__name__}_ep.csv"),
+        }
 
-    if baseline is None:
-        return None, np.array(rl_rewards)
-
-    return np.array(base_rewards), np.array(rl_rewards)
-
+    return report
 
 def plot_results(base_rewards, rl_rewards):
 
@@ -233,8 +344,15 @@ def _init_argparse():
     )
 
     parser.add_argument(
-        "--save_plot",
+        "--plot-rewards",
         action="store_true",
+        help="Create reward distribution plot after evaluation",
+    )
+
+    parser.add_argument(
+        "--plot-heatmaps",
+        action="store_true",
+        help="Create policy heatmaps from generated step logs",
     )
 
     return parser.parse_args()
@@ -262,32 +380,54 @@ def main():
 
     print(f"Running {args.num_episodes} episodes")
     print(f"Seeds: {seeds[0]}..{seeds[-1]}")
+    eval_dir = create_eval_dir(config, args.start_seed)
+    save_config_snapshot(cfg, eval_dir)
 
-    base_rewards, rl_rewards = evaluate(
+    report = evaluate(
         env,
         config,
         seeds,
         agent,
         agent_type,
         baseline,
+        log_dir = eval_dir
     )
 
     print("\n=== RESULTS ===")
+    print(f"Evaluation directory: {eval_dir}")
 
     print(
-        f">>> RL: mean={rl_rewards.mean():.4f} "
-        f"std={rl_rewards.std():.4f}"
+        f">>> RL ({agent_type}): "
+        f"mean={report['rl']['mean']:.4f} "
+        f"std={report['rl']['std']:.4f} "
+        f"n={report['rl']['n']}"
     )
+    print(f"    step log:    {report['rl']['csv']}")
+    print(f"    episode log: {report['rl']['episode_csv']}")
 
-    if base_rewards is not None:
+    if "baseline" in report:
         print(
-            f">>> {args.baseline.capitalize()}: "
-            f"mean={base_rewards.mean():.4f} "
-            f"std={base_rewards.std():.4f}"
+            f">>> Baseline ({report['baseline']['name']}): "
+            f"mean={report['baseline']['mean']:.4f} "
+            f"std={report['baseline']['std']:.4f} "
+            f"n={report['baseline']['n']}"
         )
+        print(f"    step log:    {report['baseline']['csv']}")
+        print(f"    episode log: {report['baseline']['episode_csv']}")
+    
+    if args.plot_rewards:
+        if baseline is not None:
+            reward_plot_path = plot_eval_reward_distribution(eval_dir)
+            print(f"Saved reward plot to {reward_plot_path}")
 
-    if args.save_plot:
-        plot_results(base_rewards, rl_rewards)
+    if args.plot_heatmaps:
+        rl_heatmap_path = plot_policy_heatmap_from_csv(eval_dir / f"{agent_type}.csv")
+        print(f"Saved RL heatmap to {rl_heatmap_path}")
+
+        if baseline is not None:
+            baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
+            baseline_heatmap_path = plot_policy_heatmap_from_csv(baseline_csv)
+            print(f"Saved baseline heatmap to {baseline_heatmap_path}")
 
 
 if __name__ == "__main__":

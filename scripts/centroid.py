@@ -28,11 +28,11 @@ class CentroidStandoff:
     def __init__(
         self,
         config,
-        target_range_ratio=0.45,
-        target_altitude_ratio=0.55,
-        xy_gain=1.0,
-        z_gain=1.0,
-        theta_gain=0.8,
+        target_range_ratio=0.3,
+        target_altitude_ratio=0.4,
+        xy_gain=1.75,
+        z_gain=1.75,
+        theta_gain=0.4,
         search_theta=0.35,
         min_speed_norm=0.0,
     ):
@@ -252,7 +252,7 @@ def evaluate_params(env, params, seeds):
 
     for seed in seeds:
         # Recreate policy each episode (avoids internal-state carryover)
-        policy = CentroidStandoff(env, **params)
+        policy = CentroidStandoff(env.config, **params)
         r, steps, stats = run_episode(env, policy, seed=int(seed))
         rewards.append(r)
 
@@ -305,7 +305,7 @@ def grid_search(config_box, args):
     if args.render_best:
         print("\nRendering best policy...")
         render_env = Env(config_box, render_mode="human")
-        policy = CentroidStandoff(render_env, **best_params)
+        policy = CentroidStandoff(render_env.config, **best_params)
         r, steps, stats = run_episode(render_env, policy, seed=int(args.seed))
         print(f"Rendered on seed {args.seed} | norm reward={r:.4f}")
         if stats is not None:

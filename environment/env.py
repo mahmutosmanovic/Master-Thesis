@@ -50,6 +50,7 @@ class Env:
         self.scale_factor = sum([drone_type.count * drone_type.disturbance_mult for drone_type in self.config.drone.values()])
 
         self._env_steps = 0
+        self.episode = -1
     
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
@@ -153,6 +154,7 @@ class Env:
         """
 
         self._env_steps = 0
+        self.episode += 1 # count resets -> episode
         self.state_counts = {"calm":0, "avoid":0, "flee":0}
         self.reward_stats = {
             "r_monitoring": 0,
@@ -176,7 +178,19 @@ class Env:
         info = {}
         return observations, info
     
+    def reset_episode_id(self):
+        self.episode = -1
+    
     def package_actions(self, actions):
+        match self.config.model.space.action_type:
+            case "rel":
+                return self.rel_package_actions(actions)
+            case "abs":
+                return self.abs_package_actions(actions)
+            case _:
+                raise NotImplementedError(f"action type not implemented: {self.config.model.space.action_type}")
+        
+    def abs_package_actions(self, actions):
         packaged_actions = []
 
         for i, drone_actions in enumerate(actions):
@@ -191,6 +205,44 @@ class Env:
 
             package_action = {
                 "vel_dir": Vector(drone_actions[0], drone_actions[1], drone_actions[2]),
+                "vel_speed": ((norm_speed + 1.0) * 0.5 * (max_speed - min_speed) + min_speed),
+                "theta": norm_theta * max_cam_rot
+            }
+
+            packaged_actions.append(package_action)
+
+        return packaged_actions
+    
+    def rel_package_actions(self, actions):
+        packaged_actions = []
+
+        for i, drone_actions in enumerate(actions):
+
+            drone = self.drones[i]
+
+            min_speed = drone.min_speed
+            max_speed = drone.max_speed
+            max_cam_rot = drone.max_cam_rot
+
+            v_forward, v_right, v_up = drone_actions[:3]
+
+            norm_speed = drone_actions[3]
+            norm_theta = drone_actions[4]
+
+            # camera basis
+            x, y, z = self._camera_basis(drone)
+
+            # convert camera-frame velocity to world-frame
+            world_vec = (
+                v_forward * x +
+                v_right * y +
+                v_up * z
+            )
+
+            vel_dir = Vector(*world_vec)
+
+            package_action = {
+                "vel_dir": vel_dir,
                 "vel_speed": ((norm_speed + 1.0) * 0.5 * (max_speed - min_speed) + min_speed),
                 "theta": norm_theta * max_cam_rot
             }
@@ -258,6 +310,7 @@ class Env:
                 if segment_complete == False and a_segment_complete:
                     segment_complete = True
 
+            animal.state = state
             self.state_counts[state] += 1
             self.total_state_steps += 1
             self.disturbance_sum += D
@@ -316,6 +369,20 @@ class Env:
             })
         return formatted
     
+    def _camera_basis(self, drone):
+        world_z = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+
+        x = drone.view_dir.to_numpy()
+        x = x / (np.linalg.norm(x) + 1e-8)
+
+        y = np.cross(world_z, x)
+        y = y / (np.linalg.norm(y) + 1e-8)
+
+        z = np.cross(x, y)
+        z = z / (np.linalg.norm(z) + 1e-8)
+
+        return x, y, z
+
     def _compute_geometry(self):
 
         geometry = []
@@ -591,3 +658,48 @@ class Env:
             self.render(fov=observations, reward=reward)
             
         return observations, reward, terminated, truncated, info
+    
+    def step_log(self):
+        rows = []
+
+        for animal in self.animals:
+            rows.append({
+                "episode": self.episode,
+                "step": self._env_steps,
+                "entity_type": "animal",
+                "id": animal.id,
+                "x": animal.pos.x,
+                "y": animal.pos.y,
+                "z": animal.pos.z,
+                "vx": animal.vel_dir.x * animal.vel_speed,
+                "vy": animal.vel_dir.y * animal.vel_speed,
+                "vz": animal.vel_dir.z * animal.vel_speed,
+                "speed": animal.vel_speed,
+                "view_x": "",
+                "view_y": "",
+                "view_z": "",
+                "state": animal.state,
+                "disturbance": animal.disturbance,
+            })
+
+        for drone in self.drones:
+            rows.append({
+                "episode": self.episode,
+                "step": self._env_steps,
+                "entity_type": drone.drone_type,
+                "id": drone.id,
+                "x": drone.pos.x,
+                "y": drone.pos.y,
+                "z": drone.pos.z,
+                "vx": drone.vel_dir.x * drone.vel_speed,
+                "vy": drone.vel_dir.y * drone.vel_speed,
+                "vz": drone.vel_dir.z * drone.vel_speed,
+                "speed": drone.vel_speed,
+                "view_x": drone.view_dir.x,
+                "view_y": drone.view_dir.y,
+                "view_z": drone.view_dir.z,
+                "state": "",
+                "disturbance": "",
+            })
+
+        return rows

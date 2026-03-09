@@ -1,6 +1,7 @@
 /checkpoints
 /data
 /track_segments
+/evals
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
