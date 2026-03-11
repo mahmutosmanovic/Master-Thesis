@@ -8,6 +8,21 @@ from config.loader import load_config
 from box import Box
 
 
+def sync_animal_states_from_disturbance(env):
+    """
+    Make static plotting use the same calm/avoid/flee thresholds
+    as the env behavior logic, without actually moving animals.
+    """
+    for animal in env.animals:
+        D = animal.disturbance
+
+        if D > 0.70:
+            animal.state = "flee"
+        elif D > 0.50:
+            animal.state = "avoid"
+        else:
+            animal.state = "calm"
+
 def place_static_scene(env, radial_distance, z, azimuth_deg=0.0):
     """
     Assumes exactly 1 animal and 1 drone.
@@ -80,7 +95,15 @@ def evaluate_reward_grid(env, r_values, z_values, azimuth_deg=0.0):
     for iz, z in enumerate(z_values):
         for ir, r in enumerate(r_values):
             place_static_scene(env, r, z, azimuth_deg=azimuth_deg)
-            reward_grid[iz, ir] = compute_total_reward_exact(env)
+
+            geometry = env._compute_geometry()
+            env._compute_disturbance(geometry)
+
+            # crucial line for your state-based reward
+            sync_animal_states_from_disturbance(env)
+
+            observations = env._build_observations(geometry)
+            reward_grid[iz, ir] = env.compute_reward(observations)
 
     return reward_grid
 

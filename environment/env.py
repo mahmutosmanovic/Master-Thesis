@@ -493,7 +493,7 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec) # normalize to ensure gain drives influence
 
-                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), drone.vel_speed, self.config) * drone.disturbance_mult
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), drone.vel_speed, animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
                 disturbances.append(gain)
 
             sorted_idx = np.argsort(disturbances)[::-1]
@@ -514,7 +514,7 @@ class Env:
             else:
                 animal.escape_dir = animal.vel_dir.to_numpy()
 
-    def compute_reward(self, observations):
+    def compute_reward(self, observations, action):
 
         r_vis = 0.0
         r_dist = 0.0
@@ -529,7 +529,7 @@ class Env:
         for d in range(self.drone_count):
 
             drone_obs = observations[d]
-
+            drone_action = action[d]
             # skip drone features
             animal_obs = drone_obs[4:].reshape(self.animal_count, 4)  # view_x, view_y, view_z, altitude, in_view, dist_norm, hor, ver
 
@@ -588,16 +588,21 @@ class Env:
         )
 
         # smoother disturbance penalty
-        disturbance_penalty = 1.2 * (D ** 1.5)
+        # disturbance_penalty = 1.2 * (D ** 1.5)
+        state_penalty_dict = {"calm": 0.0, "avoid":0.5, "flee": 1}
+        animal_states = np.array([state_penalty_dict[animal.state] for animal in self.animals])
+        p_animal_state = np.mean(animal_states)
+        p_vel = (drone_action["vel_speed"] / self.drones[d].max_speed) * 0.05
+        p_theta = (drone_action["theta"] / self.drones[d].max_cam_rot) * 0.05
 
-        final_reward = monitor_reward - disturbance_penalty
+        final_reward = monitor_reward - p_animal_state - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
 
         self.reward_stats["r_monitoring"] += monitor_reward
-        self.reward_stats["p_disturbance"] += D
+        self.reward_stats["p_disturbance"] += p_animal_state
         self.reward_stats["r_vis"] += r_vis
         self.reward_stats["r_dist"] += r_dist
         self.reward_stats["r_align"] += r_align
@@ -644,7 +649,7 @@ class Env:
         observations = self._build_observations(geometry)
 
         # 4. compute reward FROM RESULT
-        reward = self.compute_reward(observations)
+        reward = self.compute_reward(observations, actions)
 
         # 5. termination and truncation
         terminated = segment_complete or self._check_termination(observations)

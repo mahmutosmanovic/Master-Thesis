@@ -4,7 +4,7 @@ from .run_utils import create_run_dir, save_config_snapshot
 
 # environment
 from environment import Env
-
+import torch as T
 # model
 from model import PPOAgent
 from model import MAPPOAgent
@@ -135,6 +135,7 @@ def main(config, agent_type="ppo", logging=False):
 
     total_steps = 0
     episode_reward = 0
+    max_avg = -np.inf
 
     reward_queue = collections.deque(maxlen=100)
 
@@ -154,7 +155,7 @@ def main(config, agent_type="ppo", logging=False):
 
                     obs = next_obs
                     episode_reward += reward
-
+                    avg = -np.inf
                     if terminated or truncated:
 
                         reward_queue.append(
@@ -190,11 +191,15 @@ def main(config, agent_type="ppo", logging=False):
                         episode_reward = 0
                         obs, info = env.reset()
                         done = False
+                    if avg > max_avg:
+                        agent.save_models()
+                        max_avg = avg
+
 
                 last_value = agent.get_last_value(obs, done)
                 agent.learn(last_value)
 
-            agent.save_models()
+            # agent.save_models()
 
             if logging:
                 wandb.save(os.path.join(config.run_dir, "*"))

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Spatial Gain Functions (scalar: one animal–drone pair)
-def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, config):
+def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, config):
     """
     Combined disturbance for one animal-drone pair.
     """
@@ -13,14 +13,16 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, config):
     g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
     g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
     g_speed = np.clip(speed_gain(drone_vel_speed), 0.0, 1.0)
+    g_axis = np.clip(animal_axis_gain(dist_vec, animal_vel_dir), 0.0, 1.0)
 
     base = g_horizontal * g_altitude
 
     angle_boost = g_angle * config.max_angle_boost
     heading_boost = g_heading * config.max_heading_boost
     speed_boost = g_speed * config.max_speed_boost
+    axis_boost = g_axis * config.max_axis_boost
 
-    multiplier = 1 + angle_boost + heading_boost + speed_boost
+    multiplier = 1 + angle_boost + heading_boost + speed_boost + axis_boost
 
     D = base * multiplier
 
@@ -79,6 +81,27 @@ def heading_gain(dist_vec, drone_vel_dir):
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
     return max(0.0, cos_theta)
+
+def animal_axis_gain(dist_vec, animal_vel_dir):
+    d = dist_vec
+    a = animal_vel_dir
+
+    # horizontal plane only
+    d_xy = d[:2]
+    a_xy = a[:2]
+
+    d_norm = np.linalg.norm(d_xy)
+    a_norm = np.linalg.norm(a_xy)
+
+    if d_norm < 1e-8 or a_norm < 1e-8:
+        return 0.0
+
+    d_u = d_xy / d_norm
+    a_u = a_xy / a_norm
+
+    # abs -> front and back both high, side low
+    cos_phi = np.clip(np.dot(d_u, a_u), -1.0, 1.0)
+    return abs(cos_phi)
 
 def speed_gain(drone_vel_speed, v_min=2, v_max=8):
     if drone_vel_speed <= v_min:
