@@ -4,7 +4,7 @@ from .run_utils import create_run_dir, save_config_snapshot
 
 # environment
 from environment import Env
-import torch as T
+
 # model
 from model import PPOAgent
 from model import MAPPOAgent
@@ -14,7 +14,6 @@ import os
 import wandb
 import argparse
 import subprocess
-import collections
 import numpy as np
 from box import Box
 from tqdm import tqdm
@@ -133,20 +132,22 @@ def main(config, agent_type="ppo", logging=False):
     obs, info = env.reset()
     done = False
 
-    total_steps = 0
+    curr_steps = 0
     episode_reward = 0
-    max_avg = -np.inf
+    max_rew = -np.inf
 
-    reward_queue = collections.deque(maxlen=100)
+    save_count = 0
+    save_models_frac = 0.5
+    total_steps = config.model.sampling.total_timesteps
 
     try:
-        with tqdm(total=config.model.sampling.total_timesteps, desc="Training") as pbar:
+        with tqdm(total=total_steps, desc="Training") as pbar:
 
-            while total_steps < config.model.sampling.total_timesteps:
+            while curr_steps < total_steps:
 
                 for _ in range(config.model.sampling.rollout_steps):
 
-                    total_steps += 1
+                    curr_steps += 1
                     pbar.update(1)
 
                     next_obs, reward, done, terminated, truncated, info = agent_env_step(
@@ -155,22 +156,17 @@ def main(config, agent_type="ppo", logging=False):
 
                     obs = next_obs
                     episode_reward += reward
-                    avg = -np.inf
+                    episode_reward_norm = -np.inf
+
                     if terminated or truncated:
 
-                        reward_queue.append(
-                            episode_reward / config.max_episode_steps
-                        )
-
-                        avg = np.mean(reward_queue)
-
+                        episode_reward_norm = episode_reward / config.max_episode_steps
                         stats = env.get_behavior_stats()
                         r_stats = env.get_reward_stats()
 
                         if logging:
-
                             wandb.log({
-                                "reward_100_avg": avg,
+                                "episode_reward_norm": episode_reward_norm,
                                 "calm_frac": stats["calm_frac"],
                                 "avoid_frac": stats["avoid_frac"],
                                 "flee_frac": stats["flee_frac"],
@@ -180,26 +176,28 @@ def main(config, agent_type="ppo", logging=False):
                                 "r_vis": r_stats["r_vis"],
                                 "r_dist": r_stats["r_dist"],
                                 "r_align": r_stats["r_align"],
-                                "step": total_steps
+                                "save_count": save_count,
+                                "step": curr_steps
                             })
 
                         pbar.set_postfix({
-                            "rew_100": f"{avg:.2f}",
+                            "rew_100": f"{episode_reward_norm:.2f}",
                             "mean_dist": f"{stats['mean_disturbance']:.2f}",
                         })
+
+                        if episode_reward_norm > max_rew and curr_steps >= save_models_frac * total_steps:
+                            agent.save_models(name="best")
+                            max_rew = episode_reward_norm
+                            save_count += 1
 
                         episode_reward = 0
                         obs, info = env.reset()
                         done = False
-                    if avg > max_avg:
-                        agent.save_models()
-                        max_avg = avg
-
 
                 last_value = agent.get_last_value(obs, done)
                 agent.learn(last_value)
 
-            # agent.save_models()
+            agent.save_models(name="last")
 
             if logging:
                 wandb.save(os.path.join(config.run_dir, "*"))

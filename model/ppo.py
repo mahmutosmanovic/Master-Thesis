@@ -59,7 +59,7 @@ class ActorNetwork(nn.Module):
         super().__init__()
 
         os.makedirs(chkpt_dir, exist_ok=True)
-        self.checkpoint_file = os.path.join(chkpt_dir, "actor_torch_ppo.pt")
+        self.chkpt_dir = chkpt_dir
 
         self.net = nn.Sequential(
             nn.Linear(input_dims, fc1_dims),
@@ -82,12 +82,13 @@ class ActorNetwork(nn.Module):
         std = self.log_std.exp().expand_as(mu)
         return mu, std
 
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
+    def save_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
+        T.save(self.state_dict(), path)
 
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
-
+    def load_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
+        self.load_state_dict(T.load(path))
 
 class CriticNetwork(nn.Module):
     def __init__(self, input_dims, alpha,
@@ -95,7 +96,7 @@ class CriticNetwork(nn.Module):
         super().__init__()
 
         os.makedirs(chkpt_dir, exist_ok=True)
-        self.checkpoint_file = os.path.join(chkpt_dir, "critic_torch_ppo.pt")
+        self.chkpt_dir = chkpt_dir
 
         self.net = nn.Sequential(
             nn.Linear(input_dims, fc1_dims),
@@ -113,11 +114,13 @@ class CriticNetwork(nn.Module):
     def forward(self, state):
         return self.net(state)
 
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
+    def save_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"critic_{name}.pt")
+        T.save(self.state_dict(), path)
 
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
+    def load_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"critic_{name}.pt")
+        self.load_state_dict(T.load(path))
 
 
 def _atanh(x: T.Tensor) -> T.Tensor:
@@ -172,15 +175,13 @@ class PPOAgent:
     def remember(self, state, action, logp, val, reward, done):
         self.memory.store_memory(state, action, logp, val, reward, done)
 
-    def save_models(self):
-        print("... saving models ...")
-        self.actor.save_checkpoint()
-        self.critic.save_checkpoint()
+    def save_models(self, name="last"):
+        self.actor.save_checkpoint(name=name)
+        self.critic.save_checkpoint(name=name)
 
-    def load_models(self):
-        print("... loading models ...")
-        self.actor.load_checkpoint()
-        self.critic.load_checkpoint()
+    def load_models(self, name="last"):
+        self.actor.load_checkpoint(name=name)
+        self.critic.load_checkpoint(name=name)
 
     def choose_action(self, observation, deterministic=False):
 
