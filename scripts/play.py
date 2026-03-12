@@ -14,22 +14,20 @@ def init_agent(config, run_dir, name):
     Load agent based on the stored run configuration.
     """
 
+    config.run_dir = run_dir
     agent_type = config.agent_type
 
     if agent_type == "ppo":
         agent = PPOAgent(config)
-        actor_path = os.path.join(run_dir, f"actor_{name}.pt")
-
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
-        actor_path = os.path.join(run_dir, f"actor_{name}.pt")
-
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    state_dict = torch.load(actor_path, map_location="cpu")
-    agent.actor.load_state_dict(state_dict)
+    agent.load_models(name=name)
+
     agent.actor.eval()
+    agent.critic.eval()
 
     return agent, agent_type
 
