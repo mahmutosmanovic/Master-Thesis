@@ -73,24 +73,28 @@ def write_log_row(writer, row, fieldnames):
 def init_agent(config, run_dir, weight_type="last"):
     """
     Initialize agent from run config and load weights.
+    Assumes PPO and MAPPO both implement load_models(name=...).
     """
 
     agent_type = config.agent_type
 
     if agent_type == "ppo":
         agent = PPOAgent(config)
-        actor_path = os.path.join(run_dir, f"actor_{weight_type}.pt")
 
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
-        actor_path = os.path.join(run_dir, f"actor_{weight_type}.pt")
 
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    state_dict = torch.load(actor_path, map_location="cpu")
-    agent.actor.load_state_dict(state_dict)
+    # make sure the agent loads from the requested run directory
+    agent.actor.chkpt_dir = run_dir
+    agent.critic.chkpt_dir = run_dir
+
+    agent.load_models(name=weight_type)
+
     agent.actor.eval()
+    agent.critic.eval()
 
     return agent, agent_type
 
@@ -163,7 +167,9 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None)
             f, writer = init_logger(log_dir / f"{type(baseline).__name__}.csv", STEP_LOG_FIELDS)
             ep_f, ep_writer = init_logger(log_dir / f"{type(baseline).__name__}_ep.csv", EPISODE_LOG_FIELDS)
 
+            temp_action_type = env.config.model.space.action_type
             try:
+                env.config.model.space.action_type = "abs"
                 for seed in seeds:
                     base_r = run_episode(
                         env,
@@ -189,6 +195,7 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None)
             finally:
                 f.close()
                 ep_f.close()
+                env.config.model.space.action_type = temp_action_type
 
         env.reset_episode_id()
         f, writer = init_logger(log_dir / f"{agent_type}.csv", STEP_LOG_FIELDS)

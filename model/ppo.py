@@ -145,7 +145,7 @@ class PPOAgent:
 
         self.entropy_start = self.optim_hpt.entropy_start_coef
         self.entropy_end = self.optim_hpt.entropy_end_coef
-        self.total_steps = config.max_episode_steps
+        self.total_steps = self.optim_hpt.entropy_decay_steps
         self.train_step = 0
 
         drone_features = config.model.space.drone_features
@@ -176,12 +176,31 @@ class PPOAgent:
         self.memory.store_memory(state, action, logp, val, reward, done)
 
     def save_models(self, name="last"):
-        self.actor.save_checkpoint(name=name)
-        self.critic.save_checkpoint(name=name)
+        path = os.path.join(self.actor.chkpt_dir, f"ppo_{name}.pt")
+
+        checkpoint = {
+            "actor_state_dict": self.actor.state_dict(),
+            "critic_state_dict": self.critic.state_dict(),
+            "actor_optimizer_state_dict": self.actor.optimizer.state_dict(),
+            "critic_optimizer_state_dict": self.critic.optimizer.state_dict(),
+            "train_step": self.train_step,
+        }
+
+        T.save(checkpoint, path)
+
 
     def load_models(self, name="last"):
-        self.actor.load_checkpoint(name=name)
-        self.critic.load_checkpoint(name=name)
+        path = os.path.join(self.actor.chkpt_dir, f"ppo_{name}.pt")
+
+        checkpoint = T.load(path, map_location=self.actor.device)
+
+        self.actor.load_state_dict(checkpoint["actor_state_dict"])
+        self.critic.load_state_dict(checkpoint["critic_state_dict"])
+
+        self.actor.optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
+        self.critic.optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+
+        self.train_step = checkpoint.get("train_step", 0)
 
     def choose_action(self, observation, deterministic=False):
 
