@@ -9,7 +9,7 @@ from model import PPOAgent, MAPPOAgent
 from .run_utils import load_run
 
 
-def init_agent(config, run_dir):
+def init_agent(config, run_dir, name):
     """
     Load agent based on the stored run configuration.
     """
@@ -18,11 +18,11 @@ def init_agent(config, run_dir):
 
     if agent_type == "ppo":
         agent = PPOAgent(config)
-        actor_path = os.path.join(run_dir, "actor_torch_ppo.pt")
+        actor_path = os.path.join(run_dir, f"actor_{name}.pt")
 
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
-        actor_path = os.path.join(run_dir, "actor_torch_mappo.pt")
+        actor_path = os.path.join(run_dir, f"actor_{name}.pt")
 
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -58,14 +58,14 @@ def choose_action(agent, obs, agent_type):
         raise ValueError(agent_type)
 
 
-def main(config, run_dir, seed):
+def main(config, run_dir, seed, model_type="best"):
 
     config = Box(config)
 
     env = Env(config, render_mode="human", seed=seed)
     obs, info = env.reset()
 
-    agent, agent_type = init_agent(config, run_dir)
+    agent, agent_type = init_agent(config, run_dir, model_type)
 
     print(f"Loaded agent type: {agent_type}")
 
@@ -111,6 +111,14 @@ def _init_argparse():
         help="Random seed for environment",
     )
 
+    parser.add_argument(
+        "--weights",
+        type=str,
+        default="best",
+        help="best or latest weights",
+    )
+
+
     return parser.parse_args()
 
 
@@ -120,4 +128,4 @@ if __name__ == "__main__":
 
     cfg, run_dir = load_run(args.run)
 
-    main(cfg, run_dir, seed=args.seed)
+    main(cfg, run_dir, seed=args.seed, model_type=args.weights)

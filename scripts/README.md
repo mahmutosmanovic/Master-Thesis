@@ -19,6 +19,8 @@ Example:
 
 `latest`: runs the latest locally trained model in ./runs folder
 
+`weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
+
     python -m scripts.play --run train_seed42_2026-02-24_09-19-44
 
 OR

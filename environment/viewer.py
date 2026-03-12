@@ -53,6 +53,7 @@ class Viewer:
         self.fps = int(1 / self.dt)*4
 
         self.drone_cfg = config["drone"]
+        self.config = config
 
         self.drone_trail_len = 200
         self.animal_trail_len = 200
@@ -77,7 +78,7 @@ class Viewer:
             self._start_recording()
 
         if fov is not None and len(animals) > 0:
-            animal_obs = fov[:, 4:].reshape(len(drones), len(animals), 4)
+            animal_obs = fov[:, 4:].reshape(len(drones), len(animals), self.config.model.space.animal_features)
             visible = np.any(animal_obs[:, :, 0] == 1.0, axis=0)
         else:
             visible = np.zeros(len(animals), dtype=bool)
