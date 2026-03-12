@@ -101,7 +101,9 @@ This will:
 
 `plot-heatmaps`: Plots radial occupancy of drones for included methods
 
-    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --plot-rewards --plot-heatmaps
+`weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
+
+    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --plot-rewards --plot-heatmaps --weights last
     
 ## Simulate Real GPS Behavior
 > GPS DATA PRE-PROCESSING

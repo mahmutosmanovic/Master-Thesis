@@ -11,7 +11,7 @@ model:
     n_actions: 5
     drone_features: 4
     animal_features: 4
-    action_type: abs # [rel, abs] rel -> relative to camera view direction
+    action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
     gamma: 0.99

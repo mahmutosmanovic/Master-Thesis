@@ -70,7 +70,7 @@ def write_log_rows(writer, rows, fieldnames):
 def write_log_row(writer, row, fieldnames):
     writer.writerow({k: row.get(k, "") for k in fieldnames})
 
-def init_agent(config, run_dir):
+def init_agent(config, run_dir, weight_type="last"):
     """
     Initialize agent from run config and load weights.
     """
@@ -79,11 +79,11 @@ def init_agent(config, run_dir):
 
     if agent_type == "ppo":
         agent = PPOAgent(config)
-        actor_path = os.path.join(run_dir, "actor_torch_ppo.pt")
+        actor_path = os.path.join(run_dir, f"actor_{weight_type}.pt")
 
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
-        actor_path = os.path.join(run_dir, "actor_torch_mappo.pt")
+        actor_path = os.path.join(run_dir, f"actor_{weight_type}.pt")
 
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -344,6 +344,13 @@ def _init_argparse():
     )
 
     parser.add_argument(
+        "--weights",
+        type=str,
+        default="best",
+        help="best or latest weights",
+    )
+
+    parser.add_argument(
         "--plot-rewards",
         action="store_true",
         help="Create reward distribution plot after evaluation",
@@ -367,7 +374,7 @@ def main():
 
     env = Env(config)
 
-    agent, agent_type = init_agent(config, run_dir)
+    agent, agent_type = init_agent(config, run_dir, args.weights)
 
     print(f"Detected RL algorithm: {agent_type}")
 
