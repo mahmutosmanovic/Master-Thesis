@@ -195,7 +195,15 @@ def main(config, agent_type="ppo", logging=False):
                         done = False
 
                 last_value = agent.get_last_value(obs, done)
-                agent.learn(last_value)
+                train_metrics = agent.learn(last_value)
+                if logging and agent_type == "ppo":
+                    wandb.log({
+                        "step": curr_steps,
+                        "train_entropy_coef": train_metrics["train_entropy_coef"],
+                        "train_policy_entropy": train_metrics["train_policy_entropy"],
+                        "actor_loss": train_metrics["actor_loss"],
+                        "critic_loss": train_metrics["critic_loss"],
+                    })
 
             agent.save_models(name="last")
 

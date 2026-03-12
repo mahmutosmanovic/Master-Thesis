@@ -133,7 +133,6 @@ def _squashed_log_prob(dist: Normal, raw_action: T.Tensor, squashed_action: T.Te
     correction = T.log(1 - squashed_action.pow(2) + EPS).sum(dim=-1)
     return logp_raw - correction
 
-
 class PPOAgent:
     def __init__(self, config):
 
@@ -143,9 +142,10 @@ class PPOAgent:
 
         self.act_dim = self.space_hpt.n_actions
 
+        # linear entropy schedule over total env timesteps
         self.entropy_start = self.optim_hpt.entropy_start_coef
         self.entropy_end = self.optim_hpt.entropy_end_coef
-        self.total_steps = self.optim_hpt.entropy_decay_steps
+        self.total_steps = self.samp_hpt.total_timesteps
         self.train_step = 0
 
         drone_features = config.model.space.drone_features
@@ -169,7 +169,7 @@ class PPOAgent:
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
 
     def get_entropy_coef(self):
-        frac = min(self.train_step / self.total_steps, 1.0)
+        frac = min(self.train_step / max(1, self.total_steps), 1.0)
         return self.entropy_start + frac * (self.entropy_end - self.entropy_start)
 
     def remember(self, state, action, logp, val, reward, done):
@@ -188,7 +188,6 @@ class PPOAgent:
 
         T.save(checkpoint, path)
 
-
     def load_models(self, name="last"):
         path = os.path.join(self.actor.chkpt_dir, f"ppo_{name}.pt")
 
@@ -205,20 +204,16 @@ class PPOAgent:
     def choose_action(self, observation, deterministic=False):
 
         device = self.actor.device
-
         state = T.as_tensor(observation, dtype=T.float32, device=device).unsqueeze(0)
 
         with T.no_grad():
-
             mu, std = self.actor(state)
             dist = Normal(mu, std)
 
             raw_action = mu if deterministic else dist.rsample()
-
             action = T.tanh(raw_action)
 
             logp = _squashed_log_prob(dist, raw_action, action)
-
             value = self.critic(state)
 
         return (
@@ -239,7 +234,7 @@ class PPOAgent:
             # obs shape: (num_drones, obs_dim)
             values = self.critic(obs).squeeze(-1)
 
-            # average value across drones (shared reward assumption)
+            # shared reward assumption
             value = values.mean()
 
         return float(value.item())
@@ -247,7 +242,12 @@ class PPOAgent:
     def learn(self, last_value):
 
         if self.memory.get_length() == 0:
-            return
+            return {
+                "train_entropy_coef": self.get_entropy_coef(),
+                "train_policy_entropy": None,
+                "actor_loss": None,
+                "critic_loss": None,
+            }
 
         states, actions, old_logp, values, rewards, dones, batches = \
             self.memory.generate_batches()
@@ -274,15 +274,17 @@ class PPOAgent:
             delta = rewards[t] + self.optim_hpt.gamma * next_value * (1 - dones[t]) - values[t]
 
             gae = delta + self.optim_hpt.gamma * self.optim_hpt.gae_lambda * (1 - dones[t]) * gae
-
             advantages[t] = gae
 
         returns = advantages + values
-
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        for _ in range(self.samp_hpt.n_epochs):
+        last_actor_loss = None
+        last_critic_loss = None
+        last_policy_entropy = None
+        last_entropy_coef = None
 
+        for _ in range(self.samp_hpt.n_epochs):
             for batch in batches:
 
                 batch_states = states[batch]
@@ -292,17 +294,14 @@ class PPOAgent:
                 batch_returns = returns[batch]
 
                 mu, std = self.actor(batch_states)
-
                 dist = Normal(mu, std)
 
                 raw_action = _atanh(batch_actions)
-
                 new_logp = _squashed_log_prob(dist, raw_action, batch_actions)
 
                 ratio = (new_logp - batch_old_logp).exp()
 
                 unclipped = ratio * batch_adv
-
                 clipped = T.clamp(
                     ratio,
                     1 - self.optim_hpt.policy_clip,
@@ -312,7 +311,6 @@ class PPOAgent:
                 actor_loss = -T.min(unclipped, clipped).mean()
 
                 critic_value = self.critic(batch_states).squeeze(-1)
-
                 critic_loss = (batch_returns - critic_value).pow(2).mean()
 
                 entropy = dist.entropy().sum(dim=-1).mean()
@@ -335,5 +333,20 @@ class PPOAgent:
                 self.actor.optimizer.step()
                 self.critic.optimizer.step()
 
-        self.train_step += T_steps
+                last_actor_loss = float(actor_loss.item())
+                last_critic_loss = float(critic_loss.item())
+                last_policy_entropy = float(entropy.item())
+                last_entropy_coef = float(entropy_coef)
+
+        # advance entropy schedule in env steps, one rollout at a time
+        self.train_step += self.samp_hpt.rollout_steps
+        self.train_step = min(self.train_step, self.total_steps)
+
         self.memory.clear_memory()
+
+        return {
+            "train_entropy_coef": last_entropy_coef if last_entropy_coef is not None else self.get_entropy_coef(),
+            "train_policy_entropy": last_policy_entropy,
+            "actor_loss": last_actor_loss,
+            "critic_loss": last_critic_loss,
+        }
