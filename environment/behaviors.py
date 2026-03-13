@@ -4,6 +4,7 @@ from .vec import Vector
 from pathlib import Path
 from .immutables import MovementDim, BehaviorState
 from dataclasses import dataclass
+from box import Box
 
 BEHAVIOR_REGISTRY = {}
 
@@ -83,6 +84,12 @@ class EE_CFG:
 class ExploreExploit(BehaviorBase):
     cfg_type = EE_CFG
     def __init__(self, cfg):
+        if isinstance(cfg.explore_cfg, dict):
+            cfg = EE_CFG(
+                explore_cfg=CRW_CFG(**cfg.explore_cfg),
+                exploit_cfg=CRW_CFG(**cfg.exploit_cfg),
+                time_to_leave=cfg.time_to_leave,
+            )
         self.cfg = cfg
         self.state = BehaviorState.EXPLORE
         self.time_since_encounter = 0.0
@@ -140,7 +147,15 @@ class POI_CFG:
 class PointOfInterest(BehaviorBase):
     cfg_type = POI_CFG
     def __init__(self, cfg):
+        if isinstance(cfg.explore_cfg, dict):
+            cfg = POI_CFG(
+                explore_cfg=CRW_CFG(**cfg.explore_cfg),
+                exploit_cfg=CRW_CFG(**cfg.exploit_cfg),
+                time_to_leave=cfg.time_to_leave,
+                arrive_dist=cfg.arrive_dist
+            )
         self.cfg = cfg
+        print(cfg)
         self.state = BehaviorState.EXPLORE
         self.time_since_arrival = 0.0
         self.target = None
@@ -216,6 +231,13 @@ class LearningPointOfInterest(BehaviorBase):
     cfg_type = LPOI_CFG
 
     def __init__(self, cfg):
+        if isinstance(cfg.explore_cfg, dict):
+            cfg = LPOI_CFG(
+                explore_cfg=CRW_CFG(**cfg.explore_cfg),
+                exploit_cfg=CRW_CFG(**cfg.exploit_cfg),
+                time_to_leave=cfg.time_to_leave,
+                arrive_dist=cfg.arrive_dist
+            )
         self.cfg = cfg
         self.state = BehaviorState.EXPLORE
         self.time_since_arrival = 0.0
