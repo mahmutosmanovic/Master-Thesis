@@ -30,11 +30,11 @@ class CentroidStandoff:
         config,
         target_range_ratio=0.3,
         target_altitude_ratio=0.3,
-        xy_gain=2,
-        z_gain=1.75,
+        xy_gain=1.5,
+        z_gain=2.0,
         theta_gain=0.4,
         search_theta=0.35,
-        min_speed_norm=0.0,
+        min_speed_norm=0.15,
     ):
         self.config = config
         self.target_range_ratio = target_range_ratio

@@ -182,7 +182,7 @@ def main(config, agent_type="ppo", logging=False):
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
-                            "mean_dist": f"{r_stats["p_disturbance"]:.2f}",
+                            "mean_dist": f"{r_stats['p_disturbance']:.2f}",
                         })
 
                         if episode_reward_norm > max_rew and curr_steps >= save_models_frac * total_steps:

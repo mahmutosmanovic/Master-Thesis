@@ -18,7 +18,7 @@ model:
     actor_lr: 0.0003
     critic_lr: 0.0003
     gae_lambda: 0.95
-    policy_clip: 0.2
+    policy_clip: 0.1
     val_loss_coef: 0.5
     entropy_start_coef: 0.02
     entropy_end_coef: 0.0
@@ -52,7 +52,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 6
-    behavior: CRW_CFG        # mapped -> POI_CFG()
+    behavior: POI_CFG        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
     max_spawn_radius: 200
 

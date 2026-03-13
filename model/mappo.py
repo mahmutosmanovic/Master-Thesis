@@ -165,7 +165,25 @@ class MAPPOAgent:
             chkpt_dir=config.run_dir
         )
 
+        self.actor_lr_start = self.optim_hpt.actor_lr
+        self.critic_lr_start = self.optim_hpt.critic_lr
+        self.lr_end_frac = 0.1
+
+
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
+
+    def update_learning_rates(self):
+        frac = 1.0 - (self.train_step / self.total_steps)
+        new_actor_lr = self.actor_lr_start * max(self.lr_end_frac, frac)
+        new_critic_lr = self.critic_lr_start * max(self.lr_end_frac, frac)
+
+        for param_group in self.actor.optimizer.param_groups:
+            param_group["lr"] = new_actor_lr
+
+        for param_group in self.critic.optimizer.param_groups:
+            param_group["lr"] = new_critic_lr
+
+        return new_actor_lr, new_critic_lr
 
     def get_entropy_coef(self):
         frac = min(self.train_step / max(1, self.total_steps), 1.0)
@@ -250,12 +268,16 @@ class MAPPOAgent:
             return float(self.critic(state).item())
 
     def learn(self, last_value):
+        new_actor_lr, new_critic_lr = self.update_learning_rates()
+
         if self.memory.get_length() == 0:
             return {
                 "train_entropy_coef": self.get_entropy_coef(),
                 "train_policy_entropy": None,
                 "actor_loss": None,
                 "critic_loss": None,
+                "actor_lr": None,
+                "critic_lr": None,
             }
 
         state_arr, action_arr, old_logp_arr, vals_arr, reward_arr, done_arr, _ = self.memory.generate_batches()
@@ -366,4 +388,6 @@ class MAPPOAgent:
             "train_policy_entropy": last_policy_entropy,
             "actor_loss": last_actor_loss,
             "critic_loss": last_critic_loss,
+            "actor_lr": new_actor_lr,
+            "critic_lr": new_critic_lr,
         }

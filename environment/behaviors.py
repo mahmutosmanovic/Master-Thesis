@@ -155,7 +155,6 @@ class PointOfInterest(BehaviorBase):
                 arrive_dist=cfg.arrive_dist
             )
         self.cfg = cfg
-        print(cfg)
         self.state = BehaviorState.EXPLORE
         self.time_since_arrival = 0.0
         self.target = None

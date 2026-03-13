@@ -393,7 +393,7 @@ class Env:
             drone_geom = []
 
             for animal_pos in animal_positions:
-                rel_vec = animal_pos - drone_pos
+                rel_vec = drone_pos - animal_pos
                 distance = np.linalg.norm(rel_vec)
 
                 if distance > 1e-8:
@@ -503,7 +503,7 @@ class Env:
             animal_features = []
 
             for a, animal in enumerate(self.animals):
-                rel_unit = geometry[d][a]["dir_unit"]
+                rel_unit = -geometry[d][a]["dir_unit"]
                 distance = geometry[d][a]["distance"]
 
                 cx = np.dot(rel_unit, x)
@@ -569,7 +569,7 @@ class Env:
                 distance = geometry[d][a]["distance"]
 
                 if distance > 1e-8:
-                    unit_escape_vec = rel_vec / distance
+                    unit_escape_vec = -rel_vec / distance
                 else:
                     unit_escape_vec = np.zeros(3)
 
