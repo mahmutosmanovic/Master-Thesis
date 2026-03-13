@@ -175,7 +175,6 @@ def main(config, agent_type="ppo", logging=False):
                                 "r_vis": r_stats["r_vis"],
                                 "r_dist": r_stats["r_dist"],
                                 "r_align": r_stats["r_align"],
-                                "r_bucket": r_stats["r_bucket"],
                                 "save_count": save_count,
                                 "step": curr_steps,
                             })

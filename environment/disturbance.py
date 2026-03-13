@@ -307,8 +307,8 @@ def component_plots():
     plt.show()
 
 if __name__ == "__main__":
-    angle_plot()
-    distance_plot()
+    # angle_plot()
+    # distance_plot()
     angle_distance_plot()
-    component_plots()
+    # component_plots()
     ...
