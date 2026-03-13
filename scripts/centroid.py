@@ -28,9 +28,9 @@ class CentroidStandoff:
     def __init__(
         self,
         config,
-        target_range_ratio=0.2,
+        target_range_ratio=0.3,
         target_altitude_ratio=0.3,
-        xy_gain=1.75,
+        xy_gain=2,
         z_gain=1.75,
         theta_gain=0.4,
         search_theta=0.35,
@@ -240,8 +240,8 @@ def run_episode(env, policy, seed):
 GRID = {
     "target_range_ratio":    [0.1, 0.2, 0.3,],
     "target_altitude_ratio": [0.3, 0.4, 0.45],
-    "xy_gain":                   [1.25, 1.5, 1.75],
-    "z_gain":                   [1.25, 1.5, 1.75],
+    "xy_gain":                   [1.5, 1.75, 2.0],
+    "z_gain":                   [1.5, 1.75, 2.0],
     "theta_gain":               [0.4],
     "search_theta":          [0.35],
     "min_speed_norm":        [0.15],
@@ -391,6 +391,7 @@ if __name__ == "__main__":
 
     cfg = load_config(args.config)
     config_box = Box(cfg)
+    config_box.model.space.action_type = "abs"
 
     if args.mode == "run":
         run_single(config_box, seed=args.seed)

@@ -81,7 +81,8 @@ def compute_total_reward_exact(env):
     reward_stats_backup = env.reward_stats.copy()
     total_state_steps_backup = env.total_state_steps
 
-    reward = env.compute_reward(observations)
+    dummy_actions = [{"vel_dir": Vector(0,0,0), "vel_speed": 0.0, "theta": 0.0}]
+    reward = env.compute_reward(observations, dummy_actions)
 
     env.reward_stats = reward_stats_backup
     env.total_state_steps = total_state_steps_backup
@@ -103,7 +104,8 @@ def evaluate_reward_grid(env, r_values, z_values, azimuth_deg=0.0):
             sync_animal_states_from_disturbance(env)
 
             observations = env._build_observations(geometry)
-            reward_grid[iz, ir] = env.compute_reward(observations)
+            dummy_actions = [{"vel_dir": Vector(0,0,0), "vel_speed": 0.0, "theta": 0.0}]
+            reward_grid[iz, ir] = env.compute_reward(observations, dummy_actions)
 
     return reward_grid
 
@@ -113,7 +115,7 @@ def plot_static_total_reward(env, r_values=None, z_values=None, azimuth_deg=0.0)
         raise ValueError("Use exactly 1 animal and 1 drone.")
 
     if r_values is None:
-        r_values = np.linspace(0.0, 150.0, 200)
+        r_values = np.linspace(0.0, 300.0, 200)
 
     if z_values is None:
         z_values = np.linspace(0.0, 150.0, 200)
