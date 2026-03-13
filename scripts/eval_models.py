@@ -408,7 +408,6 @@ def main():
     )
 
     print("\n=== RESULTS ===")
-    print(f"Evaluation directory: {eval_dir}")
 
     print(
         f">>> RL ({agent_type}): "
@@ -416,8 +415,6 @@ def main():
         f"std={report['rl']['std']:.4f} "
         f"n={report['rl']['n']}"
     )
-    print(f"    step log:    {report['rl']['csv']}")
-    print(f"    episode log: {report['rl']['episode_csv']}")
 
     if "baseline" in report:
         print(
@@ -426,23 +423,17 @@ def main():
             f"std={report['baseline']['std']:.4f} "
             f"n={report['baseline']['n']}"
         )
-        print(f"    step log:    {report['baseline']['csv']}")
-        print(f"    episode log: {report['baseline']['episode_csv']}")
     
     if args.plot_rewards:
         if baseline is not None:
             reward_plot_path = plot_eval_reward_distribution(eval_dir)
-            print(f"Saved reward plot to {reward_plot_path}")
 
     if args.plot_heatmaps:
         rl_heatmap_path = plot_policy_heatmap_from_csv(eval_dir / f"{agent_type}.csv")
-        print(f"Saved RL heatmap to {rl_heatmap_path}")
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
             baseline_heatmap_path = plot_policy_heatmap_from_csv(baseline_csv)
-            print(f"Saved baseline heatmap to {baseline_heatmap_path}")
-
 
 if __name__ == "__main__":
     main()

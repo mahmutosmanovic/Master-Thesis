@@ -2,7 +2,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from .disturbance import disturbance_gain
+from .disturbance import disturbance_gain, disturbance_gain_alt
 from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
@@ -329,7 +329,6 @@ class Env:
             "calm_frac": self.state_counts["calm"] / self.total_state_steps,
             "avoid_frac": self.state_counts["avoid"] / self.total_state_steps,
             "flee_frac": self.state_counts["flee"] / self.total_state_steps,
-            "mean_disturbance": self.disturbance_sum / self.total_state_steps,
         }
 
     def get_reward_stats(self):
@@ -576,13 +575,7 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec)
 
-                gain = disturbance_gain(
-                    rel_vec,
-                    drone.vel_dir.to_numpy(),
-                    drone.vel_speed,
-                    animal.vel_dir.to_numpy(),
-                    self.config
-                ) * drone.disturbance_mult
+                gain = disturbance_gain_alt(rel_vec) * drone.disturbance_mult
 
                 disturbances.append(gain)
 
@@ -640,13 +633,8 @@ class Env:
         DIST_EXP = 2.0
         ALIGN_EXP = 2.0
 
-        # actions is a list of packaged action dicts
-        p_vel = 0.0
-        p_theta = 0.0
-
         for d in range(self.drone_count):
             drone_obs = observations[d]
-            drone_action = actions[d]
 
             # 11 features per animal:
             # [in_view, dist_norm, v_angle, h_angle, velx, vely, velz, b0, b1, b2, b3]
@@ -678,53 +666,32 @@ class Env:
 
                 r_align += np.mean(align_term ** ALIGN_EXP)
 
-            # average action penalties across drones
-            p_vel += (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)) * 0.05
-            p_theta += (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8)) * 0.05
-
         # normalize across drones
         r_vis /= self.drone_count
         r_dist /= self.drone_count
         r_align /= self.drone_count
-        p_vel /= self.drone_count
-        p_theta /= self.drone_count
 
         # disturbance/state penalty
-        state_penalty_dict = {"calm": 0.0, "avoid": 0.5, "flee": 1.0}
-        animal_states = np.array(
-            [state_penalty_dict[animal.state] for animal in self.animals],
-            dtype=np.float32
-        )
-        p_animal_state = float(np.mean(animal_states))
+        p_disturbance = float(np.mean([animal.disturbance for animal in self.animals]))
 
         # bucket coverage reward
         r_bucket = self._bucket_balance_score()
 
-        # monitoring reward
-        r_vis_scaled = 0.0 * r_vis
-        r_dist_scaled = 0.75 * r_dist
-        r_align_scaled = 0.10 * r_align
-        r_bucket_scaled = 0.15 * r_bucket
+        rew_components = [r_dist, r_align, r_bucket]
+        monitor_reward = sum(rew_components) / len(rew_components)
 
-        monitor_reward = (
-            r_vis_scaled +
-            r_dist_scaled +
-            r_align_scaled +
-            r_bucket_scaled
-        )
-
-        final_reward = monitor_reward - p_animal_state - p_vel - p_theta
+        final_reward = monitor_reward - p_disturbance
 
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
 
         self.reward_stats["r_monitoring"] += monitor_reward
-        self.reward_stats["p_disturbance"] += p_animal_state
-        self.reward_stats["r_vis"] += r_vis
+        self.reward_stats["p_disturbance"] += p_disturbance
         self.reward_stats["r_dist"] += r_dist
         self.reward_stats["r_align"] += r_align
         self.reward_stats["r_bucket"] += r_bucket
+        self.reward_stats["r_vis"] += r_vis
 
         return final_reward
 
@@ -781,8 +748,6 @@ class Env:
 
         info = {
             "fov": observations,
-            "view_bucket_counts": self.view_bucket_counts.copy(),
-            "view_bucket_totals": self.view_bucket_totals.copy(),
         }
 
         if self.render_mode is not None:

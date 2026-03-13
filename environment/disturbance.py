@@ -28,6 +28,19 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, c
 
     return np.clip(D, 0.0, 1.0)
 
+def disturbance_gain_alt(dist_vec):
+
+    g_h = horizontal_gain(dist_vec)
+    g_v = altitude_gain(dist_vec)
+    g_a = angle_gain(dist_vec)
+
+    base = g_h * g_v
+    comps = [g_a]
+
+    D = (base + sum(comps)) / (len(comps) + 1)
+    
+    return D
+
 def altitude_gain(dist_vec):
     _, _, z = dist_vec
     z = abs(z)
@@ -51,20 +64,6 @@ def horizontal_gain(dist_vec):
         return 1.0 - 0.2 * (d - 20) / 30
     elif d <= 110:
         return 0.8 * (1 - (d - 50) / 60)
-    return 0.0
-
-def angle_gain(dist_vec):
-    dx, dy, z = dist_vec
-    horizontal_dist = np.sqrt(dx * dx + dy * dy)
-
-    theta = np.degrees(np.arctan2(-z, abs(horizontal_dist)))
-
-    if theta <= 20:
-        return 0.5 - 0.5 * (theta + 90) / 110
-    elif theta <= 60:
-        return 0.0
-    elif theta <= 90:
-        return (theta - 60) / 30
     return 0.0
 
 def heading_gain(dist_vec, drone_vel_dir):
@@ -105,10 +104,10 @@ def animal_axis_gain(dist_vec, animal_vel_dir):
 
 def speed_gain(drone_vel_speed, v_min=2, v_max=8):
     if drone_vel_speed <= v_min:
-        g = 0
-    else:
-        g = min(drone_vel_speed - v_min / (v_max - v_min), 1)
-    return g
+        return 0.0
+
+    g = (drone_vel_speed - v_min) / (v_max - v_min)
+    return min(max(g, 0.0), 1.0)
 
 # Visualization helpers (grid evaluation)
 def evaluate_on_grid(func, X, Y):
@@ -123,62 +122,190 @@ def evaluate_on_grid(func, X, Y):
     return Z
 
 
-# Main Visualization
-if __name__ == "__main__":
+def angle_gain(dist_vec):
+    dx, dy, z = dist_vec
+    horizontal_dist = np.sqrt(dx * dx + dy * dy)
 
-    # Spatial grid
-    X, Y = np.meshgrid(
-        np.linspace(-110, 110, 300),
-        np.linspace(0, 110, 300)
-    )
+    a = np.degrees(np.arctan2(z, horizontal_dist)) % 360.0
 
-    # Evaluate components
-    ALT = evaluate_on_grid(altitude_gain, X, Y)
-    HOR = evaluate_on_grid(horizontal_gain, X, Y)
-    ANG = evaluate_on_grid(angle_gain, X, Y)
+    if a < 20.0:
+        # wrapped segment: 270 -> 360 -> 20
+        # 270 : 0.5, 20 : 0
+        t = (a + 90.0) / 110.0
+        return 0.5 * (1.0 - t)
 
-    base = ALT * HOR
-    max_angle_boost = 1
+    elif a < 60.0:
+        # 20 -> 60 : 0
+        return 0.0
 
+    elif a < 90.0:
+        # 60 -> 90 : 0 -> 1
+        return (a - 60.0) / 30.0
 
-    multiplier = 1 + ANG * max_angle_boost
+    elif a < 120.0:
+        # 90 -> 120 : 1 -> 0
+        return 1.0 - (a - 90.0) / 30.0
 
-    D = base * multiplier
+    elif a < 160.0:
+        # 120 -> 160 : 0
+        return 0.0
 
-    COMBINED = np.clip(D, 0.0, 1.0)
+    elif a < 270.0:
+        # 160 -> 270 : 0 -> 0.5
+        return 0.5 * (a - 160.0) / 110.0
 
-    # FIGURE 1 — Combined disturbance
-    fig1, ax = plt.subplots(figsize=(8, 7))
+    else:
+        # 270 -> 360 : 0.5 -> interpolated value toward 20
+        t = (a - 270.0) / 110.0
+        return 0.5 * (1.0 - t)
+    
+def angle_plot():
+    angles = np.linspace(0, 360, 720)
+    gains = []
 
-    im = ax.pcolormesh(X, Y, COMBINED, cmap="magma", shading="auto")
-    ax.set_title("Combined 360° Disturbance Field")
-    ax.set_xlabel("Horizontal Offset (m)")
-    ax.set_ylabel("Altitude (m)")
-    ax.plot(0, 0, "wo", markersize=8)
+    for a in angles:
+        rad = np.radians(a)
 
-    fig1.colorbar(im, ax=ax, label="Disturbance Intensity")
-    plt.tight_layout()
-    plt.savefig("figures/disturbance_combined.png", dpi=300)
+        # create synthetic vector that produces this angle
+        dist_vec = (np.cos(rad), 0.0, np.sin(rad))
+        gains.append(angle_gain(dist_vec))
 
+    gains = np.array(gains)
+    angles_rad = np.radians(angles)
 
-    # FIGURE 2 — Individual components
-    fig2, axs = plt.subplots(1, 3, figsize=(18, 5))
+    r = np.linspace(0, 1, 2)
+    theta, R = np.meshgrid(angles_rad, r)
+    Z = np.tile(gains, (2,1))
 
-    components = [
-        (ALT, "Altitude Component", "Blues"),
-        (HOR, "Horizontal Component", "Greens"),
-        (ANG, "Angle Component", "Reds"),
-    ]
+    fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8,8))
 
-    for ax, (Z, title, cmap) in zip(axs, components):
-        im = ax.pcolormesh(X, Y, Z, cmap=cmap, shading="auto")
-        ax.set_title(title)
-        ax.set_xlabel("Horizontal Offset (m)")
-        ax.set_ylabel("Altitude (m)")
-        ax.plot(0, 0, "wo", markersize=6)
-        fig2.colorbar(im, ax=ax)
+    c = ax.pcolormesh(theta, R, Z, shading="auto", cmap="RdYlGn_r", vmin=0, vmax=1)
 
-    plt.tight_layout()
-    plt.savefig("figures/disturbance_components.png", dpi=300)
+    ax.set_yticks([])
+    ax.set_title("Angle Gain Disturbance (360°)")
+
+    plt.colorbar(c, label="Disturbance Gain")
 
     plt.show()
+
+def distance_plot():
+    x = np.linspace(-120, 120, 400)   # horizontal distance
+    z = np.linspace(-120, 120, 400)   # vertical distance
+    X, Z = np.meshgrid(x, z)
+
+    G = np.zeros_like(X, dtype=float)
+
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            dist_vec = (X[i, j], 0.0, Z[i, j])
+            g_h = horizontal_gain(dist_vec)
+            g_v = altitude_gain(dist_vec)
+            G[i, j] = g_h * g_v
+
+    plt.figure(figsize=(7, 6))
+    im = plt.imshow(
+        G,
+        extent=[x.min(), x.max(), z.min(), z.max()],
+        origin="lower",
+        cmap="RdYlGn_r",
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+
+    plt.colorbar(im, label="Distance Disturbance Gain")
+    plt.xlabel("Horizontal Distance")
+    plt.ylabel("Vertical Distance")
+    plt.title("Horizontal + Vertical Distance Gain")
+    plt.grid(alpha=0.2)
+    plt.show()    
+
+def angle_distance_plot():
+    x = np.linspace(-60, 60, 400)
+    z = np.linspace(-60, 60, 400)
+    X, Z = np.meshgrid(x, z)
+
+    G = np.zeros_like(X, dtype=float)
+
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            dist_vec = (X[i, j], 0.0, Z[i, j])
+
+            g_h = horizontal_gain(dist_vec)
+            g_v = altitude_gain(dist_vec)
+            g_a = angle_gain(dist_vec)
+
+            comps = [g_a]
+            base = g_h * g_v
+            G[i, j] = (base + sum(comps)) / (len(comps) + 1)
+
+    plt.figure(figsize=(7, 6))
+    im = plt.imshow(
+        G,
+        extent=[x.min(), x.max(), z.min(), z.max()],
+        origin="lower",
+        cmap="RdYlGn_r",
+        aspect="auto"
+    )
+
+    plt.colorbar(im, label="Angle + Distance Disturbance Gain")
+    plt.xlabel("Horizontal Distance")
+    plt.ylabel("Vertical Distance")
+    plt.title("Combined Angle-Shaped Distance Gain")
+    plt.grid(alpha=0.2)
+    plt.show()
+
+def component_plots():
+    x = np.linspace(-120, 120, 400)
+    z = np.linspace(-120, 120, 400)
+    X, Z = np.meshgrid(x, z)
+
+    G_h = np.zeros_like(X, dtype=float)
+    G_v = np.zeros_like(X, dtype=float)
+    G_a = np.zeros_like(X, dtype=float)
+
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            dist_vec = (X[i, j], 0.0, Z[i, j])
+
+            G_h[i, j] = horizontal_gain(dist_vec)
+            G_v[i, j] = altitude_gain(dist_vec)
+            G_a[i, j] = angle_gain(dist_vec)
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharex=True, sharey=True)
+
+    titles = [
+        "Horizontal Gain",
+        "Altitude Gain",
+        "Angle Gain"
+    ]
+    grids = [G_h, G_v, G_a]
+
+    for ax, G, title in zip(axes, grids, titles):
+        im = ax.imshow(
+            G,
+            extent=[x.min(), x.max(), z.min(), z.max()],
+            origin="lower",
+            cmap="RdYlGn_r",
+            vmin=0,
+            vmax=1,
+            aspect="auto"
+        )
+        ax.set_title(title)
+        ax.set_xlabel("Horizontal Distance")
+        ax.grid(alpha=0.2)
+
+    axes[0].set_ylabel("Vertical Distance")
+
+    cbar = fig.colorbar(im)
+    cbar.set_label("Gain")
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    # angle_plot()
+    # distance_plot()
+    angle_distance_plot()
+    # component_plots()
+    ...

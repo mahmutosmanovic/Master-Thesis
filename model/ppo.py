@@ -166,7 +166,26 @@ class PPOAgent:
             chkpt_dir=config.run_dir
         )
 
+        self.actor_lr_start = self.optim_hpt.actor_lr
+        self.critic_lr_start = self.optim_hpt.critic_lr
+        self.lr_end_frac = 0.1
+
         self.memory = PPOMemory(self.samp_hpt.mini_batch_size)
+
+    def update_learning_rates(self):
+        """Linearly decreases the learning rate of both actor and critic."""
+        frac = 1.0 - (self.train_step / self.total_steps)
+        new_actor_lr = self.actor_lr_start * max(self.lr_end_frac, frac)
+        new_critic_lr = self.critic_lr_start * max(self.lr_end_frac, frac)
+
+        for param_group in self.actor.optimizer.param_groups:
+            param_group['lr'] = new_actor_lr
+        
+        for param_group in self.critic.optimizer.param_groups:
+            param_group['lr'] = new_critic_lr
+
+        return new_actor_lr, new_critic_lr
+        
 
     def get_entropy_coef(self):
         frac = min(self.train_step / max(1, self.total_steps), 1.0)
@@ -240,6 +259,7 @@ class PPOAgent:
         return float(value.item())
 
     def learn(self, last_value):
+        new_actor_lr, new_critic_lr = self.update_learning_rates()
 
         if self.memory.get_length() == 0:
             return {
@@ -247,6 +267,8 @@ class PPOAgent:
                 "train_policy_entropy": None,
                 "actor_loss": None,
                 "critic_loss": None,
+                "actor_lr": None,
+                "critic_lr": None,
             }
 
         states, actions, old_logp, values, rewards, dones, batches = \
@@ -349,4 +371,6 @@ class PPOAgent:
             "train_policy_entropy": last_policy_entropy,
             "actor_loss": last_actor_loss,
             "critic_loss": last_critic_loss,
+            "actor_lr": new_actor_lr,
+            "critic_lr": new_critic_lr,
         }

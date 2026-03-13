@@ -167,22 +167,22 @@ def main(config, agent_type="ppo", logging=False):
                         if logging:
                             wandb.log({
                                 "episode_reward_norm": episode_reward_norm,
-                                "calm_frac": stats["calm_frac"],
-                                "avoid_frac": stats["avoid_frac"],
-                                "flee_frac": stats["flee_frac"],
-                                "mean_disturbance": stats["mean_disturbance"],
+                                "p_calm_frac": stats["calm_frac"],
+                                "p_avoid_frac": stats["avoid_frac"],
+                                "p_flee_frac": stats["flee_frac"],
                                 "r_monitoring": r_stats["r_monitoring"],
                                 "p_disturbance": r_stats["p_disturbance"],
                                 "r_vis": r_stats["r_vis"],
                                 "r_dist": r_stats["r_dist"],
                                 "r_align": r_stats["r_align"],
+                                "r_bucket": r_stats["r_bucket"],
                                 "save_count": save_count,
-                                "step": curr_steps
+                                "step": curr_steps,
                             })
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
-                            "mean_dist": f"{stats['mean_disturbance']:.2f}",
+                            "mean_dist": f"{r_stats["p_disturbance"]:.2f}",
                         })
 
                         if episode_reward_norm > max_rew and curr_steps >= save_models_frac * total_steps:
@@ -196,13 +196,15 @@ def main(config, agent_type="ppo", logging=False):
 
                 last_value = agent.get_last_value(obs, done)
                 train_metrics = agent.learn(last_value)
-                if logging and agent_type == "ppo":
+                if logging and train_metrics is not None:
                     wandb.log({
                         "step": curr_steps,
                         "train_entropy_coef": train_metrics["train_entropy_coef"],
                         "train_policy_entropy": train_metrics["train_policy_entropy"],
                         "actor_loss": train_metrics["actor_loss"],
                         "critic_loss": train_metrics["critic_loss"],
+                        "actor_lr": train_metrics["actor_lr"],
+                        "critic_lr": train_metrics["critic_lr"],
                     })
 
             agent.save_models(name="last")
