@@ -729,7 +729,6 @@ class Env:
 
     #     return final_reward
 
-
     def compute_reward(self, observations, actions):
         r_vis = 0.0
         r_dist = 0.0

@@ -185,7 +185,7 @@ def angle_plot():
     ax.set_title("Angle Gain Disturbance (360°)")
 
     plt.colorbar(c, label="Disturbance Gain")
-
+    plt.savefig("./figures/angle.png", dpi=300)
     plt.show()
 
 def distance_plot():
@@ -218,6 +218,7 @@ def distance_plot():
     plt.ylabel("Vertical Distance")
     plt.title("Horizontal + Vertical Distance Gain")
     plt.grid(alpha=0.2)
+    plt.savefig("./figures/distance.png", dpi=300)
     plt.show()    
 
 def angle_distance_plot():
@@ -253,6 +254,7 @@ def angle_distance_plot():
     plt.ylabel("Vertical Distance")
     plt.title("Combined Angle-Shaped Distance Gain")
     plt.grid(alpha=0.2)
+    plt.savefig("./figures/angle_distance.png", dpi=300)
     plt.show()
 
 def component_plots():
@@ -301,11 +303,12 @@ def component_plots():
     cbar.set_label("Gain")
 
     plt.tight_layout()
+    plt.savefig("./figures/comps.png", dpi=300)
     plt.show()
 
 if __name__ == "__main__":
-    # angle_plot()
-    # distance_plot()
+    angle_plot()
+    distance_plot()
     angle_distance_plot()
-    # component_plots()
+    component_plots()
     ...
