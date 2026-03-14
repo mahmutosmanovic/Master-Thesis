@@ -65,6 +65,9 @@ class Env:
         # randomization using animal.rng, animal seed decides spawn location, spawn heading and behaviour
         for i, animal in enumerate(self.animals):
             animal.disturbance = 0.0
+            animal.arousal = 0.0
+            animal.field_boost = 0.0
+            animal.state = "calm"
             animal.escape_dir = np.zeros(3, dtype=np.float32)
             animal.resource_map = self.resource_map
             if getattr(animal.behavior, "handles_spawn", False):
@@ -76,6 +79,38 @@ class Env:
                 radius = self.env_rng.uniform(0, self.config["animal"]["init"]["max_spawn_radius"])
                 animal.pos = spawn_dir.scale(radius)
                 animal.behavior.reset()
+
+    def _update_arousal(self, arousal, disturbance):
+        alpha = self.config.animal.env.arousal_alpha
+        arousal = (1.0 - alpha) * arousal + alpha * disturbance
+        return np.clip(arousal, 0.0, 1.0)
+
+    def _state_from_arousal(self, arousal):
+        if arousal > self.config.animal.env.flee_threshold:
+            return "flee"
+        elif arousal > self.config.animal.env.avoid_threshold:
+            return "avoid"
+        return "calm"
+
+
+    def _update_field_boost(self, boost, state):
+        if state == "flee":
+            target = 10.0
+        elif state == "avoid":
+            target = 3.0
+        else:
+            target = 0.0
+
+        rise = self.config.animal.env.boost_rise
+        decay = self.config.animal.env.boost_decay
+        alpha = rise if target > boost else decay
+
+        boost = boost + alpha * (target - boost)
+        
+        noise_std = self.config.animal.env.boost_noise_std
+        boost += self.env_rng.normal(0.0, noise_std)
+
+        return np.clip(boost, 0.0, 10.0)
 
     def _init_drone(self):
         for i in range(self.drone_count):
@@ -271,16 +306,14 @@ class Env:
         segment_complete = False
         for animal in self.animals:
             if animal.behavior.can_flee:
-                D = animal.disturbance
-                if D > 0.70:
+                state = animal.state
+                if state == "flee":
                     # FULL ESCAPE
-                    state = "flee"
                     animal.vel_dir.setter(Vector(*animal.escape_dir))
                     animal.vel_speed = animal.max_speed
 
-                elif D > 0.50:
+                elif state == "avoid":
                     # AVOIDANCE BLEND
-                    state = "avoid"
                     animal.update_vel(rng=self.env_rng)
 
                     base = animal.vel_dir.to_numpy()
@@ -291,10 +324,10 @@ class Env:
 
                 else:
                     # NORMAL BEHAVIOUR
-                    state = "calm"
                     animal.update_vel(rng=self.env_rng)
 
                 animal.enforce_speed()
+                D = animal.disturbance
             else:
                 # track following behaviour, no speed enforcement!
                 D = animal.disturbance
@@ -485,11 +518,11 @@ class Env:
                 if distance > 1e-8:
                     unit_escape_vec = -rel_vec / distance
                 else:
-                    unit_escape_vec = np.zeros(3)
+                    unit_escape_vec = np.zeros(3, dtype=np.float32)
 
                 escape_vecs.append(unit_escape_vec)
 
-                gain = disturbance_gain_alt(rel_vec) * drone.disturbance_mult
+                gain = disturbance_gain_alt(rel_vec, field_boost=animal.field_boost) * drone.disturbance_mult
 
                 disturbances.append(gain)
 
@@ -510,6 +543,10 @@ class Env:
                 animal.escape_dir = escape_vec / norm
             else:
                 animal.escape_dir = animal.vel_dir.to_numpy()
+
+            animal.arousal = self._update_arousal(animal.arousal, animal.disturbance)
+            animal.state = self._state_from_arousal(animal.arousal)
+            animal.field_boost = self._update_field_boost(animal.field_boost, animal.state)
 
     def compute_reward(self, observations, actions):
         r_vis = 0.0
@@ -565,7 +602,7 @@ class Env:
         rew_components = [r_dist, r_align]
         monitor_reward = sum(rew_components) / len(rew_components)
 
-        final_reward = monitor_reward - p_disturbance
+        final_reward = monitor_reward - 1.5*p_disturbance
 
         # penalty if nothing visible
         if not visible_any:
@@ -654,6 +691,8 @@ class Env:
                 "view_z": "",
                 "state": animal.state,
                 "disturbance": animal.disturbance,
+                "arousal": animal.arousal,
+                "field_boost": animal.field_boost,
             })
 
         for drone in self.drones:
@@ -674,6 +713,8 @@ class Env:
                 "view_z": drone.view_dir.z,
                 "state": "",
                 "disturbance": "",
+                "arousal": "",
+                "field_boost": "",
             })
 
         return rows

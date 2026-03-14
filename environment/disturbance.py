@@ -28,43 +28,83 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, c
 
     return np.clip(D, 0.0, 1.0)
 
-def disturbance_gain_alt(dist_vec):
-
-    g_h = horizontal_gain(dist_vec)
-    g_v = altitude_gain(dist_vec)
+def disturbance_gain_alt(dist_vec, field_boost=0.0):
+    g_h = horizontal_gain(dist_vec, field_boost=field_boost)
+    g_v = altitude_gain(dist_vec, field_boost=field_boost)
     g_a = angle_gain(dist_vec)
 
     base = g_h * g_v
     comps = [g_a]
 
     D = (base + sum(comps)) / (len(comps) + 1)
-    
-    return D
+    return min(D, 1)
 
-def altitude_gain(dist_vec):
+def piecewise_gain(x, points, field_boost=0.0):
+    s = 1.0 + field_boost
+    pts = [(px * s, py) for px, py in points]
+
+    if x <= pts[0][0]:
+        return pts[0][1]
+
+    for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:]):
+        if x <= x1:
+            t = (x - x0) / (x1 - x0)
+            return y0 + t * (y1 - y0)
+
+    return pts[-1][1]
+
+def altitude_gain(dist_vec, field_boost=0.0):
     _, _, z = dist_vec
     z = abs(z)
+    return piecewise_gain(
+        z,
+        [(20, 1.0), (40, 0.4), (110, 0.1), (500, 0.0)],
+        field_boost=field_boost
+    )
 
-    if z <= 20:
-        return 1.0
-    elif z <= 40:
-        return 1.0 - 0.6 * (z - 20) / 20
-    elif z <= 110:
-        return 0.4 * (1 - (z - 40) / 70)
-    return 0.0
-
-
-def horizontal_gain(dist_vec):
+def horizontal_gain(dist_vec, field_boost=0.0):
     dx, dy, _ = dist_vec
-    d = np.sqrt(dx*dx + dy*dy)
+    d = np.sqrt(dx * dx + dy * dy)
+    return piecewise_gain(
+        d,
+        [(20, 1.0), (50, 0.8), (110, 0.1), (500, 0.0)],
+        field_boost=field_boost
+    )
 
-    if d <= 20:
-        return 1.0
-    elif d <= 50:
-        return 1.0 - 0.2 * (d - 20) / 30
-    elif d <= 110:
-        return 0.8 * (1 - (d - 50) / 60)
-    return 0.0
+def plot_gains():
+
+    # sample distances
+    distances = np.linspace(0, 550, 600)
+
+    altitude_vals = []
+    horizontal_vals = []
+
+    for d in distances:
+        altitude_vals.append(altitude_gain((0, 0, d)))
+        horizontal_vals.append(horizontal_gain((d, 0, 0)))
+
+    altitude_vals = np.array(altitude_vals)
+    horizontal_vals = np.array(horizontal_vals)
+
+    fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+
+    # altitude plot
+    axes[0].plot(distances, altitude_vals)
+    axes[0].set_title("Altitude Gain")
+    axes[0].set_ylabel("Gain")
+    axes[0].set_ylim(-0.05, 1.05)
+    axes[0].grid(True)
+
+    # horizontal plot
+    axes[1].plot(distances, horizontal_vals)
+    axes[1].set_title("Horizontal Gain")
+    axes[1].set_xlabel("Distance")
+    axes[1].set_ylabel("Gain")
+    axes[1].set_ylim(-0.05, 1.05)
+    axes[1].grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
 def heading_gain(dist_vec, drone_vel_dir):
     v = np.asarray(drone_vel_dir, dtype=float)
@@ -120,7 +160,6 @@ def evaluate_on_grid(func, X, Y):
             Z[i, j] = func(dist_vec)
 
     return Z
-
 
 def angle_gain(dist_vec):
     dx, dy, z = dist_vec
@@ -221,9 +260,9 @@ def distance_plot():
     plt.savefig("./figures/distance.png", dpi=300)
     plt.show()    
 
-def angle_distance_plot():
-    x = np.linspace(-60, 60, 400)
-    z = np.linspace(-60, 60, 400)
+def angle_distance_plot(field_boost=0):
+    x = np.linspace(-160, 160, 400)
+    z = np.linspace(-160, 160, 400)
     X, Z = np.meshgrid(x, z)
 
     G = np.zeros_like(X, dtype=float)
@@ -232,13 +271,14 @@ def angle_distance_plot():
         for j in range(X.shape[1]):
             dist_vec = (X[i, j], 0.0, Z[i, j])
 
-            g_h = horizontal_gain(dist_vec)
-            g_v = altitude_gain(dist_vec)
+            g_h = horizontal_gain(dist_vec, field_boost)
+            g_v = altitude_gain(dist_vec, field_boost)
             g_a = angle_gain(dist_vec)
 
             comps = [g_a]
             base = g_h * g_v
-            G[i, j] = (base + sum(comps)) / (len(comps) + 1)
+            D = (base + sum(comps)) / (len(comps) + 1)
+            G[i, j] = min(D, 1)
 
     plt.figure(figsize=(7, 6))
     im = plt.imshow(
@@ -246,7 +286,9 @@ def angle_distance_plot():
         extent=[x.min(), x.max(), z.min(), z.max()],
         origin="lower",
         cmap="RdYlGn_r",
-        aspect="auto"
+        aspect="auto",
+        vmin=0,
+        vmax=1,
     )
 
     plt.colorbar(im, label="Angle + Distance Disturbance Gain")
@@ -309,6 +351,7 @@ def component_plots():
 if __name__ == "__main__":
     # angle_plot()
     # distance_plot()
-    angle_distance_plot()
+    angle_distance_plot(field_boost=10)
     # component_plots()
+    # plot_gains()
     ...
