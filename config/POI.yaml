@@ -57,7 +57,7 @@ animal:
     max_spawn_radius: 200
 
 # Disturbance model
-max_angle_boost: 1   # how much can angle add to disturbance at most, 1 -> can at most double the disturbance up to 1, keep in [0, 1] !
+max_angle_boost: 0.25   # how much can angle add to disturbance at most, 1 -> can at most double the disturbance up to 1, keep in [0, 1] !
 max_heading_boost: 0.25 # how much can heading add to disturbance at most, 1 -> can at most double the disturbance up to 1 , keep in [0, 1] !
 max_speed_boost: 0.0
 max_axis_boost: 0.25

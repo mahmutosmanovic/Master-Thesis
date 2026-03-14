@@ -7,8 +7,8 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, c
     Combined disturbance for one animal-drone pair.
     """
 
-    g_altitude = np.clip(altitude_gain(dist_vec), 0.0, 1.0)
-    g_horizontal = np.clip(horizontal_gain(dist_vec), 0.0, 1.0)
+    g_altitude = altitude_gain(dist_vec)
+    g_horizontal = horizontal_gain(dist_vec)
 
     g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
     g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
@@ -26,7 +26,7 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, c
 
     D = base * multiplier
 
-    return np.clip(D, 0.0, 1.0)
+    return D
 
 def disturbance_gain_alt(dist_vec):
 
@@ -45,9 +45,7 @@ def altitude_gain(dist_vec):
     _, _, z = dist_vec
     z = abs(z)
 
-    if z <= 20:
-        return 1.0
-    elif z <= 40:
+    if z <= 40:
         return 1.0 - 0.6 * (z - 20) / 20
     elif z <= 110:
         return 0.4 * (1 - (z - 40) / 70)
@@ -56,14 +54,12 @@ def altitude_gain(dist_vec):
 
 def horizontal_gain(dist_vec):
     dx, dy, _ = dist_vec
-    d = np.sqrt(dx*dx + dy*dy)
+    d = np.sqrt(dx * dx + dy * dy)
 
-    if d <= 20:
-        return 1.0
-    elif d <= 50:
-        return 1.0 - 0.2 * (d - 20) / 30
-    elif d <= 110:
-        return 0.8 * (1 - (d - 50) / 60)
+    if d <= 135:
+        return 1.0 - 0.2 * (d - 50) / 85
+    elif d <= 300:
+        return 0.8 * (1 - (d - 135) / 165)
     return 0.0
 
 def heading_gain(dist_vec, drone_vel_dir):

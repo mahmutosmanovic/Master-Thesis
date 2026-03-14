@@ -69,7 +69,7 @@ class ActorNetwork(nn.Module):
         )
 
         self.mu = nn.Linear(fc2_dims, n_actions)
-        self.log_std = nn.Parameter(T.zeros(n_actions))
+        self.log_std = nn.Parameter(T.full((n_actions,), -1.5))
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 

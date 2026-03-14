@@ -28,10 +28,10 @@ class CentroidStandoff:
     def __init__(
         self,
         config,
-        target_range_ratio=0.3,
+        target_range_ratio=0.2,
         target_altitude_ratio=0.3,
-        xy_gain=1.5,
-        z_gain=2.0,
+        xy_gain=2.0,
+        z_gain=1.75,
         theta_gain=0.4,
         search_theta=0.35,
         min_speed_norm=0.15,
