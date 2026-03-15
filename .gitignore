@@ -2,6 +2,7 @@
 /data
 /track_segments
 /evals
+/pareto
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

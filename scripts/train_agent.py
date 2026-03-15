@@ -239,8 +239,8 @@ if __name__ == "__main__":
     cfg["agent_type"] = args.agent
 
     run_dir = create_run_dir(cfg, args.seed)
+
     save_config_snapshot(cfg, run_dir)
-
     cfg["run_dir"] = str(run_dir)
-
     main(cfg, agent_type=args.agent, logging=args.wandb)
+    print(f"RUN_DIR::{run_dir.name}")

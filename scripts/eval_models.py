@@ -434,6 +434,8 @@ def main():
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
             baseline_heatmap_path = plot_policy_heatmap_from_csv(baseline_csv)
+    
+    print(f"EVAL_DIR::{eval_dir.name}")
 
 if __name__ == "__main__":
     main()

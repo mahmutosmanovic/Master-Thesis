@@ -28,6 +28,23 @@ def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, c
 
     return D
 
+def disturbance_gain_alt_alt(dist_vec, drone_vel_dir, animal_vel_dir, config):
+
+    g_h = horizontal_gain(dist_vec)
+    g_v = altitude_gain(dist_vec)
+    g_a = 1 - angle_gain(dist_vec)
+    g_ax = 1 - animal_axis_gain(dist_vec, animal_vel_dir)
+    g_he = heading_relief(dist_vec, drone_vel_dir)
+
+    angle_re = g_a * config.max_angle_relief
+    axis_re = g_ax * config.max_axis_relief
+    heading_re = g_he * config.max_heading_relief
+
+    base = g_h * g_v
+    
+    D = base * ((1-angle_re) * (1-heading_re) * (1-axis_re))
+    return D
+
 def disturbance_gain_alt(dist_vec):
 
     g_h = horizontal_gain(dist_vec)
@@ -62,7 +79,7 @@ def horizontal_gain(dist_vec):
         return 0.8 * (1 - (d - 135) / 165)
     return 0.0
 
-def heading_gain(dist_vec, drone_vel_dir):
+def heading_relief(dist_vec, drone_vel_dir):
     v = np.asarray(drone_vel_dir, dtype=float)
     d = np.asarray(dist_vec, dtype=float)
 

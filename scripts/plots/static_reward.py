@@ -141,7 +141,7 @@ def plot_static_total_reward(env, r_values=None, z_values=None, azimuth_deg=0.0)
 
 
 if __name__ == "__main__":
-    cfg = Box(load_config("train"))
+    cfg = Box(load_config("CRW"))
     env = Env(cfg, render_mode=None, seed=42)
     env.reset(seed=42)
 

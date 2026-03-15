@@ -2,7 +2,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from .disturbance import disturbance_gain, disturbance_gain_alt
+from .disturbance import disturbance_gain, disturbance_gain_alt, disturbance_gain_alt_alt
 from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
@@ -520,7 +520,15 @@ class Env:
                     distance <= drone.view_range
                 )
 
-                animal_vel = animal.vel_dir.to_numpy()
+                animal_vel = (
+                    animal.vel_dir.to_numpy() *
+                    (animal.vel_speed / animal.max_speed)
+                )
+
+                v_cam_x = np.dot(animal_vel, x)
+                v_cam_y = np.dot(animal_vel, y)
+                v_cam_z = np.dot(animal_vel, z)
+
                 bucket_fracs = self._animal_bucket_fractions(a)
 
                 if in_view:
@@ -529,9 +537,9 @@ class Env:
                         distance / drone.view_range,
                         v_angle / (v_max + 1e-8),
                         h_angle / (h_max + 1e-8),
-                        animal_vel[0],
-                        animal_vel[1],
-                        animal_vel[2],
+                        v_cam_x,
+                        v_cam_y,
+                        v_cam_z,
                         # bucket_fracs[0],
                         # bucket_fracs[1],
                         # bucket_fracs[2],
@@ -543,9 +551,9 @@ class Env:
                         1.0,
                         0.0,
                         0.0,
-                        animal_vel[0],
-                        animal_vel[1],
-                        animal_vel[2],
+                        0.0,
+                        0.0,
+                        0.0,
                         # bucket_fracs[0],
                         # bucket_fracs[1],
                         # bucket_fracs[2],
@@ -575,9 +583,9 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec)
 
-                gain = disturbance_gain_alt(rel_vec) * drone.disturbance_mult
+                # gain = disturbance_gain_alt(rel_vec) * drone.disturbance_mult
 
-                # gain = disturbance_gain_alt(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
+                gain = disturbance_gain_alt_alt(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
 
                 # gain = disturbance_gain(
                 #     rel_vec,
@@ -682,8 +690,8 @@ class Env:
                 r_align += np.mean(align_term ** ALIGN_EXP)
 
             # average action penalties across drones
-            p_vel += (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)) * 0.05
-            p_theta += (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8)) * 0.05
+            p_vel += (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)) * self.config.p_vel_scale
+            p_theta += (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8)) * self.config.p_theta_scale
 
         # normalize across drones
         r_vis /= self.drone_count
@@ -724,14 +732,14 @@ class Env:
             r_bucket_scaled
         )
 
-        final_reward = monitor_reward - disturbance_penalty - p_vel - p_theta
+        final_reward = monitor_reward - self.config.disturbance_penalty_scale * disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
             final_reward -= 0.2
 
         self.reward_stats["r_monitoring"] += monitor_reward
-        self.reward_stats["p_disturbance"] += p_animal_state
+        self.reward_stats["p_disturbance"] += disturbance_penalty
         self.reward_stats["r_vis"] += r_vis
         self.reward_stats["r_dist"] += r_dist
         self.reward_stats["r_align"] += r_align

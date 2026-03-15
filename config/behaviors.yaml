@@ -1,6 +1,6 @@
 CRW_CFG:
   persistence: 0.9
-  turn_sigma: 0.15
+  turn_sigma: 0.1
   target_speed: 6
   speed_sigma: 0.03
   speed_smooth: 0.2
@@ -11,7 +11,7 @@ EE_CFG:
 
   explore_cfg:
     persistence: 0.9
-    turn_sigma: 0.15
+    turn_sigma: 0.1
     target_speed: 6
     speed_sigma: 0.03
     speed_smooth: 0.2
@@ -31,7 +31,7 @@ POI_CFG:
 
   explore_cfg:
     persistence: 0.9
-    turn_sigma: 0.15
+    turn_sigma: 0.1
     target_speed: 6
     speed_sigma: 0.03
     speed_smooth: 0.4
@@ -55,7 +55,7 @@ LPOI_CFG:
 
   explore_cfg:
     persistence: 0.9
-    turn_sigma: 0.15
+    turn_sigma: 0.1
     target_speed: 6
     speed_sigma: 1
     speed_smooth: 0.2
