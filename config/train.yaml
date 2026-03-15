@@ -14,7 +14,7 @@ model:
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
-    gamma: 0.95
+    gamma: 0.99
     actor_lr: 0.0003
     critic_lr: 0.0003
     gae_lambda: 0.95
@@ -49,7 +49,7 @@ animal:
   env:
     count: 1
     arousal_alpha: 0.10
-    boost_noise_std: 0.2
+    boost_noise_std: 0.0
 
     # state thresholds
     avoid_threshold: 0.30

@@ -2,7 +2,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from .disturbance import disturbance_gain, disturbance_gain_alt
+from .disturbance import disturbance_gain_alt
 from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
@@ -199,6 +199,7 @@ class Env:
         self.disturbance_sum = 0.0
 
         self.set_seed(seed)
+        self.disturbance_profile = self._sample_disturbance_profile()
         self.resource_map = self._create_resource_map()
 
         self._init_animal()
@@ -522,7 +523,11 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec)
 
-                gain = disturbance_gain_alt(rel_vec, field_boost=animal.field_boost) * drone.disturbance_mult
+                gain = disturbance_gain_alt(
+                    rel_vec,
+                    profile=self.disturbance_profile,
+                    field_boost=animal.field_boost,
+                ) * drone.disturbance_mult
 
                 disturbances.append(gain)
 
@@ -615,6 +620,26 @@ class Env:
         self.reward_stats["r_vis"] += r_vis
 
         return final_reward
+    
+    def _sample_disturbance_profile(self):
+        rng = self.env_rng
+
+        h1 = rng.uniform(15, 25)
+        h2 = rng.uniform(max(h1 + 5, 40), 65)
+        h3 = rng.uniform(max(h2 + 10, 90), 140)
+        h4 = rng.uniform(max(h3 + 50, 420), 550)
+
+        v1 = rng.uniform(15, 25)
+        v2 = rng.uniform(max(v1 + 5, 35), 55)
+        v3 = rng.uniform(max(v2 + 10, 90), 140)
+        v4 = rng.uniform(max(v3 + 50, 420), 550)
+
+        return {
+            "horizontal_points": [(h1, 1.0), (h2, 0.8), (h3, 0.1), (h4, 0.0)],
+            "altitude_points": [(v1, 1.0), (v2, 0.4), (v3, 0.1), (v4, 0.0)],
+            "angle_weight": rng.uniform(0.2, 0.8),
+            "base_weight": rng.uniform(0.8, 1.2),
+        }
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:

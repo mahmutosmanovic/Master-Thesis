@@ -253,17 +253,26 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None)
 
 def plot_results(base_rewards, rl_rewards):
 
-    plt.figure(figsize=(7, 5))
+    plt.figure(figsize=(10, 5))
 
     rl_mean = rl_rewards.mean()
     rl_std = rl_rewards.std()
 
-    xmin = rl_rewards.min()
-    xmax = rl_rewards.max()
+    rl_min = rl_mean - 4 * rl_std
+    rl_max = rl_mean + 4 * rl_std
 
     if base_rewards is not None:
-        xmin = min(xmin, base_rewards.min())
-        xmax = max(xmax, base_rewards.max())
+        base_mean = base_rewards.mean()
+        base_std = base_rewards.std()
+
+        base_min = base_mean - 4 * base_std
+        base_max = base_mean + 4 * base_std
+
+        xmin = min(rl_min, base_min)
+        xmax = max(rl_max, base_max)
+    else:
+        xmin = rl_min
+        xmax = rl_max
 
     x = np.linspace(xmin, xmax, 400)
 
@@ -277,15 +286,12 @@ def plot_results(base_rewards, rl_rewards):
         rl_pdf,
         color="tab:red",
         linewidth=2,
-        label=f"RL (μ={rl_mean:.3f}, σ={rl_std:.3f})",
+        label=f"PPO (μ={rl_mean:.3f}, σ={rl_std:.3f})",
     )
 
     plt.fill_between(x, rl_pdf, alpha=0.2, color="tab:red")
 
     if base_rewards is not None:
-
-        base_mean = base_rewards.mean()
-        base_std = base_rewards.std()
 
         base_pdf = (
             1 / (base_std * np.sqrt(2 * np.pi))
@@ -297,18 +303,14 @@ def plot_results(base_rewards, rl_rewards):
             base_pdf,
             color="tab:blue",
             linewidth=2,
-            label=f"Baseline (μ={base_mean:.3f}, σ={base_std:.3f})",
+            label=f"CentroidStandoff (μ={base_mean:.3f}, σ={base_std:.3f})",
         )
 
         plt.fill_between(x, base_pdf, alpha=0.2, color="tab:blue")
 
     plt.xlabel("Normalized Episode Reward")
     plt.ylabel("Probability Density")
-
-    if base_rewards is None:
-        plt.title("RL Reward Distribution")
-    else:
-        plt.title("Reward Distribution (Baseline vs RL)")
+    plt.title("Reward Distribution (CentroidStandoff vs PPO)")
 
     plt.legend()
     plt.grid(alpha=0.25)
@@ -317,7 +319,6 @@ def plot_results(base_rewards, rl_rewards):
     plt.savefig("./figures/baseline.png", dpi=200, bbox_inches="tight")
 
     plt.close()
-
 
 def _init_argparse():
 
