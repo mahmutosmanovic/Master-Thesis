@@ -558,8 +558,6 @@ class Env:
         r_dist = 0.0
         r_align = 0.0
 
-        visible_any = False
-
         ALIGN_DEADZONE = 0.10
         DIST_EXP = 2.0
         ALIGN_EXP = 2.0
@@ -581,8 +579,6 @@ class Env:
             r_vis += np.sum(in_view) / self.animal_count
 
             if np.any(visible):
-                visible_any = True
-
                 # distance shaping
                 dist_term = 1.0 - dist[visible]
                 r_dist += np.mean(dist_term ** DIST_EXP)
@@ -607,11 +603,9 @@ class Env:
         rew_components = [r_dist, r_align]
         monitor_reward = sum(rew_components) / len(rew_components)
 
-        final_reward = monitor_reward - 1.5*p_disturbance
-
-        # penalty if nothing visible
-        if not visible_any:
-            final_reward -= 0.2
+        weights = np.array([0.4, 0.6])
+        comps = np.array([monitor_reward, -p_disturbance])
+        final_reward = np.dot(weights, comps)
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += p_disturbance
