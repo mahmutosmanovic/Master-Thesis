@@ -358,7 +358,7 @@ def main():
     
     if args.plot_rewards:
         if baseline is not None:
-            reward_plot_path = plot_eval_reward_distribution(eval_dir)
+            reward_plot_path = plot_eval_reward_distribution(eval_dir, args.num_episodes)
 
     if args.plot_heatmaps:
         rl_heatmap_path = plot_policy_heatmap_from_csv(eval_dir / f"{agent_type}.csv")

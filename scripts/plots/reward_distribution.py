@@ -33,6 +33,7 @@ def plot_results(
     base_rewards,
     rl_rewards,
     out_path,
+    n,
     rl_label="ppo",
     baseline_label="CentroidStandoff",
 ):
@@ -80,7 +81,7 @@ def plot_results(
     plt.xlim(xmin, xmax)
     plt.xlabel("Normalized Episode Reward")
     plt.ylabel("Probability Density")
-    plt.title(f"Reward Distribution ({baseline_label} vs {rl_label})")
+    plt.title(f"Reward Distribution ({baseline_label} vs {rl_label}) (n={n})")
     plt.legend()
     plt.grid(alpha=0.25)
 
@@ -88,7 +89,7 @@ def plot_results(
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_eval_reward_distribution(eval_dir):
+def plot_eval_reward_distribution(eval_dir, n):
     eval_dir = Path(eval_dir)
 
     rl_csv, baseline_csv = get_episode_csvs(eval_dir)
@@ -102,6 +103,7 @@ def plot_eval_reward_distribution(eval_dir):
         base_rewards,
         rl_rewards,
         out_path,
+        n,
         rl_label=rl_csv.stem.replace("_ep", ""),
         baseline_label=baseline_csv.stem.replace("_ep", ""),
     )
