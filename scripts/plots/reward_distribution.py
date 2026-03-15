@@ -29,22 +29,24 @@ def get_episode_csvs(eval_dir):
 
     return rl_csv, baseline_csv
 
-def plot_results(base_rewards, rl_rewards, out_path, rl_label="RL", baseline_label="Baseline"):
-    plt.figure(figsize=(7, 5))
+def plot_results(
+    base_rewards,
+    rl_rewards,
+    out_path,
+    rl_label="ppo",
+    baseline_label="CentroidStandoff",
+):
+    plt.figure(figsize=(10, 5))
 
     rl_mean = rl_rewards.mean()
     rl_std = rl_rewards.std()
 
-    xmin = rl_rewards.min()
-    xmax = rl_rewards.max()
-
-    xmin = min(xmin, base_rewards.min())
-    xmax = max(xmax, base_rewards.max())
-
-    x = np.linspace(xmin, xmax, 400)
+    # draw over the full normalized reward range
+    xmin, xmax = -1.0, 1.0
+    x = np.linspace(xmin, xmax, 1000)
 
     rl_pdf = (
-        1 / (rl_std * np.sqrt(2 * np.pi))
+        1.0 / (rl_std * np.sqrt(2 * np.pi))
         * np.exp(-0.5 * ((x - rl_mean) / rl_std) ** 2)
     )
 
@@ -57,30 +59,32 @@ def plot_results(base_rewards, rl_rewards, out_path, rl_label="RL", baseline_lab
     )
     plt.fill_between(x, rl_pdf, alpha=0.2, color="tab:red")
 
-    base_mean = base_rewards.mean()
-    base_std = base_rewards.std()
+    if base_rewards is not None:
+        base_mean = base_rewards.mean()
+        base_std = base_rewards.std()
 
-    base_pdf = (
-        1 / (base_std * np.sqrt(2 * np.pi))
-        * np.exp(-0.5 * ((x - base_mean) / base_std) ** 2)
-    )
+        base_pdf = (
+            1.0 / (base_std * np.sqrt(2 * np.pi))
+            * np.exp(-0.5 * ((x - base_mean) / base_std) ** 2)
+        )
 
-    plt.plot(
-        x,
-        base_pdf,
-        color="tab:blue",
-        linewidth=2,
-        label=f"{baseline_label} (μ={base_mean:.3f}, σ={base_std:.3f})",
-    )
-    plt.fill_between(x, base_pdf, alpha=0.2, color="tab:blue")
+        plt.plot(
+            x,
+            base_pdf,
+            color="tab:blue",
+            linewidth=2,
+            label=f"{baseline_label} (μ={base_mean:.3f}, σ={base_std:.3f})",
+        )
+        plt.fill_between(x, base_pdf, alpha=0.2, color="tab:blue")
 
+    plt.xlim(xmin, xmax)
     plt.xlabel("Normalized Episode Reward")
     plt.ylabel("Probability Density")
     plt.title(f"Reward Distribution ({baseline_label} vs {rl_label})")
     plt.legend()
     plt.grid(alpha=0.25)
 
-    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
