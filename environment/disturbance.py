@@ -322,6 +322,6 @@ def component_plots(profile=None, field_boost=0.0):
 if __name__ == "__main__":
     # angle_plot()
     # distance_plot()
-    angle_distance_plot(field_boost=10)
+    angle_distance_plot(field_boost=0)
     # component_plots()
     # plot_gains()

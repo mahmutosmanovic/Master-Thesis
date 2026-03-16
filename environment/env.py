@@ -447,7 +447,15 @@ class Env:
             altitude = drone.pos.to_numpy()[2]
             altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
-            drone_features = [x[0], x[1], x[2], altitude_norm]
+            v = drone.vel_dir.to_numpy() * drone.vel_speed
+            v_norm = drone.vel_speed / (drone.max_speed + 1e-8)
+
+            drone_features = [
+                x[0], x[1], x[2],
+                altitude_norm,
+                v[0], v[1], v[2],
+                v_norm,
+            ]
 
             y = np.cross(world_z, x)
             y = y / (np.linalg.norm(y) + 1e-8)
@@ -479,25 +487,37 @@ class Env:
 
                 animal_vel = animal.vel_dir.to_numpy().astype(np.float32) * float(animal.vel_speed)
 
+                is_calm, is_avoid, is_flee = self._encode_animal_state(animal.state)
+
                 if in_view:
                     animal_features.extend([
                         1.0,
-                        distance / drone.view_range,
+                        distance / (drone.view_range + 1e-8),
                         v_angle / (v_max + 1e-8),
                         h_angle / (h_max + 1e-8),
                         animal_vel[0],
                         animal_vel[1],
                         animal_vel[2],
+                        float(animal.disturbance),
+                        float(animal.arousal),
+                        is_calm,
+                        is_avoid,
+                        is_flee,
                     ])
                 else:
                     animal_features.extend([
                         0.0,
-                        1.0,
                         0.0,
                         0.0,
-                        animal_vel[0],
-                        animal_vel[1],
-                        animal_vel[2],
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
                     ])
 
             obs_all.append(np.array(drone_features + animal_features, dtype=np.float32))
@@ -558,6 +578,7 @@ class Env:
         r_dist = 0.0
         r_align = 0.0
 
+        visible_any = False
         ALIGN_DEADZONE = 0.10
         DIST_EXP = 2.0
         ALIGN_EXP = 2.0
@@ -579,6 +600,8 @@ class Env:
             r_vis += np.sum(in_view) / self.animal_count
 
             if np.any(visible):
+                visible_any = True
+
                 # distance shaping
                 dist_term = 1.0 - dist[visible]
                 r_dist += np.mean(dist_term ** DIST_EXP)
@@ -603,9 +626,8 @@ class Env:
         rew_components = [r_dist, r_align]
         monitor_reward = sum(rew_components) / len(rew_components)
 
-        weights = np.array([0.4, 0.6])
-        comps = np.array([monitor_reward, -p_disturbance])
-        final_reward = np.dot(weights, comps)
+        lambda_disturb = 1
+        final_reward = monitor_reward - lambda_disturb * p_disturbance
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += p_disturbance
@@ -614,6 +636,24 @@ class Env:
         self.reward_stats["r_vis"] += r_vis
 
         return final_reward
+
+    def _state_from_arousal(self, arousal):
+        if arousal > self.config.animal.env.flee_threshold:
+            return "flee"
+        elif arousal > self.config.animal.env.avoid_threshold:
+            return "avoid"
+        return "calm"
+
+
+    def _encode_animal_state(self, state):
+        if state == "calm":
+            return 1.0, 0.0, 0.0
+        elif state == "avoid":
+            return 0.0, 1.0, 0.0
+        elif state == "flee":
+            return 0.0, 0.0, 1.0
+        else:
+            return 1.0, 0.0, 0.0
     
     def _sample_disturbance_profile(self):
         rng = self.env_rng
@@ -639,7 +679,7 @@ class Env:
         if self._env_steps >= self.config["max_episode_steps"]:
             return True
 
-        animal_obs = observations[:, 4:].reshape(
+        animal_obs = observations[:, self.drone_feature_count:].reshape(
             self.drone_count,
             self.animal_count,
             self.animal_feature_count

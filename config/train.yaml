@@ -9,8 +9,8 @@ model:
 
   space:
     n_actions: 5
-    drone_features: 4
-    animal_features: 7
+    drone_features: 8
+    animal_features: 12
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
