@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-configs=("PDPS0" "PDPS025" "PDPS05" "PDPS1" "PDPS2" "PDPS4" "PDPS8")
+configs=("PDPS0" "PDPS025" "PDPS035" "PDPS05" "PDPS07" "PDPS1" "PDPS14" "PDPS2" "PDPS28")
 max_jobs=3
 
 manifest="pareto/runs_manifest_$(date +%Y%m%d_%H%M%S).csv"

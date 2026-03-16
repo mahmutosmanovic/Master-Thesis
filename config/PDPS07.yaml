@@ -63,7 +63,7 @@ max_speed_relief: 0.0
 max_axis_relief: 0.5
 
 # reward
-disturbance_penalty_scale: 4.0
+disturbance_penalty_scale: 0.7
 p_vel_scale: 0.1
 p_theta_scale: 0.1
 
