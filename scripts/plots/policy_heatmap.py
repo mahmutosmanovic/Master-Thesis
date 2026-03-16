@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 
@@ -81,6 +82,113 @@ def plot_policy_heatmap_from_csv(csv_path, bins=80):
     r_vals, z_vals = load_positions_from_csv(csv_path)
     out_path = make_output_path(csv_path)
     plot_heatmap(r_vals, z_vals, out_path, bins=bins)
+    return out_path
+
+def plot_reward_heatmap_from_csv(
+    csv_path,
+    bins=80,
+    cmap="YlGn",
+    vmin=0.0,
+    vmax=1.0,
+    use_radial=True,
+):
+    """
+    Plot a dense reward heatmap similar in style to the visitation heatmap.
+
+    Color in each bin = mean step reward of drone positions in that bin.
+    Unvisited bins are filled with vmin so the whole plot is rendered.
+    """
+
+    csv_path = Path(csv_path)
+    df = pd.read_csv(csv_path)
+
+    # keep drone rows only
+    df = df[df["entity_type"] != "animal"].copy()
+
+    # numeric conversion
+    for col in ["x", "y", "z", "reward"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["x", "y", "z", "reward"])
+
+    if len(df) == 0:
+        raise ValueError(f"No valid drone rows with reward found in {csv_path}")
+
+    x = df["x"].to_numpy(dtype=float)
+    y = df["y"].to_numpy(dtype=float)
+    z = df["z"].to_numpy(dtype=float)
+    reward = np.clip(df["reward"].to_numpy(dtype=float), vmin, vmax)
+
+    if use_radial:
+        x_plot = np.sqrt(x**2 + y**2)
+        y_plot = z
+        xlabel = "Radial Distance (√(x²+y²))"
+        ylabel = "Altitude (z)"
+        title = "Mean Reward Heatmap (Radial Distance vs Altitude)"
+        suffix = "_reward_heatmap_rz.png"
+    else:
+        x_plot = x
+        y_plot = y
+        xlabel = "x"
+        ylabel = "y"
+        title = "Mean Reward Heatmap (x vs y)"
+        suffix = "_reward_heatmap_xy.png"
+
+    x_max = np.max(x_plot)
+    y_max = np.max(y_plot)
+
+    if x_max <= 0:
+        x_max = 1.0
+    if y_max <= 0:
+        y_max = 1.0
+
+    # weighted reward sum
+    reward_sum, _, _ = np.histogram2d(
+        x_plot,
+        y_plot,
+        bins=bins,
+        range=[[0, x_max], [0, y_max]],
+        weights=reward,
+    )
+
+    # visit count
+    counts, _, _ = np.histogram2d(
+        x_plot,
+        y_plot,
+        bins=bins,
+        range=[[0, x_max], [0, y_max]],
+    )
+
+    # dense matrix: unvisited bins take vmin so whole background is colored
+    mean_reward = np.full_like(reward_sum, fill_value=vmin, dtype=float)
+    visited = counts > 0
+    mean_reward[visited] = reward_sum[visited] / counts[visited]
+
+    plt.figure(figsize=(7, 6))
+
+    plt.imshow(
+        mean_reward.T,
+        origin="lower",
+        aspect="auto",
+        extent=[0, x_max, 0, y_max],
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+
+    cbar = plt.colorbar()
+    cbar.set_label("Mean Step Reward")
+
+    out_path = csv_path.with_name(csv_path.stem + suffix)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
     return out_path
 
 def _init_argparse():

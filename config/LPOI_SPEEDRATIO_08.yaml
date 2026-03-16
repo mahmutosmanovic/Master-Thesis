@@ -1,0 +1,77 @@
+# Environment
+dt: 0.1
+max_episode_steps: 2048
+
+# Model
+model:
+  path: checkpoints
+  mode: train
+
+  space:
+    n_actions: 5
+    drone_features: 4
+    animal_features: 7
+    action_type: rel # [rel, abs] rel -> relative to camera view direction
+
+  optimization:
+    gamma: 0.98
+    actor_lr: 0.0003
+    critic_lr: 0.0003
+    gae_lambda: 0.95
+    policy_clip: 0.1
+    val_loss_coef: 0.5
+    entropy_start_coef: 0.005
+    entropy_end_coef: 0.005
+
+  sampling:
+    total_timesteps: 2_000_000
+    rollout_steps: 4096
+    mini_batch_size: 128
+    n_epochs: 4
+
+# Drone configuration
+drone:
+  large:
+    count: 1
+    view_range: 200
+    disturbance_mult: 1.0 # [0,1]
+    min_speed: 0
+    max_speed: 15
+    ver_angle: 90
+    hor_angle: 140
+    max_cam_rot: 90
+    spawn_dist: [40, 100]
+    view_dir: [1, 0, -0.7]
+    max_altitude: 150
+
+# Animal configuration
+animal:
+  env:
+    count: 1
+
+  init:
+    min_speed: 0
+    max_speed: 12
+    behavior: LPOI_CFG        # mapped -> POI_CFG()
+    movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
+    max_spawn_radius: 200
+
+# Disturbance model
+max_angle_relief: 0.5
+max_heading_relief: 0.5
+max_speed_relief: 0.0
+max_axis_relief: 0.5
+
+# reward
+disturbance_penalty_scale: 0.5
+p_vel_scale: 0.1
+p_theta_scale: 0.1
+
+# Resource model
+resource:
+  p_wavelenght: 200
+  p_reduction: 0.2
+  p_scale: 0.4
+  sample_res: 5
+  kernel_size: 250
+  min_poi_p: 1.0e-2

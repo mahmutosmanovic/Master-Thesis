@@ -58,6 +58,10 @@ class Env:
         self.view_bucket_counts = np.zeros((self.animal_count, 4), dtype=np.float32)
         self.view_bucket_totals = np.zeros(self.animal_count, dtype=np.float32)
 
+        # eval log
+        self.enable_step_logging = False
+        self.last_step_stats = {}
+
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
             return None
@@ -164,6 +168,19 @@ class Env:
             "r_align": 0,
             "r_bucket": 0,
         }
+        if self.enable_step_logging:
+            self.last_step_stats = {
+                "reward": 0.0,
+                "calm_frac": 0.0,
+                "avoid_frac": 0.0,
+                "flee_frac": 0.0,
+                "mean_disturbance": 0.0,
+                "r_monitoring": 0.0,
+                "p_disturbance": 0.0,
+                "r_vis": 0.0,
+                "r_dist": 0.0,
+                "r_align": 0.0,
+            }
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
@@ -745,6 +762,24 @@ class Env:
         self.reward_stats["r_align"] += r_align
         self.reward_stats["r_bucket"] += r_bucket
 
+        if self.enable_step_logging:
+            behavior_counts = {"calm":0,"avoid":0,"flee":0}
+            for animal in self.animals:
+                behavior_counts[animal.state] += 1
+            n = max(self.animal_count, 1)
+            self.last_step_stats = {
+                "reward": float(final_reward),
+                "calm_frac": behavior_counts["calm"]/n,
+                "avoid_frac": behavior_counts["avoid"]/n,
+                "flee_frac": behavior_counts["flee"]/n,
+                "mean_disturbance": float(np.mean([a.disturbance for a in self.animals])),
+                "r_monitoring": float(monitor_reward),
+                "p_disturbance": float(disturbance_penalty),
+                "r_vis": float(r_vis),
+                "r_dist": float(r_dist),
+                "r_align": float(r_align),
+            }
+
         return final_reward
 
     # def compute_reward(self, observations, actions):
@@ -929,6 +964,7 @@ class Env:
                 "bucket_left": "",
                 "bucket_back": "",
                 "bucket_right": "",
+                **self.last_step_stats
             })
 
         return rows

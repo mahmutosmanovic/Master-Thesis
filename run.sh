@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-configs=("CRW" "EE" "POI" "LPOI" "REPLAY")
-max_jobs=2
+configs=("LPOI")
+max_jobs=1
 
 for cfg in "${configs[@]}"
 do
@@ -24,6 +24,7 @@ do
         --baseline centroid \
         --num-episodes 100 \
         --start-seed 42 \
+        --weights last \
         --plot-rewards \
         --plot-heatmaps
 

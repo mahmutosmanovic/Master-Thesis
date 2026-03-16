@@ -13,8 +13,7 @@ from model import PPOAgent, MAPPOAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
-from .plots.policy_heatmap import plot_policy_heatmap_from_csv
-
+from .plots.policy_heatmap import plot_policy_heatmap_from_csv, plot_reward_heatmap_from_csv
 
 BASELINES = {
     "centroid": CentroidStandoff,
@@ -33,10 +32,20 @@ STEP_LOG_FIELDS = [
     "vz",
     "speed",
     "state",
+    "reward",
+    "calm_frac",
+    "avoid_frac",
+    "flee_frac",
     "disturbance",
     "view_x",
     "view_y",
     "view_z",
+    "mean_disturbance",
+    "r_monitoring",
+    "p_disturbance",
+    "r_vis",
+    "r_dist",
+    "r_align",
 ]
 
 EPISODE_LOG_FIELDS = [
@@ -45,7 +54,6 @@ EPISODE_LOG_FIELDS = [
     "calm_frac",
     "avoid_frac",
     "flee_frac",
-    "mean_disturbance",
     "r_monitoring",
     "p_disturbance",
     "r_vis",
@@ -380,6 +388,7 @@ def main():
     config = Box(cfg)
 
     env = Env(config)
+    env.enable_step_logging = True
 
     agent, agent_type = init_agent(config, run_dir, args.weights)
 
@@ -426,15 +435,34 @@ def main():
     
     if args.plot_rewards:
         if baseline is not None:
-            reward_plot_path = plot_eval_reward_distribution(eval_dir)
+            _ = plot_eval_reward_distribution(eval_dir)
 
     if args.plot_heatmaps:
-        rl_heatmap_path = plot_policy_heatmap_from_csv(eval_dir / f"{agent_type}.csv")
+        rl_csv = eval_dir / f"{agent_type}.csv"
+
+        _ = plot_policy_heatmap_from_csv(rl_csv)
+        _ = plot_reward_heatmap_from_csv(
+            rl_csv,
+            bins=60,
+            cmap="jet",
+            vmin=0.0,
+            vmax=1.0,
+            use_radial=True,
+        )
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
-            baseline_heatmap_path = plot_policy_heatmap_from_csv(baseline_csv)
-    
+
+            _ = plot_policy_heatmap_from_csv(baseline_csv)
+            _ = plot_reward_heatmap_from_csv(
+                baseline_csv,
+                bins=60,
+                cmap="jet",
+                vmin=0.0,
+                vmax=1.0,
+                use_radial=True,
+            )
+
     print(f"EVAL_DIR::{eval_dir.name}")
 
 if __name__ == "__main__":
