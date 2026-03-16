@@ -51,7 +51,7 @@ animal:
 
   init:
     min_speed: 0
-    max_speed: 3
+    max_speed: 6
     behavior: LPOI_CFG        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
     max_spawn_radius: 200
@@ -60,7 +60,7 @@ animal:
 max_angle_relief: 0.5
 max_heading_relief: 0.5
 max_speed_relief: 0.0
-max_axis_relief: 0.5
+max_axis_relief: 0.0
 
 # reward
 disturbance_penalty_scale: 1.0

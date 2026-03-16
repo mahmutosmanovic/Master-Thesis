@@ -2,7 +2,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from .disturbance import disturbance_gain, disturbance_gain_alt, disturbance_gain_alt_alt
+from .disturbance import disturbance_gain
 from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
@@ -557,10 +557,6 @@ class Env:
                         v_cam_x,
                         v_cam_y,
                         v_cam_z,
-                        # bucket_fracs[0],
-                        # bucket_fracs[1],
-                        # bucket_fracs[2],
-                        # bucket_fracs[3],
                     ])
                 else:
                     animal_features.extend([
@@ -571,10 +567,6 @@ class Env:
                         0.0,
                         0.0,
                         0.0,
-                        # bucket_fracs[0],
-                        # bucket_fracs[1],
-                        # bucket_fracs[2],
-                        # bucket_fracs[3],
                     ])
 
             obs_all.append(np.array(drone_features + animal_features, dtype=np.float32))
@@ -600,17 +592,7 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec)
 
-                # gain = disturbance_gain_alt(rel_vec) * drone.disturbance_mult
-
-                gain = disturbance_gain_alt_alt(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
-
-                # gain = disturbance_gain(
-                #     rel_vec,
-                #     drone.vel_dir.to_numpy(),
-                #     drone.vel_speed,
-                #     animal.vel_dir.to_numpy(),
-                #     self.config
-                # ) * drone.disturbance_mult
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
 
                 disturbances.append(gain)
 
@@ -718,13 +700,6 @@ class Env:
         p_theta /= self.drone_count
 
         # disturbance/state penalty
-        state_penalty_dict = {"calm": 0.0, "avoid": 0.5, "flee": 1.0}
-        animal_states = np.array(
-            [state_penalty_dict[animal.state] for animal in self.animals],
-            dtype=np.float32
-        )
-        p_animal_state = float(np.mean(animal_states))
-
         animal_disturbances = np.array(
             [animal.disturbance for animal in self.animals],
             dtype=np.float32
@@ -781,79 +756,6 @@ class Env:
             }
 
         return final_reward
-
-    # def compute_reward(self, observations, actions):
-    #     r_vis = 0.0
-    #     r_dist = 0.0
-    #     r_align = 0.0
-
-    #     visible_any = False
-
-    #     ALIGN_DEADZONE = 0.10
-    #     DIST_EXP = 2.0
-    #     ALIGN_EXP = 2.0
-
-    #     for d in range(self.drone_count):
-    #         drone_obs = observations[d]
-
-    #         # 11 features per animal:
-    #         # [in_view, dist_norm, v_angle, h_angle, velx, vely, velz, b0, b1, b2, b3]
-    #         animal_obs = drone_obs[4:].reshape(self.animal_count, 11)
-
-    #         in_view = animal_obs[:, 0]
-    #         dist = animal_obs[:, 1]
-    #         v = np.abs(animal_obs[:, 2])
-    #         h = np.abs(animal_obs[:, 3])
-
-    #         visible = in_view == 1.0
-
-    #         # visibility reward
-    #         r_vis += np.sum(in_view) / self.animal_count
-
-    #         if np.any(visible):
-    #             visible_any = True
-
-    #             # distance shaping
-    #             dist_term = 1.0 - dist[visible]
-    #             r_dist += np.mean(dist_term ** DIST_EXP)
-
-    #             # alignment with dead-zone
-    #             v_vis = np.maximum(0.0, v[visible] - ALIGN_DEADZONE)
-    #             h_vis = np.maximum(0.0, h[visible] - ALIGN_DEADZONE)
-
-    #             align_term = 1.0 - 0.5 * (v_vis + h_vis)
-    #             align_term = np.clip(align_term, 0.0, 1.0)
-
-    #             r_align += np.mean(align_term ** ALIGN_EXP)
-
-    #     # normalize across drones
-    #     r_vis /= self.drone_count
-    #     r_dist /= self.drone_count
-    #     r_align /= self.drone_count
-
-    #     # disturbance/state penalty
-    #     p_disturbance = float(np.mean([animal.disturbance for animal in self.animals]))
-
-    #     # bucket coverage reward
-    #     r_bucket = self._bucket_balance_score()
-
-    #     rew_components = [r_dist, r_align, r_bucket]
-    #     monitor_reward = sum(rew_components) / len(rew_components)
-
-    #     final_reward = monitor_reward - p_disturbance
-
-    #     # penalty if nothing visible
-    #     if not visible_any:
-    #         final_reward -= 0.2
-
-    #     self.reward_stats["r_monitoring"] += monitor_reward
-    #     self.reward_stats["p_disturbance"] += p_disturbance
-    #     self.reward_stats["r_dist"] += r_dist
-    #     self.reward_stats["r_align"] += r_align
-    #     self.reward_stats["r_bucket"] += r_bucket
-    #     self.reward_stats["r_vis"] += r_vis
-
-    #     return final_reward
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:

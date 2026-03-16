@@ -1,34 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Spatial Gain Functions (scalar: one animal–drone pair)
-def disturbance_gain(dist_vec, drone_vel_dir, drone_vel_speed, animal_vel_dir, config):
-    """
-    Combined disturbance for one animal-drone pair.
-    """
-
-    g_altitude = altitude_gain(dist_vec)
-    g_horizontal = horizontal_gain(dist_vec)
-
-    g_angle = np.clip(angle_gain(dist_vec), 0.0, 1.0)
-    g_heading = np.clip(heading_gain(dist_vec, drone_vel_dir), 0.0, 1.0)
-    g_speed = np.clip(speed_gain(drone_vel_speed), 0.0, 1.0)
-    g_axis = np.clip(animal_axis_gain(dist_vec, animal_vel_dir), 0.0, 1.0)
-
-    base = g_horizontal * g_altitude
-
-    angle_boost = g_angle * config.max_angle_boost
-    heading_boost = g_heading * config.max_heading_boost
-    speed_boost = g_speed * config.max_speed_boost
-    axis_boost = g_axis * config.max_axis_boost
-
-    multiplier = 1 + angle_boost + heading_boost + speed_boost + axis_boost
-
-    D = base * multiplier
-
-    return D
-
-def disturbance_gain_alt_alt(dist_vec, drone_vel_dir, animal_vel_dir, config):
+def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
     g_h = horizontal_gain(dist_vec)
     g_v = altitude_gain(dist_vec)
@@ -43,19 +16,6 @@ def disturbance_gain_alt_alt(dist_vec, drone_vel_dir, animal_vel_dir, config):
     base = g_h * g_v
     
     D = base * ((1-angle_re) * (1-heading_re) * (1-axis_re))
-    return D
-
-def disturbance_gain_alt(dist_vec):
-
-    g_h = horizontal_gain(dist_vec)
-    g_v = altitude_gain(dist_vec)
-    g_a = angle_gain(dist_vec)
-
-    base = g_h * g_v
-    comps = [g_a]
-
-    D = (base + sum(comps)) / (len(comps) + 1)
-    
     return D
 
 def altitude_gain(dist_vec):
