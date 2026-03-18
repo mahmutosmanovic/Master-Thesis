@@ -46,11 +46,6 @@ class Env:
         self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
-        # needs proper fix
-        self.scale_factor = sum(
-            [drone_type.count * drone_type.disturbance_mult for drone_type in self.config.drone.values()]
-        )
-
         self._env_steps = 0
         self.episode = -1
 
@@ -61,6 +56,10 @@ class Env:
         # eval log
         self.enable_step_logging = False
         self.last_step_stats = {}
+
+        # disturbance
+        self.base_disturbance_params_std = np.array([0.2, 0.2, 0.2, 0.2])
+        self.base_disturbance_params = self._sample_base_disturbance_params()
 
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
@@ -193,6 +192,7 @@ class Env:
 
         self._init_animal()
         self._init_drone()
+        self.base_disturbance_params = self._sample_base_disturbance_params()
 
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
@@ -481,7 +481,7 @@ class Env:
         Updates per-animal angular coverage counts using current visibility.
         Only visible observations count toward coverage.
         """
-        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 7)
+        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 10)
 
         for d, drone in enumerate(self.drones):
             for a, animal in enumerate(self.animals):
@@ -496,6 +496,19 @@ class Env:
                 self.view_bucket_counts[a, bucket] += 1.0
                 self.view_bucket_totals[a] += 1.0
 
+    def _sample_base_disturbance_params(self):
+        params = self.env_rng.normal(1.0, self.base_disturbance_params_std, size=4)
+        return params
+
+    def _compute_visual_markers(self, D):
+        noise = self.env_rng.normal(0.0, 0.1, size=3)
+
+        m1 = np.clip(D + noise[0], 0.0, 1.0)
+        m2 = np.clip(D**2 + noise[1], 0.0, 1.0)
+        m3 = np.clip(np.sqrt(D) + noise[2], 0.0, 1.0)
+
+        return np.array([m1, m2, m3], dtype=np.float32)
+    
     def _build_observations(self, geometry):
         obs_all = []
         world_z = np.array([0, 0, 1], dtype=np.float32)
@@ -546,7 +559,7 @@ class Env:
                 v_cam_y = np.dot(animal_vel, y)
                 v_cam_z = np.dot(animal_vel, z)
 
-                bucket_fracs = self._animal_bucket_fractions(a)
+                visual_markers = self._compute_visual_markers(animal.disturbance)
 
                 if in_view:
                     animal_features.extend([
@@ -557,6 +570,7 @@ class Env:
                         v_cam_x,
                         v_cam_y,
                         v_cam_z,
+                        *visual_markers
                     ])
                 else:
                     animal_features.extend([
@@ -567,6 +581,7 @@ class Env:
                         0.0,
                         0.0,
                         0.0,
+                        *([0.0] * len(visual_markers))
                     ])
 
             obs_all.append(np.array(drone_features + animal_features, dtype=np.float32))
@@ -592,7 +607,7 @@ class Env:
 
                 escape_vecs.append(unit_escape_vec)
 
-                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config) * drone.disturbance_mult
+                gain = disturbance_gain(rel_vec, drone.vel_dir.to_numpy(), animal.vel_dir.to_numpy(), self.config, self.base_disturbance_params) * drone.disturbance_mult
 
                 disturbances.append(gain)
 
@@ -660,7 +675,7 @@ class Env:
 
             # 11 features per animal:
             # [in_view, dist_norm, v_angle, h_angle, velx, vely, velz]
-            animal_obs = drone_obs[4:].reshape(self.animal_count, 7)
+            animal_obs = drone_obs[4:].reshape(self.animal_count, 10)
 
             in_view = animal_obs[:, 0]
             dist = animal_obs[:, 1]
@@ -757,14 +772,16 @@ class Env:
 
         return final_reward
 
-    def _check_termination(self, observations):
+    def _terminate_lenght(self):
         if self._env_steps >= self.config["max_episode_steps"]:
             return True
-
+        return False
+    
+    def _terminate_visibility(self, observations):
         animal_obs = observations[:, 4:].reshape(
             self.drone_count,
             self.animal_count,
-            7
+            10
         )
 
         visible = animal_obs[:, :, 0] == 1.0
@@ -772,10 +789,8 @@ class Env:
 
         visible_count = np.sum(animal_visible)
 
-        # terminate episode if 50% of animals are not visible
         if visible_count < (self.animal_count * 0.5):
             return True
-
         return False
 
     def step(self, actions):
@@ -805,11 +820,15 @@ class Env:
         reward = self.compute_reward(observations, actions)
 
         # 5. termination and truncation
-        terminated = segment_complete or self._check_termination(observations)
-        truncated = False
+        over_time = self._terminate_lenght()
+        lost_tracking = self._terminate_visibility(observations)
+        terminated = lost_tracking
+        truncated = over_time or segment_complete
 
         info = {
             "fov": observations,
+            "disturbance": float(np.mean([a.disturbance for a in self.animals])),
+            "track_loss": lost_tracking,
         }
 
         if self.render_mode is not None:

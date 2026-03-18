@@ -10,7 +10,7 @@ model:
   space:
     n_actions: 5
     drone_features: 4
-    animal_features: 7
+    animal_features: 10
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
@@ -61,6 +61,10 @@ max_angle_relief: 0.5
 max_heading_relief: 0.5
 max_speed_relief: 0.0
 max_axis_relief: 0.5
+h1_scale_std: 0.1
+h2_scale_std: 0.1
+v1_scale_std: 0.1
+v2_scale_std: 0.1
 
 # reward
 disturbance_penalty_scale: 1

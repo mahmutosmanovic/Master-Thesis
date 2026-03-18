@@ -1,10 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
+def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config, base_disturbance_parameters=None):
 
-    g_h = horizontal_gain(dist_vec)
-    g_v = altitude_gain(dist_vec)
+    if base_disturbance_parameters is None:
+        base_disturbance_parameters = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    h1_scale, h2_scale, v1_scale, v2_scale = base_disturbance_parameters
+
+    g_h = horizontal_gain(dist_vec, h1_scale=h1_scale, h2_scale=h2_scale)
+    g_v = altitude_gain(dist_vec, v1_scale=v1_scale, v2_scale=v2_scale)
+
     g_a = 1 - angle_gain(dist_vec)
     g_ax = 1 - animal_axis_gain(dist_vec, animal_vel_dir)
     g_he = heading_relief(dist_vec, drone_vel_dir)
@@ -14,29 +20,38 @@ def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
     heading_re = g_he * config.max_heading_relief
 
     base = g_h * g_v
-    
-    D = base * ((1-angle_re) * (1-heading_re) * (1-axis_re))
-    return D
+    D = base * ((1 - angle_re) * (1 - heading_re) * (1 - axis_re))
+    return float(np.clip(D, 0.0, 1.0))
 
-def altitude_gain(dist_vec):
-    _, _, z = dist_vec
-    z = abs(z)
-
-    if z <= 40:
-        return 1.0 - 0.6 * (z - 20) / 20
-    elif z <= 110:
-        return 0.4 * (1 - (z - 40) / 70)
-    return 0.0
-
-
-def horizontal_gain(dist_vec):
+def horizontal_gain(dist_vec, h1_scale=1.0, h2_scale=1.0):
     dx, dy, _ = dist_vec
     d = np.sqrt(dx * dx + dy * dy)
 
-    if d <= 135:
-        return 1.0 - 0.2 * (d - 50) / 85
-    elif d <= 300:
-        return 0.8 * (1 - (d - 135) / 165)
+    d1 = 135.0 * h1_scale
+    d2 = 300.0 * h2_scale
+    d1 = max(d1, 50.0 + 1e-3)
+    d2 = max(d2, d1 + 1e-3)
+
+    if d <= d1:
+        return 1.0 - 0.2 * (d - 50.0) / (d1 - 50.0)
+    elif d <= d2:
+        return 0.8 * (1.0 - (d - d1) / (d2 - d1))
+    return 0.0
+
+
+def altitude_gain(dist_vec, v1_scale=1.0, v2_scale=1.0):
+    _, _, z = dist_vec
+    z = abs(z)
+
+    z1 = 40.0 * v1_scale
+    z2 = 110.0 * v2_scale
+    z1 = max(z1, 20.0 + 1e-3)
+    z2 = max(z2, z1 + 1e-3)
+
+    if z <= z1:
+        return 1.0 - 0.6 * (z - 20.0) / (z1 - 20.0)
+    elif z <= z2:
+        return 0.4 * (1.0 - (z - z1) / (z2 - z1))
     return 0.0
 
 def heading_relief(dist_vec, drone_vel_dir):

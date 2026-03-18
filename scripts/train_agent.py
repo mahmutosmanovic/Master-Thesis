@@ -97,9 +97,11 @@ def agent_env_step(agent, env, obs, agent_type):
         next_obs, reward, terminated, truncated, info = env.step(actions)
 
         done = terminated or truncated
+        disturbance_target = info.get("disturbance", None)
+        track_target = info.get("track_loss", None)
 
         for i in range(len(obs)):
-            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done)
+            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done, disturbance_target=disturbance_target, track_target=track_target)
 
     elif agent_type == "mappo":
 

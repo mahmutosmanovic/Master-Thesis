@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
-configs=("LPOI")
-max_jobs=1
+trap 'echo "Stopping..."; kill 0; exit 1' SIGINT
+
+configs=("CRWMOD" "CRWPPO")
+max_jobs=2
 
 for cfg in "${configs[@]}"
 do
