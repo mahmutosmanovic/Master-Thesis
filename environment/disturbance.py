@@ -231,8 +231,8 @@ def angle_distance_plot():
     plt.show()
 
 def component_plots():
-    x = np.linspace(-120, 120, 400)
-    z = np.linspace(-120, 120, 400)
+    x = np.linspace(-350, 350, 400)
+    z = np.linspace(-350, 350, 400)
     X, Z = np.meshgrid(x, z)
 
     G_h = np.zeros_like(X, dtype=float)
