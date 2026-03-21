@@ -34,28 +34,30 @@ class PPOMemory:
         self.dones.append(np.float32(done))
 
         self.dist_targets.append(
-            np.float32(np.nan if disturbance_target is None else disturbance_target)
+            np.full((4,), np.nan, dtype=np.float32)
+            if disturbance_target is None
+            else np.asarray(disturbance_target, dtype=np.float32)
         )
         self.track_targets.append(
             np.float32(np.nan if track_target is None else track_target)
         )
 
     def compute_future_track_loss(self, horizon=5):
-        vis = np.array(self.track_targets, dtype=np.float32)  # currently visibility
-        N = len(vis)
+        track_loss = np.array(self.track_targets, dtype=np.float32)
+        N = len(track_loss)
 
-        future_loss = np.zeros_like(vis)
+        future_risk = np.zeros_like(track_loss)
 
         for t in range(N):
             end = min(N, t + horizon)
 
-            # if ANY future step is not visible → mark as risky
-            if np.any(vis[t:end] == 0.0):
-                future_loss[t] = 1.0
+            # if ANY future step loses tracking -> mark as risky
+            if np.any(track_loss[t:end] == 1.0):
+                future_risk[t] = 1.0
             else:
-                future_loss[t] = 0.0
+                future_risk[t] = 0.0
 
-        self.track_targets = future_loss.tolist()
+        self.track_targets = future_risk.tolist()
 
     def generate_batches(self):
         n = self.get_length()
@@ -86,54 +88,6 @@ class PPOMemory:
 
 class ActorNetwork(nn.Module):
     is_modular = False
-    def __init__(self, n_actions, input_dims, alpha,
-                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
-        super().__init__()
-
-        os.makedirs(chkpt_dir, exist_ok=True)
-        self.chkpt_dir = chkpt_dir
-
-        self.net = nn.Sequential(
-            nn.Linear(input_dims, fc1_dims),
-            nn.LeakyReLU(),
-            nn.Linear(fc1_dims, fc2_dims),
-            nn.LeakyReLU(),
-        )
-
-        self.mu = nn.Linear(fc2_dims, n_actions)
-        self.log_std = nn.Parameter(T.full((n_actions,), -1.5))
-
-        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
-
-        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
-        self.to(self.device)
-
-    def forward(self, state):
-        x = self.net(state)
-        mu = self.mu(x)
-        std = self.log_std.exp().expand_as(mu)
-        return mu, std
-
-    def save_checkpoint(self, name="last"):
-        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
-        T.save(self.state_dict(), path)
-
-    def load_checkpoint(self, name="last"):
-        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
-        self.load_state_dict(T.load(path))
-
-class ModularActorNetwork(nn.Module):
-    """
-    Disturbance-gated modular policy:
-      - aggressive head
-      - conservative head
-      - safety residual head
-      - disturbance risk predictor
-      - tracking-loss risk predictor
-
-    final_mu = blend(aggressive, conservative) + safety_residual
-    """
-    is_modular = True
 
     def __init__(self, n_actions, input_dims, alpha,
                  fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
@@ -141,6 +95,7 @@ class ModularActorNetwork(nn.Module):
 
         os.makedirs(chkpt_dir, exist_ok=True)
         self.chkpt_dir = chkpt_dir
+
         hidden_dim = fc2_dims
 
         self.encoder = nn.Sequential(
@@ -150,16 +105,14 @@ class ModularActorNetwork(nn.Module):
             nn.LeakyReLU(),
         )
 
-        # specialized control heads
-        self.mu_aggressive = nn.Linear(hidden_dim, n_actions)
-        self.mu_conservative = nn.Linear(hidden_dim, n_actions)
-        self.mu_safe_residual = nn.Linear(hidden_dim, n_actions)
+        # policy head
+        self.mu = nn.Linear(hidden_dim, n_actions)
 
-        # risk heads
-        self.dist_risk_head = nn.Linear(hidden_dim, 1)
+        # auxiliary heads
+        self.dist_profile_head = nn.Linear(hidden_dim, 4)
         self.track_risk_head = nn.Linear(hidden_dim, 1)
 
-        self.log_std = nn.Parameter(T.full((n_actions,), -1.5))
+        self.log_std = nn.Linear(hidden_dim, n_actions)
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
@@ -169,39 +122,14 @@ class ModularActorNetwork(nn.Module):
     def forward(self, state):
         h = self.encoder(state)
 
-        mu_aggr = self.mu_aggressive(h)
-        mu_cons = self.mu_conservative(h)
-        mu_safe = self.mu_safe_residual(h)
+        mu = self.mu(h)
+        std = self.log_std(h).exp()
 
-        dist_risk = T.sigmoid(self.dist_risk_head(h))   # [B, 1]
-        track_risk = T.sigmoid(self.track_risk_head(h)) # [B, 1]
+        # aux heads
+        dist_profile = self.dist_profile_head(h)          # linear output
+        track_risk = T.sigmoid(self.track_risk_head(h))  # probability
 
-        d = dist_risk
-        t = track_risk
-
-        g_safe = t
-        g_cons = d * (1.0 - t)
-        g_aggr = (1.0 - d) * (1.0 - t)
-
-        # normalize
-        g_sum = g_safe + g_cons + g_aggr + 1e-8
-        g_safe = g_safe / g_sum
-        g_cons = g_cons / g_sum
-        g_aggr = g_aggr / g_sum
-
-        g_safe = g_safe.detach()
-        g_cons = g_cons.detach()
-        g_aggr = g_aggr.detach()
-
-        mu = (
-            g_aggr * mu_aggr +
-            g_cons * mu_cons +
-            g_safe * mu_safe
-        )
-
-        std = self.log_std.exp().expand_as(mu)
-
-        return mu, std, dist_risk.squeeze(-1), track_risk.squeeze(-1)
+        return mu, std, dist_profile, track_risk.squeeze(-1)
 
     def save_checkpoint(self, name="last"):
         path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
@@ -209,7 +137,7 @@ class ModularActorNetwork(nn.Module):
 
     def load_checkpoint(self, name="last"):
         path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
-        self.load_state_dict(T.load(path, map_location=self.device))
+        self.load_state_dict(T.load(path))
 
 class CriticNetwork(nn.Module):
     def __init__(self, input_dims, alpha,
@@ -271,27 +199,21 @@ class PPOAgent:
 
         drone_features = config.model.space.drone_features
         animal_features = config.model.space.animal_features * config.animal.env.count
+        unstacked_obs_size = drone_features + animal_features
+        self.stack_size = int(getattr(config.model.space, "obs_stack", 1))
 
-        self.obs_dim = drone_features + animal_features
+        self.obs_dim = unstacked_obs_size * self.stack_size
 
-        self.policy_type = getattr(config.model, "policy_type", "standard")
+        self.policy_type = getattr(config.model, "policy_type", "standard_aux")
         self.aux_dist_coef = getattr(config.model, "aux_dist_coef", 0.0)
         self.aux_track_coef = getattr(config.model, "aux_track_coef", 0.0)
 
-        if self.policy_type == "modular":
-            self.actor = ModularActorNetwork(
-                self.act_dim,
-                self.obs_dim,
-                self.optim_hpt.actor_lr,
-                chkpt_dir=config.run_dir
-            )
-        else:
-            self.actor = ActorNetwork(
-                self.act_dim,
-                self.obs_dim,
-                self.optim_hpt.actor_lr,
-                chkpt_dir=config.run_dir
-            )
+        self.actor = ActorNetwork(
+            self.act_dim,
+            self.obs_dim,
+            self.optim_hpt.actor_lr,
+            chkpt_dir=config.run_dir
+        )
 
         self.critic = CriticNetwork(
             self.obs_dim,
@@ -358,15 +280,9 @@ class PPOAgent:
         """
         Returns:
             mu, std, pred_dist, pred_track
-        pred_* are None for standard PPO.
         """
-        out = self.actor(state)
-        if self.actor.is_modular:
-            mu, std, pred_dist, pred_track = out
-            return mu, std, pred_dist, pred_track
-        else:
-            mu, std = out
-            return mu, std, None, None
+        mu, std, pred_dist, pred_track = self.actor(state)
+        return mu, std, pred_dist, pred_track
 
     def choose_action(self, observation, deterministic=False):
         device = self.actor.device
@@ -409,19 +325,19 @@ class PPOAgent:
         new_actor_lr, new_critic_lr = self.update_learning_rates()
 
         if self.aux_track_coef > 0.0:
-            self.memory.compute_future_track_loss(horizon=5)
+            self.memory.compute_future_track_loss(horizon=10)
 
         if self.memory.get_length() == 0:
             return {
-                "train_entropy_coef": self.get_entropy_coef(),
-                "train_policy_entropy": None,
-                "actor_loss": None,
-                "critic_loss": None,
-                "aux_dist_loss": None,
-                "aux_track_loss": None,
-                "actor_lr": None,
-                "critic_lr": None,
-            }
+            "train_entropy_coef": self.get_entropy_coef(),
+            "train_policy_entropy": None,
+            "actor_loss": None,
+            "critic_loss": None,
+            "aux_dist_loss": None,
+            "aux_track_loss": None,
+            "actor_lr": None,
+            "critic_lr": None,
+        }
 
         (
             states,
@@ -505,7 +421,7 @@ class PPOAgent:
                 aux_track_loss = T.tensor(0.0, device=device)
 
                 if pred_dist is not None and self.aux_dist_coef > 0.0:
-                    valid = T.isfinite(batch_dist_targets)
+                    valid = T.isfinite(batch_dist_targets).all(dim=-1)
                     if valid.any():
                         aux_dist_loss = ((pred_dist[valid] - batch_dist_targets[valid]) ** 2).mean()
 

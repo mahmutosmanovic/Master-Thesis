@@ -428,74 +428,6 @@ class Env:
 
         return geometry
 
-    def _animal_bucket_fractions(self, animal_idx):
-        total = self.view_bucket_totals[animal_idx]
-        if total <= 1e-8:
-            return np.zeros(4, dtype=np.float32)
-        return self.view_bucket_counts[animal_idx] / total
-
-    def _relative_view_angle_bucket(self, animal, drone):
-        """
-        Returns horizontal angle in degrees and bucket index of the drone
-        relative to the animal heading.
-
-        Angle is measured from animal heading -> animal-to-drone direction in XY.
-        Buckets:
-            0: [315, 45)   front
-            1: [45, 135)   left
-            2: [135, 225)  back
-            3: [225, 315)  right
-        """
-        animal_heading = animal.vel_dir.to_numpy().astype(np.float32).copy()
-        animal_to_drone = (drone.pos.to_numpy() - animal.pos.to_numpy()).astype(np.float32)
-
-        animal_heading[2] = 0.0
-        animal_to_drone[2] = 0.0
-
-        h_norm = np.linalg.norm(animal_heading[:2])
-        r_norm = np.linalg.norm(animal_to_drone[:2])
-
-        if h_norm < 1e-8 or r_norm < 1e-8:
-            return None, None
-
-        h = animal_heading[:2] / h_norm
-        r = animal_to_drone[:2] / r_norm
-
-        det = h[0] * r[1] - h[1] * r[0]
-        dot = np.clip(np.dot(h, r), -1.0, 1.0)
-        angle_deg = np.degrees(np.arctan2(det, dot)) % 360.0
-
-        if angle_deg >= 315.0 or angle_deg < 45.0:
-            bucket = 0
-        elif angle_deg < 135.0:
-            bucket = 1
-        elif angle_deg < 225.0:
-            bucket = 2
-        else:
-            bucket = 3
-
-        return angle_deg, bucket
-
-    def _update_view_buckets(self, observations):
-        """
-        Updates per-animal angular coverage counts using current visibility.
-        Only visible observations count toward coverage.
-        """
-        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 10)
-
-        for d, drone in enumerate(self.drones):
-            for a, animal in enumerate(self.animals):
-                in_view = animal_obs[d, a, 0] == 1.0
-                if not in_view:
-                    continue
-
-                _, bucket = self._relative_view_angle_bucket(animal, drone)
-                if bucket is None:
-                    continue
-
-                self.view_bucket_counts[a, bucket] += 1.0
-                self.view_bucket_totals[a] += 1.0
-
     def _sample_base_disturbance_params(self):
         params = self.env_rng.normal(1.0, self.base_disturbance_params_std, size=4)
         return params
@@ -559,7 +491,7 @@ class Env:
                 v_cam_y = np.dot(animal_vel, y)
                 v_cam_z = np.dot(animal_vel, z)
 
-                visual_markers = self._compute_visual_markers(animal.disturbance)
+                visual_markers = self._compute_visual_markers(animal.visual_disturbance)
 
                 if in_view:
                     animal_features.extend([
@@ -622,6 +554,7 @@ class Env:
                 animal.disturbance += influence
                 escape_vec += escape_vecs[idx] * influence
 
+            animal.visual_disturbance = (1.0 - self.config.disturbance_persistence) * animal.visual_disturbance + animal.disturbance * self.config.disturbance_persistence
             # escape direction
             norm = np.linalg.norm(escape_vec)
             if norm > 1e-8:
@@ -743,7 +676,7 @@ class Env:
 
         # penalty if nothing visible
         if not visible_any:
-            final_reward -= 0.2
+            final_reward -= 1
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += disturbance_penalty
@@ -770,7 +703,7 @@ class Env:
                 "r_align": float(r_align),
             }
 
-        return final_reward
+        return final_reward, monitor_reward, disturbance_penalty
 
     def _terminate_lenght(self):
         if self._env_steps >= self.config["max_episode_steps"]:
@@ -817,7 +750,7 @@ class Env:
         observations = self._build_observations(geometry)
 
         # 4. compute reward FROM RESULT
-        reward = self.compute_reward(observations, actions)
+        reward, m_rew, d_pen = self.compute_reward(observations, actions)
 
         # 5. termination and truncation
         over_time = self._terminate_lenght()
@@ -829,6 +762,9 @@ class Env:
             "fov": observations,
             "disturbance": float(np.mean([a.disturbance for a in self.animals])),
             "track_loss": lost_tracking,
+            "monitor_reward": m_rew,
+            "disturbance_penalty": d_pen,
+            "disturbance_profile": self.base_disturbance_params,
         }
 
         if self.render_mode is not None:

@@ -6,12 +6,12 @@ max_episode_steps: 2048
 model:
   path: checkpoints
   mode: train
-  policy_type: modular
-  aux_dist_coef: 0.2
-  aux_track_coef: 0.3
+  aux_dist_coef: 0.0
+  aux_track_coef: 0.0
 
   space:
     n_actions: 5
+    obs_stack: 5
     drone_features: 4
     animal_features: 10
     action_type: rel # [rel, abs] rel -> relative to camera view direction
@@ -55,7 +55,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 12
-    behavior: CRW_CFG        # mapped -> POI_CFG()
+    behavior: POI_CFG        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
     max_spawn_radius: 200
 
@@ -68,6 +68,7 @@ h1_scale_std: 0.1
 h2_scale_std: 0.1
 v1_scale_std: 0.1
 v2_scale_std: 0.1
+disturbance_persistence: 0.4
 
 # reward
 disturbance_penalty_scale: 1

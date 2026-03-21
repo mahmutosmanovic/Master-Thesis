@@ -77,8 +77,36 @@ def _init_agent(config, agent_type):
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
+def init_obs_stack(obs, stack_size):
+    """
+    obs: [num_drones, obs_dim]
+    returns: [num_drones, stack_size * obs_dim]
+    """
+    if stack_size == 1:
+        return obs.astype(np.float32)
 
-def agent_env_step(agent, env, obs, agent_type):
+    stacked = np.repeat(obs[:, None, :], stack_size, axis=1)
+    return stacked.reshape(obs.shape[0], -1).astype(np.float32)
+
+
+def update_obs_stack(stacked_obs, next_obs, stack_size):
+    """
+    stacked_obs: [num_drones, stack_size * obs_dim]
+    next_obs:    [num_drones, obs_dim]
+    returns:     [num_drones, stack_size * obs_dim]
+    """
+    if stack_size == 1:
+        return next_obs.astype(np.float32)
+
+    num_drones = next_obs.shape[0]
+    obs_dim = next_obs.shape[1]
+
+    stacked = stacked_obs.reshape(num_drones, stack_size, obs_dim).copy()
+    stacked[:, :-1, :] = stacked[:, 1:, :]
+    stacked[:, -1, :] = next_obs
+    return stacked.reshape(num_drones, stack_size * obs_dim).astype(np.float32)
+
+def agent_env_step(agent, env, raw_obs, stacked_obs, agent_type, stack_size):
 
     if agent_type == "ppo":
 
@@ -86,37 +114,48 @@ def agent_env_step(agent, env, obs, agent_type):
         logps = []
         vals = []
 
-        for drone_obs in obs:
+        for drone_obs in stacked_obs:
             a, lp, v = agent.choose_action(drone_obs)
             actions.append(a)
             logps.append(lp)
             vals.append(v)
 
-        actions = np.array(actions)
+        actions = np.array(actions, dtype=np.float32)
 
-        next_obs, reward, terminated, truncated, info = env.step(actions)
-
+        next_raw_obs, reward, terminated, truncated, info = env.step(actions)
         done = terminated or truncated
-        disturbance_target = info.get("disturbance", None)
+
+        disturbance_target = info.get("disturbance_profile", None)
         track_target = info.get("track_loss", None)
 
-        for i in range(len(obs)):
-            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done, disturbance_target=disturbance_target, track_target=track_target)
+        for i in range(len(raw_obs)):
+            agent.remember(
+                stacked_obs[i],
+                actions[i],
+                logps[i],
+                vals[i],
+                reward,
+                done,
+                disturbance_target=disturbance_target,
+                track_target=track_target,
+            )
+
+        next_stacked_obs = update_obs_stack(stacked_obs, next_raw_obs, stack_size)
 
     elif agent_type == "mappo":
+        # unchanged unless you also want stacked MAPPO
+        actions, log_prob, val = agent.choose_action(raw_obs)
 
-        actions, log_prob, val = agent.choose_action(obs)
-
-        next_obs, reward, terminated, truncated, info = env.step(actions)
-
+        next_raw_obs, reward, terminated, truncated, info = env.step(actions)
         done = terminated or truncated
 
-        agent.remember(obs, actions, log_prob, val, reward, done)
+        agent.remember(raw_obs, actions, log_prob, val, reward, done)
+        next_stacked_obs = None
 
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    return next_obs, reward, done, terminated, truncated, info
+    return next_raw_obs, next_stacked_obs, reward, done, terminated, truncated, info
 
 
 def main(config, agent_type="ppo", logging=False):
@@ -131,7 +170,9 @@ def main(config, agent_type="ppo", logging=False):
     env = Env(config)
     agent = _init_agent(config, agent_type)
 
-    obs, info = env.reset()
+    raw_obs, info = env.reset()
+    stack_size = int(getattr(config.model.space, "obs_stack", 1))
+    stacked_obs = init_obs_stack(raw_obs, stack_size)
     done = False
 
     curr_steps = 0
@@ -152,11 +193,13 @@ def main(config, agent_type="ppo", logging=False):
                     curr_steps += 1
                     pbar.update(1)
 
-                    next_obs, reward, done, terminated, truncated, info = agent_env_step(
-                        agent, env, obs, agent_type
+                    next_raw_obs, next_stacked_obs, reward, done, terminated, truncated, info = agent_env_step(
+                        agent, env, raw_obs, stacked_obs, agent_type, stack_size
                     )
 
-                    obs = next_obs
+                    raw_obs = next_raw_obs
+                    if agent_type == "ppo":
+                        stacked_obs = next_stacked_obs
                     episode_reward += reward
                     episode_reward_norm = -np.inf
 
@@ -193,10 +236,11 @@ def main(config, agent_type="ppo", logging=False):
                             save_count += 1
 
                         episode_reward = 0
-                        obs, info = env.reset()
+                        raw_obs, info = env.reset()
+                        stacked_obs = init_obs_stack(raw_obs, stack_size)
                         done = False
 
-                last_value = agent.get_last_value(obs, done)
+                last_value = agent.get_last_value(stacked_obs, done)
                 train_metrics = agent.learn(last_value)
                 if logging and train_metrics is not None:
                     wandb.log({
@@ -205,6 +249,8 @@ def main(config, agent_type="ppo", logging=False):
                         "train_policy_entropy": train_metrics["train_policy_entropy"],
                         "actor_loss": train_metrics["actor_loss"],
                         "critic_loss": train_metrics["critic_loss"],
+                        "aux_dist_loss": train_metrics["aux_dist_loss"],
+                        "aux_track_loss": train_metrics["aux_track_loss"],
                         "actor_lr": train_metrics["actor_lr"],
                         "critic_lr": train_metrics["critic_lr"],
                     })
