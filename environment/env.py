@@ -43,7 +43,6 @@ class Env:
             "r_bucket": 0,
         }
 
-        self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
         # needs proper fix
@@ -167,6 +166,7 @@ class Env:
             "r_dist": 0,
             "r_align": 0,
             "r_bucket": 0,
+            "episode_progress": 0
         }
         if self.enable_step_logging:
             self.last_step_stats = {
@@ -181,7 +181,6 @@ class Env:
                 "r_dist": 0.0,
                 "r_align": 0.0,
             }
-        self.total_state_steps = 0
         self.disturbance_sum = 0.0
 
         # reset angular coverage memory for this episode
@@ -330,7 +329,6 @@ class Env:
 
             animal.state = state
             self.state_counts[state] += 1
-            self.total_state_steps += 1
             self.disturbance_sum += D
 
             animal.update_pos()
@@ -339,26 +337,27 @@ class Env:
         return segment_complete
 
     def get_behavior_stats(self):
-        if self.total_state_steps == 0:
+        if self._env_steps == 0:
             return None
 
         return {
-            "calm_frac": self.state_counts["calm"] / self.total_state_steps,
-            "avoid_frac": self.state_counts["avoid"] / self.total_state_steps,
-            "flee_frac": self.state_counts["flee"] / self.total_state_steps,
+            "calm_frac": self.state_counts["calm"] / self._env_steps,
+            "avoid_frac": self.state_counts["avoid"] / self._env_steps,
+            "flee_frac": self.state_counts["flee"] / self._env_steps,
         }
 
     def get_reward_stats(self):
-        if self.total_state_steps == 0:
+        if self._env_steps == 0:
             return None
 
         return {
-            "r_monitoring": self.reward_stats["r_monitoring"] / self.total_state_steps,
-            "p_disturbance": self.reward_stats["p_disturbance"] / self.total_state_steps,
-            "r_vis": self.reward_stats["r_vis"] / self.total_state_steps,
-            "r_dist": self.reward_stats["r_dist"] / self.total_state_steps,
-            "r_align": self.reward_stats["r_align"] / self.total_state_steps,
-            "r_bucket": self.reward_stats["r_bucket"] / self.total_state_steps,
+            "r_monitoring": self.reward_stats["r_monitoring"] / self._env_steps,
+            "p_disturbance": self.reward_stats["p_disturbance"] / self._env_steps,
+            "r_vis": self.reward_stats["r_vis"] / self._env_steps,
+            "r_dist": self.reward_stats["r_dist"] / self._env_steps,
+            "r_align": self.reward_stats["r_align"] / self._env_steps,
+            "r_bucket": self.reward_stats["r_bucket"] / self._env_steps,
+            "episode_progress": self._env_steps / self.config.max_episode_steps,
         }
 
     def set_render_mode(self, mode):
