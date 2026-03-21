@@ -69,12 +69,18 @@ class ActorNetwork(nn.Module):
         )
 
         self.mu = nn.Linear(fc2_dims, n_actions)
-        self.log_std = nn.Parameter(T.full((n_actions,), -1.0))
+        self.log_std = nn.Parameter(T.full((n_actions,), -1.5))
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
         self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
         self.to(self.device)
+
+    def linear_init(self, in_f, out_f, w=0.0, b=-1.0):
+        layer = nn.Linear(in_f, out_f)
+        nn.init.constant_(layer.weight, w)
+        nn.init.constant_(layer.bias, b)
+        return layer
 
     def forward(self, state):
         x = self.net(state)
