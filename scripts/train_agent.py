@@ -172,6 +172,7 @@ def main(config, agent_type="ppo", logging=False):
                                 "p_flee_frac": stats["flee_frac"],
                                 "r_monitoring": r_stats["r_monitoring"],
                                 "p_disturbance": r_stats["p_disturbance"],
+                                "episode_progress": r_stats["episode_progress"],
                                 "r_vis": r_stats["r_vis"],
                                 "r_dist": r_stats["r_dist"],
                                 "r_align": r_stats["r_align"],

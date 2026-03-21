@@ -63,7 +63,7 @@ This will:
 
 `render-best`: optionally render the best-performing controller after search
 
-    python -m scripts.centroid --mode grid --config train --seed 42 --render-best
+    python -m scripts.centroid --mode grid --config train --eval-seeds 10 --seed 42 --render-best
 
 This will:
 

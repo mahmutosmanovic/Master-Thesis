@@ -353,7 +353,7 @@ class Env:
         return {
             "r_monitoring": self.reward_stats["r_monitoring"] / self._env_steps,
             "p_disturbance": self.reward_stats["p_disturbance"] / self._env_steps,
-            "r_vis": self.reward_stats["r_vis"] / self._env_steps,
+            "r_vis": self.reward_stats["r_vis"] / self.config.max_episode_steps,
             "r_dist": self.reward_stats["r_dist"] / self._env_steps,
             "r_align": self.reward_stats["r_align"] / self._env_steps,
             "r_bucket": self.reward_stats["r_bucket"] / self._env_steps,
@@ -716,18 +716,13 @@ class Env:
         r_align_scaled = 0.10 * r_align
         r_bucket_scaled = 0.0 * r_bucket
 
-        monitor_reward = (
-            r_vis_scaled +
-            r_dist_scaled +
-            r_align_scaled +
-            r_bucket_scaled
-        )
+        monitor_reward = r_dist * r_align
 
         final_reward = monitor_reward - self.config.disturbance_penalty_scale * disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
-            final_reward -= 0.2
+            final_reward -= 1
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += disturbance_penalty
