@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-configs=("LPOI")
-max_jobs=1
+configs=("CRW" CRWLSTD)
+max_jobs=2
 
 for cfg in "${configs[@]}"
 do

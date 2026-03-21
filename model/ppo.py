@@ -90,6 +90,46 @@ class ActorNetwork(nn.Module):
         path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
         self.load_state_dict(T.load(path))
 
+class LstdActorNetwork(nn.Module):
+    def __init__(self, n_actions, input_dims, alpha,
+                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
+        super().__init__()
+
+        os.makedirs(chkpt_dir, exist_ok=True)
+        self.chkpt_dir = chkpt_dir
+
+        self.net = nn.Sequential(
+            nn.Linear(input_dims, fc1_dims),
+            nn.LeakyReLU(),
+            nn.Linear(fc1_dims, fc2_dims),
+            nn.LeakyReLU(),
+        )
+
+        self.mu = nn.Linear(fc2_dims, n_actions)
+        self.log_std = nn.Linear(fc2_dims, n_actions)
+
+        nn.init.constant_(self.log_std.weight, 0.0)
+        nn.init.constant_(self.log_std.bias, -1.0)
+
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+
+        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
+        self.to(self.device)
+
+    def forward(self, state):
+        x = self.net(state)
+        mu = self.mu(x)
+        std = self.log_std(x).exp()
+        return mu, std
+
+    def save_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
+        T.save(self.state_dict(), path)
+
+    def load_checkpoint(self, name="last"):
+        path = os.path.join(self.chkpt_dir, f"actor_{name}.pt")
+        self.load_state_dict(T.load(path))
+
 class CriticNetwork(nn.Module):
     def __init__(self, input_dims, alpha,
                  fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
@@ -153,12 +193,24 @@ class PPOAgent:
 
         self.obs_dim = drone_features + animal_features
 
-        self.actor = ActorNetwork(
-            self.act_dim,
-            self.obs_dim,
-            self.optim_hpt.actor_lr,
-            chkpt_dir=config.run_dir
-        )
+        self.actor_type = getattr(config.model, "actor_type", "standard")
+
+        if self.actor_type == "lstd":
+            self.actor = LstdActorNetwork(
+                self.act_dim,
+                self.obs_dim,
+                self.optim_hpt.actor_lr,
+                chkpt_dir=config.run_dir
+            )
+        elif self.actor_type == "standard":
+            self.actor = ActorNetwork(
+                self.act_dim,
+                self.obs_dim,
+                self.optim_hpt.actor_lr,
+                chkpt_dir=config.run_dir
+            )
+        else:
+            raise NotImplementedError("actor type not implemented")
 
         self.critic = CriticNetwork(
             self.obs_dim,

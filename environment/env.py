@@ -710,12 +710,6 @@ class Env:
         # bucket coverage reward
         r_bucket = self._bucket_balance_score()
 
-        # monitoring reward
-        r_vis_scaled = 0.0 * r_vis
-        r_dist_scaled = 0.9 * r_dist
-        r_align_scaled = 0.10 * r_align
-        r_bucket_scaled = 0.0 * r_bucket
-
         monitor_reward = r_dist * r_align
 
         final_reward = monitor_reward - self.config.disturbance_penalty_scale * disturbance_penalty - p_vel - p_theta
