@@ -55,7 +55,7 @@ class PPOMemory:
 
 class ActorNetwork(nn.Module):
     def __init__(self, n_actions, input_dims, alpha,
-                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
+                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo", device="cpu"):
         super().__init__()
 
         os.makedirs(chkpt_dir, exist_ok=True)
@@ -73,7 +73,7 @@ class ActorNetwork(nn.Module):
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
-        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
+        self.device = T.device(device)
         self.to(self.device)
 
     def linear_init(self, in_f, out_f, w=0.0, b=-1.0):
@@ -98,7 +98,7 @@ class ActorNetwork(nn.Module):
 
 class CriticNetwork(nn.Module):
     def __init__(self, input_dims, alpha,
-                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo"):
+                 fc1_dims=256, fc2_dims=256, chkpt_dir="tmp/ppo", device="cpu"):
         super().__init__()
 
         os.makedirs(chkpt_dir, exist_ok=True)
@@ -114,7 +114,7 @@ class CriticNetwork(nn.Module):
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
-        self.device = T.device("cuda" if T.cuda.is_available() else "cpu")
+        self.device = T.device(device)
         self.to(self.device)
 
     def forward(self, state):
@@ -140,7 +140,7 @@ def _squashed_log_prob(dist: Normal, raw_action: T.Tensor, squashed_action: T.Te
     return logp_raw - correction
 
 class PPOAgent:
-    def __init__(self, config):
+    def __init__(self, config, device="cpu"):
 
         self.optim_hpt = config.model.optimization
         self.space_hpt = config.model.space
@@ -163,13 +163,15 @@ class PPOAgent:
             self.act_dim,
             self.obs_dim,
             self.optim_hpt.actor_lr,
-            chkpt_dir=config.run_dir
+            chkpt_dir=config.run_dir,
+            device=device
         )
 
         self.critic = CriticNetwork(
             self.obs_dim,
             self.optim_hpt.critic_lr,
-            chkpt_dir=config.run_dir
+            chkpt_dir=config.run_dir,
+            device=device
         )
 
         self.actor_lr_start = self.optim_hpt.actor_lr

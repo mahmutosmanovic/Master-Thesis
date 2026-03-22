@@ -69,11 +69,11 @@ def init_wandb(config, agent_type):
     return run
 
 
-def _init_agent(config, agent_type):
+def _init_agent(config, agent_type, device):
     if agent_type == "ppo":
-        return PPOAgent(config)
+        return PPOAgent(config, device)
     elif agent_type == "mappo":
-        return MAPPOAgent(config)
+        return MAPPOAgent(config,device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -117,17 +117,15 @@ def agent_env_step(agent, env, obs, agent_type):
     return next_obs, reward, done, terminated, truncated, info
 
 
-def main(config, agent_type="ppo", logging=False):
-
-    run = None
+def main(config, agent_type="ppo", logging=False, device='cpu'):
 
     if logging:
-        run = init_wandb(config, agent_type)
+        _ = init_wandb(config, agent_type)
 
     config = Box(config)
 
     env = Env(config)
-    agent = _init_agent(config, agent_type)
+    agent = _init_agent(config, agent_type, device)
 
     obs, info = env.reset()
     done = False
@@ -166,19 +164,26 @@ def main(config, agent_type="ppo", logging=False):
 
                         if logging:
                             wandb.log({
-                                "episode_reward_norm": episode_reward_norm,
-                                "p_calm_frac": stats["calm_frac"],
-                                "p_avoid_frac": stats["avoid_frac"],
-                                "p_flee_frac": stats["flee_frac"],
-                                "r_monitoring": r_stats["r_monitoring"],
-                                "p_disturbance": r_stats["p_disturbance"],
-                                "episode_progress": r_stats["episode_progress"],
-                                "r_vis": r_stats["r_vis"],
-                                "r_dist": r_stats["r_dist"],
-                                "r_align": r_stats["r_align"],
-                                "r_bucket": r_stats["r_bucket"],
-                                "save_count": save_count,
-                                "step": curr_steps,
+                                # episode-level summary
+                                "episode/reward_norm": episode_reward_norm,
+                                "episode/progress": r_stats["episode_progress"],
+
+                                # behavior / environment response
+                                "behavior/calm_frac": stats["calm_frac"],
+                                "behavior/avoid_frac": stats["avoid_frac"],
+                                "behavior/flee_frac": stats["flee_frac"],
+
+                                # reward decomposition
+                                "reward/monitoring": r_stats["r_monitoring"],
+                                "reward/disturbance_penalty": r_stats["p_disturbance"],
+                                "reward/visibility": r_stats["r_vis"],
+                                "reward/distance": r_stats["r_dist"],
+                                "reward/alignment": r_stats["r_align"],
+                                "reward/bucket": r_stats["r_bucket"],
+
+                                # bookkeeping
+                                "checkpoint/save_count": save_count,
+                                "system/step": curr_steps,
                             })
 
                         pbar.set_postfix({
@@ -197,15 +202,16 @@ def main(config, agent_type="ppo", logging=False):
 
                 last_value = agent.get_last_value(obs, done)
                 train_metrics = agent.learn(last_value)
+
                 if logging and train_metrics is not None:
                     wandb.log({
-                        "step": curr_steps,
-                        "train_entropy_coef": train_metrics["train_entropy_coef"],
-                        "train_policy_entropy": train_metrics["train_policy_entropy"],
-                        "actor_loss": train_metrics["actor_loss"],
-                        "critic_loss": train_metrics["critic_loss"],
-                        "actor_lr": train_metrics["actor_lr"],
-                        "critic_lr": train_metrics["critic_lr"],
+                        # training / optimization
+                        "train/entropy_coef": train_metrics["train_entropy_coef"],
+                        "train/policy_entropy": train_metrics["train_policy_entropy"],
+                        "train/actor_loss": train_metrics["actor_loss"],
+                        "train/critic_loss": train_metrics["critic_loss"],
+                        "train/actor_lr": train_metrics["actor_lr"],
+                        "train/critic_lr": train_metrics["critic_lr"],
                     })
 
             agent.save_models(name="last")
@@ -225,6 +231,7 @@ def _init_argparse():
     parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
     parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo"], help="RL agent type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging",)
 
     return parser.parse_args()
@@ -243,5 +250,5 @@ if __name__ == "__main__":
 
     save_config_snapshot(cfg, run_dir)
     cfg["run_dir"] = str(run_dir)
-    main(cfg, agent_type=args.agent, logging=args.wandb)
+    main(cfg, agent_type=args.agent, logging=args.wandb, device=args.device)
     print(f"RUN_DIR::{run_dir.name}")
