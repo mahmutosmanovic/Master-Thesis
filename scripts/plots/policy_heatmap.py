@@ -6,38 +6,106 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-def load_positions_from_csv(csv_path):
-    r_vals = []
-    z_vals = []
-
-    with open(csv_path, "r", newline="") as f:
-        reader = csv.DictReader(f)
-
-        for row in reader:
-            # keep drone rows only
-            if row["entity_type"] == "animal":
-                continue
-
-            x = float(row["x"])
-            y = float(row["y"])
-            z = float(row["z"])
-
-            r = np.sqrt(x * x + y * y)
-
-            r_vals.append(r)
-            z_vals.append(z)
-
-    if len(r_vals) == 0:
-        raise ValueError(f"No drone rows found in {csv_path}")
-
-    return np.array(r_vals), np.array(z_vals)
-
-
 def make_output_path(csv_path):
     csv_path = Path(csv_path)
     return csv_path.with_name(f"{csv_path.stem}_policy_heatmap.png")
 
+def make_xy_output_path(csv_path):
+    csv_path = Path(csv_path)
+    return csv_path.with_name(f"{csv_path.stem}_policy_heatmap_xy.png")
+
+def load_positions_from_csv(csv_path):
+    df = pd.read_csv(csv_path)
+
+    # split
+    drone = df[df["entity_type"] == "large"]
+    animal = df[df["entity_type"] == "animal"]
+
+    # assume same ordering → just align row-wise
+    drone = drone.reset_index(drop=True)
+    animal = animal.reset_index(drop=True)
+
+    n = min(len(drone), len(animal))
+
+    dx = drone["x"].values[:n] - animal["x"].values[:n]
+    dy = drone["y"].values[:n] - animal["y"].values[:n]
+
+    r = np.sqrt(dx**2 + dy**2)
+    z = drone["z"].values[:n]
+
+    return r, z
+
+def load_xy_positions_from_csv(csv_path):
+    df = pd.read_csv(csv_path)
+
+    drone = df[df["entity_type"] == "large"].reset_index(drop=True)
+    animal = df[df["entity_type"] == "animal"].reset_index(drop=True)
+
+    n = min(len(drone), len(animal))
+    if n < 2:
+        raise ValueError(f"Need at least 2 matched drone/animal rows in {csv_path}")
+
+    # match lengths
+    drone = drone.iloc[:n].copy()
+    animal = animal.iloc[:n].copy()
+
+    # world-frame relative position
+    dx = drone["x"].to_numpy(dtype=float) - animal["x"].to_numpy(dtype=float)
+    dy = drone["y"].to_numpy(dtype=float) - animal["y"].to_numpy(dtype=float)
+
+    # animal heading from movement
+    ax = animal["x"].to_numpy(dtype=float)
+    ay = animal["y"].to_numpy(dtype=float)
+
+    hx = np.diff(ax)
+    hy = np.diff(ay)
+
+    # heading angle for each timestep
+    heading = np.arctan2(hy, hx)
+
+    heading = np.concatenate(([heading[0]], heading))
+
+    cos_h = np.cos(heading)
+    sin_h = np.sin(heading)
+
+    x_local = -sin_h * dx + cos_h * dy   # lateral
+    y_local =  cos_h * dx + sin_h * dy   # forward
+
+    return x_local, y_local
+
+def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
+    lim = max(np.max(np.abs(dx_vals)), np.max(np.abs(dy_vals)))
+    if lim <= 0:
+        lim = 1.0
+
+    H, _, _ = np.histogram2d(
+        dx_vals,
+        dy_vals,
+        bins=bins,
+        range=[[-lim, lim], [-lim, lim]],
+    )
+
+    plt.figure(figsize=(7, 6))
+
+    plt.imshow(
+        H.T,
+        origin="lower",
+        aspect="equal",
+        extent=[-lim, lim, -lim, lim],
+    )
+
+    plt.xlabel("Drone x relative to animal")
+    plt.ylabel("Drone y relative to animal")
+    plt.title("Drone XY Visitation Heatmap")
+
+    cbar = plt.colorbar()
+    cbar.set_label("Visit Count")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
 
 def plot_heatmap(r_vals, z_vals, out_path, bins=80):
     r_max = np.max(r_vals)
@@ -82,6 +150,13 @@ def plot_policy_heatmap_from_csv(csv_path, bins=80):
     r_vals, z_vals = load_positions_from_csv(csv_path)
     out_path = make_output_path(csv_path)
     plot_heatmap(r_vals, z_vals, out_path, bins=bins)
+    return out_path
+
+def plot_xy_policy_heatmap_from_csv(csv_path, bins=80):
+    csv_path = Path(csv_path)
+    dx_vals, dy_vals = load_xy_positions_from_csv(csv_path)
+    out_path = make_xy_output_path(csv_path)
+    plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=bins)
     return out_path
 
 def plot_reward_heatmap_from_csv(
@@ -214,12 +289,14 @@ def _init_argparse():
 def main():
     args = _init_argparse()
 
-    out_path = make_output_path(args.csv)
-
+    out_path_rz = make_output_path(args.csv)
     r_vals, z_vals = load_positions_from_csv(args.csv)
-    plot_heatmap(r_vals, z_vals, out_path, bins=args.bins)
+    plot_heatmap(r_vals, z_vals, out_path_rz, bins=args.bins)
 
-    print(f"Saved heatmap to {out_path}")
+    out_path_xy = plot_xy_policy_heatmap_from_csv(args.csv, bins=args.bins)
+
+    print(f"Saved heatmap to {out_path_rz}")
+    print(f"Saved XY heatmap to {out_path_xy}")
 
 
 if __name__ == "__main__":
