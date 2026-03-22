@@ -133,6 +133,60 @@ def center_segment_coordinates(df, segment_col="segment", x_col="x", y_col="y"):
 
     return out
 
+def add_step_metrics(df, x_col="x", y_col="y", dt_col="dt_seconds", group_cols=None):
+    out = df.copy()
+
+    if group_cols is None:
+        dx = out[x_col].diff()
+        dy = out[y_col].diff()
+    else:
+        dx = out.groupby(group_cols)[x_col].diff()
+        dy = out.groupby(group_cols)[y_col].diff()
+
+    out["step_dist"] = np.hypot(dx, dy)
+    out["speed_mps"] = out["step_dist"] / out[dt_col]
+
+    bad_dt = out[dt_col].isna() | (out[dt_col] <= 0)
+    out.loc[bad_dt, ["step_dist", "speed_mps"]] = np.nan
+    return out
+
+def split_segments_on_motion(
+    df,
+    id_col="TAG",
+    segment_col="segment",
+    dt_col="dt_seconds",
+    speed_col="speed_mps",
+    step_col="step_dist",
+    max_speed=None,
+    max_step=None,
+):
+    out = df.copy()
+
+    bad = out[dt_col].isna() | (out[dt_col] <= 0)
+
+    if max_speed is not None:
+        bad |= out[speed_col] > max_speed
+    if max_step is not None:
+        bad |= out[step_col] > max_step
+
+    # current row starts a new segment if the step into it is bad
+    out["_motion_break"] = bad
+
+    out["_subseg"] = (
+        out["_motion_break"]
+        .groupby([out[id_col], out[segment_col]])
+        .cumsum()
+        .astype(int)
+    )
+
+    out[segment_col] = (
+        out.groupby([id_col, segment_col, "_subseg"], sort=False)
+           .ngroup()
+           .astype(int)
+    )
+
+    return out.drop(columns=["_motion_break", "_subseg"])
+
 def save_segments_from_df(df, out_dir, segment_col="segment", t_col="segment_t", x_col="x", y_col="y", id_col="tag-local-identifier", time_col="timestamp"):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -175,27 +229,30 @@ def save_segments_from_df(df, out_dir, segment_col="segment", t_col="segment_t",
 
     return manifest
 
-def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.csv", out_dir="track_segments/peruvian_boobies"):
-    print("--- Preparing gps tracks for peruvian boobies ---")
+def plot_speed_binned(df, plot_dir):
+    import matplotlib.pyplot as plt
 
-    df = pd.read_csv(input_path, na_values="NA", usecols=["location-lat", "location-long", "tag-local-identifier", "timestamp"])
-    print("NA Values:")
-    print(df.isna().any())
-    print()
+    plot_dir = Path(plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
-    df = transform_df_to_utm(df)
-    df = dt_from_datetime(df)
-    df = segments_from_dt(df, max_gap=60)
-    df = reset_first_dt_in_segment(df)
-    df = filter_min_segment_points(df, min_points=50)
-    df = filter_min_segment_time(df)
-    df = filter_min_segment_extent(df, min_extent=250)
-    df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
-    
-    print(f"--- Saving segments to {out_dir} ---")
-    save_segments_from_df(df, out_dir)
-    print("--- Finished preparation for peruvian boobies ---")
+    # Keep finite, non-negative speeds
+    speeds = df["speed_mps"].replace([np.inf, -np.inf], np.nan).dropna()
+    speeds = speeds[speeds >= 0]
+
+    # Optional: inspect binned counts
+    bin_width = 5  # m/s
+    max_speed = np.ceil(speeds.max() / bin_width) * bin_width
+    bins = np.arange(0, max_speed + bin_width, bin_width)
+
+    # Histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(speeds, bins=bins)
+    plt.xlabel("Speed (m/s)")
+    plt.ylabel("Count")
+    plt.title("Histogram of step speeds")
+    plt.tight_layout()
+    plt.savefig(plot_dir / "speed_histogram.png", dpi=200)
+    plt.close()
 
 def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_segments/jackals"):
     print("--- Preparing gps tracks for jackals ---")
@@ -205,16 +262,26 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_se
     print("NA Values:")
     print(df.isna().any())
     print()
-    df
+    df["dateTime_local"] = pd.to_datetime(df["dateTime_local"], errors="coerce")
+    df = df.dropna(subset=["TAG", "dateTime_local", "lat", "lon"])
+
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
     df = segments_from_dt(df, max_gap=20, id_col="TAG")
+
+    df = add_step_metrics(df, group_cols=["TAG", "segment"])
+    df = split_segments_on_motion(df, id_col="TAG", segment_col="segment", max_speed=20)
+
     df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["TAG", "segment"])
+
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
-    df = filter_min_segment_extent(df, min_extent=250)
+    df = filter_min_segment_extent(df, min_extent=100)
     df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
+
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
 
     print(f"--- Saving segments to {out_dir} ---")
     save_segments_from_df(df, out_dir, id_col="TAG")
@@ -231,12 +298,20 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = transform_df_to_utm(df)
     df = dt_from_datetime(df)
     df = segments_from_dt(df, max_gap=20)
+    
+    df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
+    df = split_segments_on_motion(df, id_col="tag-local-identifier", segment_col="segment", max_speed=20)
+
     df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
+
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
     df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
+    
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
 
     print(f"--- Saving segments to {out_dir} ---")
     save_segments_from_df(df, out_dir)
@@ -260,12 +335,20 @@ def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons")
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_t(df, id_col="file_id")
     df = segments_from_dt(df, max_gap=20, id_col="file_id")
+
+    df = add_step_metrics(df, group_cols=["file_id", "segment"])
+    df = split_segments_on_motion(df, id_col="file_id", segment_col="segment", max_speed=100) # pigeons have speeds matching their stated max
+
     df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["file_id", "segment"])
+
     df = filter_min_segment_points(df, min_points=100)
     df = filter_min_segment_time(df)
     df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
+    
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
 
     print(f"--- Saving segments to {out_dir} ---")
     save_segments_from_df(df, out_dir)
@@ -274,5 +357,4 @@ def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons")
 if __name__ == "__main__":
     prepare_pigeons()
     prepare_jackals()
-    # prepare_spur_winged_lapwings()
-    # prepare_peruvian_boobies()
+    prepare_spur_winged_lapwings()

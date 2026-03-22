@@ -13,7 +13,7 @@ from model import PPOAgent, MAPPOAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
-from .plots.policy_heatmap import plot_policy_heatmap_from_csv, plot_reward_heatmap_from_csv
+from .plots.policy_heatmap import plot_policy_heatmap_from_csv, plot_xy_policy_heatmap_from_csv, plot_reward_heatmap_from_csv
 
 BASELINES = {
     "centroid": CentroidStandoff,
@@ -441,6 +441,7 @@ def main():
         rl_csv = eval_dir / f"{agent_type}.csv"
 
         _ = plot_policy_heatmap_from_csv(rl_csv)
+        _ = plot_xy_policy_heatmap_from_csv(rl_csv)
         _ = plot_reward_heatmap_from_csv(
             rl_csv,
             bins=60,
@@ -454,6 +455,7 @@ def main():
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
 
             _ = plot_policy_heatmap_from_csv(baseline_csv)
+            _ = plot_xy_policy_heatmap_from_csv(baseline_csv)
             _ = plot_reward_heatmap_from_csv(
                 baseline_csv,
                 bins=60,
