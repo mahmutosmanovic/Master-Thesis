@@ -1,0 +1,64 @@
+CRW_CFG:
+  persistence: 0.0
+  turn_sigma: 0.05
+  target_speed: 8.157761939830268
+  speed_sigma: 5.12938074186503
+  speed_smooth: 0.9062687467223339
+  bias_gain: 0.0
+EE_CFG:
+  explore_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 4.78756115855756
+    speed_sigma: 2.645967097570405
+    speed_smooth: 0.9596014443128611
+    bias_gain: 0.0
+  exploit_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 13.33731671417867
+    speed_sigma: 3.4710810151042084
+    speed_smooth: 0.9582108169124038
+    bias_gain: 0.0
+  time_to_leave: 2.0
+POI_CFG:
+  explore_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 4.78756115855756
+    speed_sigma: 2.645967097570405
+    speed_smooth: 0.9596014443128611
+    bias_gain: 0.5
+  exploit_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 13.33731671417867
+    speed_sigma: 3.4710810151042084
+    speed_smooth: 0.9582108169124038
+    bias_gain: 0.0
+  arrive_dist: 20.0
+  time_to_leave: 2.0
+LPOI_CFG:
+  explore_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 4.78756115855756
+    speed_sigma: 2.645967097570405
+    speed_smooth: 0.9596014443128611
+    bias_gain: 0.5
+  exploit_cfg:
+    persistence: 0.0
+    turn_sigma: 0.05
+    target_speed: 13.33731671417867
+    speed_sigma: 3.4710810151042084
+    speed_smooth: 0.9582108169124038
+    bias_gain: 0.0
+  arrive_dist: 20.0
+  time_to_leave: 2.0
+  epsilon: 0.2
+  learning_rate: 0.3
+  disturbance_penalty: 1.0
+REPLAY_CFG:
+  manifest_path: ./track_segments/jackals/manifest.parquet
+  selection: random
+  zero_centered: false
