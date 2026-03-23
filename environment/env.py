@@ -13,6 +13,7 @@ class Env:
         self.set_seed(seed)
         self.render_mode = render_mode
         self.config = config
+        self.disturb_scale = config.disturbance_penalty_scale
         self.viewer = Viewer(config)
         self.resource_map = None
 
@@ -556,11 +557,13 @@ class Env:
                         v_cam_x,
                         v_cam_y,
                         v_cam_z,
+                        self.disturb_scale,
                     ])
                 else:
                     animal_features.extend([
                         0.0,
                         1.0,
+                        0.0,
                         0.0,
                         0.0,
                         0.0,
@@ -712,7 +715,8 @@ class Env:
 
         monitor_reward = r_dist * r_align
 
-        final_reward = monitor_reward - self.config.disturbance_penalty_scale * disturbance_penalty - p_vel - p_theta
+        self.disturb_scale = self.env_rng.uniform(low=0.1, high=1.1)
+        final_reward = monitor_reward - self.disturb_scale * disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
