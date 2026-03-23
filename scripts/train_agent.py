@@ -1,3 +1,15 @@
+import os
+import wandb
+import argparse
+import subprocess
+import numpy as np
+
+from box import Box
+from tqdm import tqdm
+from pathlib import Path
+from datetime import datetime
+from dotenv import load_dotenv
+
 # config
 from config import load_config
 from .run_utils import create_run_dir, save_config_snapshot
@@ -6,27 +18,14 @@ from .run_utils import create_run_dir, save_config_snapshot
 from environment import Env
 
 # model
-from model import PPOAgent
-from model import MAPPOAgent
-
-# standard modules
-import os
-import wandb
-import argparse
-import subprocess
-import numpy as np
-from box import Box
-from tqdm import tqdm
-from pathlib import Path
-from datetime import datetime
-from dotenv import load_dotenv
+from model import PPOAgent, MAPPOAgent, ConstrainedPPOAgent
 
 load_dotenv()
 
 project_root = Path(__file__).resolve().parents[1]
 
-def init_wandb(config, agent_type):
 
+def init_wandb(config, agent_type):
     api_token = os.getenv("API_TOKEN")
     wandb.login(key=api_token)
 
@@ -45,7 +44,6 @@ def init_wandb(config, agent_type):
         tags=[agent_type, f"seed{config['seed']}"],
     )
 
-    # collect source files
     source_files = []
     for folder in ["config", "environment", "model", "scripts"]:
         root = project_root / folder
@@ -53,16 +51,13 @@ def init_wandb(config, agent_type):
         source_files += list(root.rglob("*.yaml"))
         source_files += list(root.rglob("*.yml"))
 
-    # upload as artifact with correct paths
     artifact = wandb.Artifact("source_code", type="code")
-
     for f in sorted(source_files):
         rel_path = f.relative_to(project_root)
         artifact.add_file(str(f), name=str(rel_path))
 
     wandb.log_artifact(artifact)
 
-    # log git commit
     commit = subprocess.getoutput("git rev-parse HEAD")
     wandb.config.update({"git_commit": commit}, allow_val_change=True)
 
@@ -71,17 +66,17 @@ def init_wandb(config, agent_type):
 
 def _init_agent(config, agent_type, device):
     if agent_type == "ppo":
-        return PPOAgent(config, device)
+        return PPOAgent(config, device=device)
     elif agent_type == "mappo":
-        return MAPPOAgent(config,device)
+        return MAPPOAgent(config, device=device)
+    elif agent_type == "constrained_ppo":
+        return ConstrainedPPOAgent(config, device=device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
 
 def agent_env_step(agent, env, obs, agent_type):
-
     if agent_type == "ppo":
-
         actions = []
         logps = []
         vals = []
@@ -92,21 +87,56 @@ def agent_env_step(agent, env, obs, agent_type):
             logps.append(lp)
             vals.append(v)
 
-        actions = np.array(actions)
+        actions = np.asarray(actions, dtype=np.float32)
 
         next_obs, reward, terminated, truncated, info = env.step(actions)
-
         done = terminated or truncated
 
         for i in range(len(obs)):
-            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done)
+            agent.remember(
+                obs[i],
+                actions[i],
+                logps[i],
+                vals[i],
+                reward,
+                done,
+            )
+
+    elif agent_type == "constrained_ppo":
+        actions = []
+        logps = []
+        reward_vals = []
+        cost_vals = []
+
+        for drone_obs in obs:
+            a, lp, rv, cv = agent.choose_action(drone_obs)
+            actions.append(a)
+            logps.append(lp)
+            reward_vals.append(rv)
+            cost_vals.append(cv)
+
+        actions = np.asarray(actions, dtype=np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(actions)
+        done = terminated or truncated
+        cost = float(info.get("cost", 0.0))
+
+        for i in range(len(obs)):
+            agent.remember(
+                state=obs[i],
+                action=actions[i],
+                logp=logps[i],
+                reward_val=reward_vals[i],
+                cost_val=cost_vals[i],
+                reward=reward,
+                cost=cost,
+                done=done,
+            )
 
     elif agent_type == "mappo":
-
         actions, log_prob, val = agent.choose_action(obs)
 
         next_obs, reward, terminated, truncated, info = env.step(actions)
-
         done = terminated or truncated
 
         agent.remember(obs, actions, log_prob, val, reward, done)
@@ -117,8 +147,7 @@ def agent_env_step(agent, env, obs, agent_type):
     return next_obs, reward, done, terminated, truncated, info
 
 
-def main(config, agent_type="ppo", logging=False, device='cpu'):
-
+def main(config, agent_type="ppo", logging=False, device="cpu"):
     if logging:
         _ = init_wandb(config, agent_type)
 
@@ -131,7 +160,7 @@ def main(config, agent_type="ppo", logging=False, device='cpu'):
     done = False
 
     curr_steps = 0
-    episode_reward = 0
+    episode_reward = 0.0
     max_rew = -np.inf
 
     save_count = 0
@@ -140,11 +169,13 @@ def main(config, agent_type="ppo", logging=False, device='cpu'):
 
     try:
         with tqdm(total=total_steps, desc="Training") as pbar:
-
             while curr_steps < total_steps:
+                rollout_steps = min(
+                    config.model.sampling.rollout_steps,
+                    total_steps - curr_steps,
+                )
 
-                for _ in range(config.model.sampling.rollout_steps):
-
+                for _ in range(rollout_steps):
                     curr_steps += 1
                     pbar.update(1)
 
@@ -153,71 +184,93 @@ def main(config, agent_type="ppo", logging=False, device='cpu'):
                     )
 
                     obs = next_obs
-                    episode_reward += reward
-                    episode_reward_norm = -np.inf
+                    episode_reward += float(reward)
 
                     if terminated or truncated:
-
                         episode_reward_norm = episode_reward / config.max_episode_steps
                         stats = env.get_behavior_stats()
                         r_stats = env.get_reward_stats()
 
-                        if logging:
-                            wandb.log({
-                                # episode-level summary
+                        if logging and stats is not None and r_stats is not None:
+                            log_payload = {
                                 "episode/reward_norm": episode_reward_norm,
                                 "episode/progress": r_stats["episode_progress"],
-
-                                # behavior / environment response
                                 "behavior/calm_frac": stats["calm_frac"],
                                 "behavior/avoid_frac": stats["avoid_frac"],
                                 "behavior/flee_frac": stats["flee_frac"],
-
-                                # reward decomposition
                                 "reward/monitoring": r_stats["r_monitoring"],
                                 "reward/disturbance_penalty": r_stats["p_disturbance"],
                                 "reward/visibility": r_stats["r_vis"],
                                 "reward/distance": r_stats["r_dist"],
                                 "reward/alignment": r_stats["r_align"],
                                 "reward/bucket": r_stats["r_bucket"],
-
-                                # bookkeeping
                                 "checkpoint/save_count": save_count,
                                 "system/step": curr_steps,
+                            }
+
+                            if agent_type == "constrained_ppo":
+                                log_payload["episode/cost"] = float(info.get("cost", 0.0))
+
+                            wandb.log(log_payload)
+
+                        if r_stats is not None:
+                            pbar.set_postfix({
+                                "rew_100": f"{episode_reward_norm:.2f}",
+                                "mean_dist": f"{r_stats['p_disturbance']:.2f}",
                             })
 
-                        pbar.set_postfix({
-                            "rew_100": f"{episode_reward_norm:.2f}",
-                            "mean_dist": f"{r_stats['p_disturbance']:.2f}",
-                        })
-
-                        if episode_reward_norm > max_rew and curr_steps >= save_models_frac * total_steps:
+                        if (
+                            episode_reward_norm > max_rew
+                            and curr_steps >= save_models_frac * total_steps
+                        ):
                             agent.save_models(name="best")
                             max_rew = episode_reward_norm
                             save_count += 1
 
-                        episode_reward = 0
+                        episode_reward = 0.0
                         obs, info = env.reset()
                         done = False
 
-                last_value = agent.get_last_value(obs, done)
-                train_metrics = agent.learn(last_value)
+                if agent_type == "constrained_ppo":
+                    last_reward_value, last_cost_value = agent.get_last_values(obs, done)
+                    train_metrics = agent.learn(last_reward_value, last_cost_value)
+                else:
+                    last_value = agent.get_last_value(obs, done)
+                    train_metrics = agent.learn(last_value)
 
                 if logging and train_metrics is not None:
-                    wandb.log({
-                        # training / optimization
-                        "train/entropy_coef": train_metrics["train_entropy_coef"],
-                        "train/policy_entropy": train_metrics["train_policy_entropy"],
-                        "train/actor_loss": train_metrics["actor_loss"],
-                        "train/critic_loss": train_metrics["critic_loss"],
-                        "train/actor_lr": train_metrics["actor_lr"],
-                        "train/critic_lr": train_metrics["critic_lr"],
-                    })
+                    if agent_type == "constrained_ppo":
+                        wandb.log({
+                            "train/entropy_coef": train_metrics["train_entropy_coef"],
+                            "train/policy_entropy": train_metrics["train_policy_entropy"],
+                            "train/actor_loss": train_metrics["actor_loss"],
+                            "train/reward_critic_loss": train_metrics["reward_critic_loss"],
+                            "train/cost_critic_loss": train_metrics["cost_critic_loss"],
+                            "train/actor_lr": train_metrics["actor_lr"],
+                            "train/reward_critic_lr": train_metrics["reward_critic_lr"],
+                            "train/cost_critic_lr": train_metrics["cost_critic_lr"],
+                            "constraint/lambda": train_metrics["lambda"],
+                            "constraint/error": train_metrics["constraint_error"],
+                            "constraint/pid_p": train_metrics["pid_p"],
+                            "constraint/pid_i": train_metrics["pid_i"],
+                            "constraint/pid_d": train_metrics["pid_d"],
+                            "rollout/mean_cost": train_metrics["mean_rollout_cost"],
+                            "rollout/mean_reward": train_metrics["mean_rollout_reward"],
+                        })
+                    else:
+                        wandb.log({
+                            "train/entropy_coef": train_metrics["train_entropy_coef"],
+                            "train/policy_entropy": train_metrics["train_policy_entropy"],
+                            "train/actor_loss": train_metrics["actor_loss"],
+                            "train/critic_loss": train_metrics["critic_loss"],
+                            "train/actor_lr": train_metrics["actor_lr"],
+                            "train/critic_lr": train_metrics["critic_lr"],
+                        })
 
-            agent.save_models(name="last")
+        agent.save_models(name="last")
 
-            if logging:
-                wandb.save(os.path.join(config.run_dir, "*"))
+        if logging:
+            wandb.save(os.path.join(config.run_dir, "*"))
 
     finally:
         if logging:
@@ -225,30 +278,59 @@ def main(config, agent_type="ppo", logging=False, device='cpu'):
 
 
 def _init_argparse():
-
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
-    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo"], help="RL agent type")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
-    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging",)
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="train",
+        help="Config name inside config/ folder",
+    )
+    parser.add_argument(
+        "--agent",
+        type=str,
+        default="ppo",
+        choices=["ppo", "mappo", "constrained_ppo"],
+        help="RL agent type",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="Device to run on",
+    )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging",
+    )
 
     return parser.parse_args()
 
 
 if __name__ == "__main__":
-
     args = _init_argparse()
 
     cfg = load_config(args.config)
-
     cfg["seed"] = args.seed
     cfg["agent_type"] = args.agent
 
     run_dir = create_run_dir(cfg, args.seed)
-
     save_config_snapshot(cfg, run_dir)
+
     cfg["run_dir"] = str(run_dir)
-    main(cfg, agent_type=args.agent, logging=args.wandb, device=args.device)
+
+    main(
+        cfg,
+        agent_type=args.agent,
+        logging=args.wandb,
+        device=args.device,
+    )
+
     print(f"RUN_DIR::{run_dir.name}")
