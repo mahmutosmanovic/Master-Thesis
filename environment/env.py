@@ -715,7 +715,6 @@ class Env:
 
         monitor_reward = r_dist * r_align
 
-        self.disturb_scale = self.env_rng.uniform(low=0.1, high=1.1)
         final_reward = monitor_reward - self.disturb_scale * disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
