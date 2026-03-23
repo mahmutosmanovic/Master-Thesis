@@ -114,4 +114,4 @@ Do not forget to set REPLAY in config
 
     python -m scripts.prepare_tracks
 
-runs/CRW_seed42_2026-03-23_10-26-23
+runs/LPOI_seed42_2026-03-23_13-34-52
