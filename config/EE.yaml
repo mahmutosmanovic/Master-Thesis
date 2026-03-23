@@ -6,6 +6,7 @@ max_episode_steps: 2048
 model:
   path: checkpoints
   mode: train
+  actor_type: standard
 
   space:
     n_actions: 5
