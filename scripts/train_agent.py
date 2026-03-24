@@ -203,6 +203,10 @@ def main(config, agent_type="ppo", logging=False, device='cpu'):
                 last_value = agent.get_last_value(obs, done)
                 train_metrics = agent.learn(last_value)
 
+                env.disturb_scale = env.env_rng.uniform(low=0.1, high=1.1)
+                if curr_steps % (config.model.sampling.rollout_steps * 10) == 0:
+                    agent.save_models(name=f"{curr_steps}k")
+
                 if logging and train_metrics is not None:
                     wandb.log({
                         # training / optimization

@@ -481,7 +481,7 @@ class Env:
         Updates per-animal angular coverage counts using current visibility.
         Only visible observations count toward coverage.
         """
-        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 7)
+        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 8)
 
         for d, drone in enumerate(self.drones):
             for a, animal in enumerate(self.animals):
@@ -662,7 +662,7 @@ class Env:
 
             # 11 features per animal:
             # [in_view, dist_norm, v_angle, h_angle, velx, vely, velz]
-            animal_obs = drone_obs[4:].reshape(self.animal_count, 7)
+            animal_obs = drone_obs[4:].reshape(self.animal_count, 8)
 
             in_view = animal_obs[:, 0]
             dist = animal_obs[:, 1]
@@ -755,7 +755,7 @@ class Env:
         animal_obs = observations[:, 4:].reshape(
             self.drone_count,
             self.animal_count,
-            7
+            8
         )
 
         visible = animal_obs[:, :, 0] == 1.0
