@@ -805,13 +805,13 @@ def main():
         vmin = reward_min
         vmax = reward_max
 
-        _ = plot_policy_heatmap_from_csv(rl_csv)
-        _ = plot_disturbance_heatmap_from_csv(rl_csv)
-        _ = plot_xy_policy_heatmap_from_csv(rl_csv)
+        _ = plot_policy_heatmap_from_csv(rl_csv, cmap="turbo")
+        _ = plot_disturbance_heatmap_from_csv(rl_csv, cmap="turbo")
+        _ = plot_xy_policy_heatmap_from_csv(rl_csv, cmap="turbo")
         _ = plot_reward_heatmap_from_csv(
             rl_csv,
-            bins=60,
-            cmap="jet",
+            bins=50,
+            cmap="turbo",
             vmin=vmin,
             vmax=vmax,
             use_radial=True,
@@ -823,13 +823,13 @@ def main():
             vmin = df['reward'].min()
             vmax = df['reward'].max()
 
-            _ = plot_policy_heatmap_from_csv(baseline_csv)
-            _ = plot_disturbance_heatmap_from_csv(baseline_csv)
-            _ = plot_xy_policy_heatmap_from_csv(baseline_csv)
+            _ = plot_policy_heatmap_from_csv(baseline_csv, cmap="turbo")
+            _ = plot_disturbance_heatmap_from_csv(baseline_csv, cmap="turbo")
+            _ = plot_xy_policy_heatmap_from_csv(baseline_csv, cmap="turbo")
             _ = plot_reward_heatmap_from_csv(
                 baseline_csv,
-                bins=60,
-                cmap="jet",
+                bins=50,
+                cmap="turbo",
                 vmin=vmin,
                 vmax=vmax,
                 use_radial=True,

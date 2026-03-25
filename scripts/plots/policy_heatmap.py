@@ -5,6 +5,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
+    cmap = plt.get_cmap(cmap_name)
+    new_cmap = LinearSegmentedColormap.from_list(
+        f"trunc_{cmap_name}",
+        cmap(np.linspace(minval, maxval, n))
+    )
+    return new_cmap
 
 def make_output_path(csv_path):
     csv_path = Path(csv_path)
@@ -73,7 +82,8 @@ def load_xy_positions_from_csv(csv_path):
 
     return x_local, y_local
 
-def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
+def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet"):
+    cmap = truncate_colormap(cmap, 0.05, 1.0)
     lim = max(np.max(np.abs(dx_vals)), np.max(np.abs(dy_vals)))
     if lim <= 0:
         lim = 1.0
@@ -95,7 +105,7 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
         origin="lower",
         aspect="equal",
         extent=[-lim, lim, -lim, lim],
-        cmap="jet",
+        cmap=cmap,
         vmin=vmin,
         vmax=vmax,
     )
@@ -113,7 +123,8 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_heatmap(r_vals, z_vals, out_path, bins=80):
+def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet"):
+    cmap = truncate_colormap(cmap, 0.05, 1.0)
     r_max = np.max(r_vals)
     z_max = np.max(z_vals)
 
@@ -139,7 +150,7 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80):
         origin="lower",
         aspect="auto",
         extent=[0, r_max, 0, z_max],
-        cmap="jet",
+        cmap=cmap,
         vmin=vmin,
         vmax=vmax,
     )
@@ -181,7 +192,8 @@ def load_positions_and_disturbance_from_csv(csv_path):
     return r, z, p_disturbance
 
 
-def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80):
+def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80, cmap="jet"):
+    cmap = truncate_colormap(cmap, 0.05, 1.0)
     r_max = np.max(r_vals) if len(r_vals) else 1.0
     z_max = np.max(z_vals) if len(z_vals) else 1.0
 
@@ -233,7 +245,7 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
         origin="lower",
         aspect="auto",
         extent=[0, r_max, 0, z_max],
-        cmap="jet",
+        cmap=cmap,
         vmin=vmin,
         vmax=vmax,
     )
@@ -251,25 +263,25 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_disturbance_heatmap_from_csv(csv_path, bins=80):
+def plot_disturbance_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
     csv_path = Path(csv_path)
     r_vals, z_vals, disturbance_vals = load_positions_and_disturbance_from_csv(csv_path)
     out_path = make_output_path(csv_path).with_name(make_output_path(csv_path).stem + "_disturbance.png")
-    plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=bins)
+    plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=bins, cmap=cmap)
     return out_path
 
-def plot_policy_heatmap_from_csv(csv_path, bins=80):
+def plot_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
     csv_path = Path(csv_path)
     r_vals, z_vals = load_positions_from_csv(csv_path)
     out_path = make_output_path(csv_path)
-    plot_heatmap(r_vals, z_vals, out_path, bins=bins)
+    plot_heatmap(r_vals, z_vals, out_path, bins=bins, cmap=cmap)
     return out_path
 
-def plot_xy_policy_heatmap_from_csv(csv_path, bins=80):
+def plot_xy_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
     csv_path = Path(csv_path)
     dx_vals, dy_vals = load_xy_positions_from_csv(csv_path)
     out_path = make_xy_output_path(csv_path)
-    plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=bins)
+    plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=bins, cmap=cmap)
     return out_path
 
 def plot_reward_heatmap_from_csv(
@@ -286,6 +298,7 @@ def plot_reward_heatmap_from_csv(
     Color in each bin = mean step reward of drone positions in that bin.
     Unvisited bins are filled with vmin so the whole plot is rendered.
     """
+    cmap = truncate_colormap(cmap, 0.05, 1.0)
 
     csv_path = Path(csv_path)
     df = pd.read_csv(csv_path)

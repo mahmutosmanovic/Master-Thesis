@@ -32,12 +32,12 @@ model:
 
 # Drone configuration
 drone:
-  large:
+  medium:
     count: 1
     view_range: 200
-    disturbance_mult: 1.0 # [0,1]
+    disturbance_mult: 0.9 # [0,1]
     min_speed: 0
-    max_speed: 16
+    max_speed: 25
     ver_angle: 90
     hor_angle: 140
     max_cam_rot: 90
@@ -52,7 +52,7 @@ animal:
 
   init:
     min_speed: 0
-    max_speed: 12
+    max_speed: 20
     behavior: EE_CFG        # mapped -> POI_CFG()
     movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
     max_spawn_radius: 200
