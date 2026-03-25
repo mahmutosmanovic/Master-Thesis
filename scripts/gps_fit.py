@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
-from dataclasses import asdict, is_dataclass
 import yaml
 import numbers
+from pathlib import Path
+from dataclasses import asdict, is_dataclass
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from scipy.stats import wasserstein_distance
 from sklearn.cluster import KMeans, DBSCAN
 from sklearn.preprocessing import StandardScaler
-from scipy.stats import wasserstein_distance
+from hmmlearn import hmm
 
 from environment.vec import Vector
 from environment.immutables import MovementDim, BehaviorState
@@ -27,12 +28,12 @@ from environment.behaviors import (
     LPOI_CFG,
 )
 
+# region IO
 
-# ============================================================
-# IO
-# ============================================================
+def _ensure_parent(path):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
 
-def load_segments_df(manifest_path: str | Path):
+def load_segments_df(manifest_path):
     manifest_path = Path(manifest_path)
     manifest = pd.read_parquet(manifest_path).reset_index(drop=True)
     base_dir = manifest_path.parent
@@ -41,9 +42,9 @@ def load_segments_df(manifest_path: str | Path):
     for _, row in manifest.iterrows():
         seg_path = base_dir / row["path"]
         with np.load(seg_path, allow_pickle=False) as z:
-            t = z["t"].astype(float)
-            x = z["x"].astype(float)
-            y = z["y"].astype(float)
+            t = z["t"].astype(np.float32)
+            x = z["x"].astype(np.float32)
+            y = z["y"].astype(np.float32)
 
         frames.append(pd.DataFrame({
             "segment": int(row["segment"]),
@@ -87,8 +88,7 @@ def _to_builtin(obj):
 
     return obj
 
-
-def save_configs_yaml(path: str | Path, **configs):
+def save_configs_yaml(path, **configs):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -97,13 +97,12 @@ def save_configs_yaml(path: str | Path, **configs):
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(payload, f, sort_keys=False, allow_unicode=True)
 
-# ============================================================
-# Feature engineering
-# ============================================================
+# endregion
+
+# region Feature engineering
 
 def wrap_pi(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
-
 
 def compute_step_turn(df: pd.DataFrame):
     df = df.copy()
@@ -127,8 +126,7 @@ def compute_step_turn(df: pd.DataFrame):
 
     return df
 
-
-def compute_tortuosity(df: pd.DataFrame, half_window: int = 3):
+def compute_tortuosity(df: pd.DataFrame, half_window = 3):
     df = df.sort_values(["segment", "t"]).copy()
     g = df.groupby("segment", sort=False)
 
@@ -159,10 +157,9 @@ def compute_tortuosity(df: pd.DataFrame, half_window: int = 3):
 
     return df
 
+# endregion
 
-# ============================================================
-# State inference
-# ============================================================
+# region State inference
 
 def cluster_to_state(df: pd.DataFrame):
     df = df.copy()
@@ -183,8 +180,7 @@ def cluster_to_state(df: pd.DataFrame):
 
     return df
 
-
-def determine_state_kmeans(df: pd.DataFrame, n_clusters: int = 2, random_state: int = 0):
+def determine_state_kmeans(df: pd.DataFrame, n_clusters = 2, random_state = 0):
     df = df.copy()
 
     features = df[["speed", "abs_turn", "tortuosity"]].dropna()
@@ -201,57 +197,201 @@ def determine_state_kmeans(df: pd.DataFrame, n_clusters: int = 2, random_state: 
 
     return df
 
+def determine_state_kmeans_smooth(df: pd.DataFrame, n_clusters = 2, random_state = 0, smooth_window = 5):
+    df = df.copy()
 
-# ============================================================
-# Fitting helpers
-# ============================================================
+    features = df[["speed", "abs_turn", "tortuosity"]].dropna()
+    X = features[["speed", "abs_turn", "tortuosity"]]
 
-def fit_crw_speed(df: pd.DataFrame):
-    d = df[["segment", "t", "speed"]].dropna().copy()
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+
+    km = KMeans(n_clusters=n_clusters, random_state=random_state, n_init="auto")
+    labels = km.fit_predict(Xs)
+
+    df.loc[features.index, "cluster"] = labels
+    df = cluster_to_state(df)
+
+    mask = df["state"].notna()
+
+    # Temporal majority vote
+    if mask.any():
+        is_exploit = (df.loc[mask, "state"] == "exploit").astype(float)
+        smoothed = is_exploit.groupby(df.loc[mask, "segment"], sort=False).transform(
+            lambda s: s.rolling(window=smooth_window, center=True, min_periods=1).median()
+        )
+        
+        df.loc[mask, "state"] = np.where(smoothed >= 0.5, "exploit", "explore")
+
+    return df
+
+def determine_state_hmm(df: pd.DataFrame, n_clusters = 2, random_state = 0):
+    df = df.copy()
+
+    features_cols =["speed", "abs_turn", "tortuosity"]
+    
+    valid_mask = df[features_cols].notna().all(axis=1)
+    valid_df = df[valid_mask].sort_values(["segment", "t"]).copy()
+
+    if len(valid_df) == 0:
+        df["cluster"] = np.nan
+        df["state"] = np.nan
+        return df
+
+    X = valid_df[features_cols]
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+
+    lengths = valid_df.groupby("segment", sort=False).size().tolist()
+
+    model = hmm.GaussianHMM(
+        n_components=n_clusters, 
+        covariance_type="full", 
+        random_state=random_state, 
+        n_iter=100
+    )
+    
+    model.fit(Xs, lengths)
+    labels = model.predict(Xs, lengths)
+
+    valid_df["cluster"] = labels
+    df.loc[valid_df.index, "cluster"] = valid_df["cluster"]
+    
+    df = cluster_to_state(df)
+
+    return df
+
+# endregion
+
+# region Fitting
+
+def scale_speed_parameters(speed_smooth_obs, speed_sigma_obs, dt_obs, dt_sim=0.1):
+    retention_obs = 1.0 - speed_smooth_obs
+    retention_sim = retention_obs ** (dt_sim / dt_obs)
+        
+    speed_smooth_sim = 1.0 - retention_sim
+    
+    steady_state_variance = (speed_sigma_obs**2) / (1.0 - retention_obs**2)
+    speed_sigma_sim = np.sqrt(steady_state_variance * (1.0 - retention_sim**2))
+    
+    return speed_smooth_sim, speed_sigma_sim
+
+def bin_dt(d, n_bins=3):
+    d = d.copy()
+    fixed = d["dt"].max() - d["dt"].min() > 1
+
+    if fixed or n_bins <= 1:
+        dt_rep = float(d["dt"].median())
+        d["dt_bin"] = dt_rep
+        return d
+
+    dt_min = float(d["dt"].min())
+    dt_max = float(d["dt"].max())
+
+    cats = pd.cut(
+        d["dt"],
+        bins=np.linspace(dt_min, dt_max, n_bins + 1),
+        include_lowest=True,
+        duplicates="drop",
+    )
+
+    rep_by_bin = d.groupby(cats, observed=True)["dt"].median()
+
+    d["dt_bin"] = cats.map(rep_by_bin).astype(float)
+    return d
+
+def fit_crw_speed(df: pd.DataFrame, dt_sim = 0.1):
+    d = df[["segment", "t", "dt", "speed"]].dropna().copy()
     d = d.sort_values(["segment", "t"])
 
     g = d.groupby("segment", sort=False)
     d["speed_next"] = g["speed"].shift(-1)
-    d = d.dropna(subset=["speed", "speed_next"])
+    d = d.dropna(subset=["speed", "speed_next", "dt"]).copy()
 
-    x = d["speed"].to_numpy()
-    y = d["speed_next"].to_numpy()
+    if len(d) == 0:
+        return {"target_speed": 0.0, "speed_smooth": 1.0, "speed_sigma": 0.0}
 
-    A = np.column_stack([np.ones_like(x), x])
-    coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-    c, phi = coef
+    d = bin_dt(d, n_bins=3)
+    bin_counts = d["dt_bin"].value_counts()
+    valid_bins = bin_counts[bin_counts >= 30].index.to_list()
+    
+    # Only use dt bins that have enough points for a stable linear regression
+    valid_bins = bin_counts[bin_counts >= 30].index.to_list()
+    
+    if not valid_bins:
+        valid_bins = [float(d["dt"].median())]
+        d["dt_bin"] = valid_bins[0]
 
-    phi = float(phi)
-    c = float(c)
+    agg_smooth = 0.0
+    agg_sigma = 0.0
+    agg_target = 0.0
+    total_weight = 0.0
 
-    speed_smooth = 1.0 - phi
-    target_speed = float(np.mean(y)) if speed_smooth <= 1e-8 else float(c / speed_smooth)
+    for dt_obs in valid_bins:
+        subset = d[d["dt_bin"] == dt_obs]
+        x = subset["speed"].to_numpy()
+        y = subset["speed_next"].to_numpy()
+        weight = len(x)
+        
+        # Fit the OU process for this specific observation interval
+        A = np.column_stack([np.ones_like(x), x])
+        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+        c, phi = coef
 
-    resid = y - (c + phi * x)
-    speed_sigma = float(np.std(resid, ddof=1)) if len(resid) > 1 else 0.0
+        phi = float(phi)
+        c = float(c)
+
+        # Handle edge cases where phi might be > 1.0 due to noise
+        speed_smooth_obs = max(0.0, min(1.0, 1.0 - phi))
+        target_speed = float(np.mean(y)) if speed_smooth_obs <= 1e-8 else float(c / speed_smooth_obs)
+
+        resid = y - (c + phi * x)
+        speed_sigma_obs = float(np.std(resid, ddof=1)) if len(resid) > 1 else 0.0
+
+        # Scale parameters from this specific dt_obs down to dt_sim (0.1)
+        smooth_sim, sigma_sim = scale_speed_parameters(
+            speed_smooth_obs, speed_sigma_obs, dt_obs, dt_sim
+        )
+        # smooth_sim, sigma_sim = speed_smooth_obs, speed_sigma_obs
+
+        agg_smooth += smooth_sim * weight
+        agg_sigma += sigma_sim * weight
+        agg_target += target_speed * weight
+        total_weight += weight
 
     return {
-        "target_speed": target_speed,
-        "speed_smooth": float(speed_smooth),
-        "speed_sigma": speed_sigma,
+        "target_speed": float(agg_target / total_weight),
+        "speed_smooth": float(agg_smooth / total_weight),
+        "speed_sigma": float(agg_sigma / total_weight),
     }
 
-
-def _simulate_dir_steps(persistence: float, turn_sigma: float, n: int = 50_000, random_state: int = 0):
-    """
-    Exact 2D one-step turn distribution for:
-        new_dir = unit(persistence * old_dir + noise)
-        noise ~ N(0, turn_sigma^2 I)
-    with old_dir aligned to +x.
-    """
+def _simulate_dir_steps(persistence_sim, turn_sigma_sim, dt_obs, dt_sim=0.1, n=5_000, random_state=0):
     rng = np.random.default_rng(random_state)
-    eps = rng.normal(0.0, turn_sigma, size=(n, 2))
-    proposal_x = persistence + eps[:, 0]
-    proposal_y = eps[:, 1]
-    return np.arctan2(proposal_y, proposal_x)
+    
+    # How many RL steps happen between two GPS pings?
+    n_microsteps = max(1, int(round(dt_obs / dt_sim)))
+    
+    # Start all 50,000 simulated animals pointing exactly at +x (1, 0)
+    dirs = np.zeros((n, 2))
+    dirs[:, 0] = 1.0 
+    
+    for _ in range(n_microsteps):
+        # Generate noise for all n animals
+        eps = rng.normal(0.0, turn_sigma_sim, size=(n, 2))
+        
+        # Apply the exact math from your step_direction kernel
+        proposal_x = persistence_sim * dirs[:, 0] + eps[:, 0]
+        proposal_y = persistence_sim * dirs[:, 1] + eps[:, 1]
+        
+        # .unit() normalization
+        mags = np.hypot(proposal_x, proposal_y)
+        dirs[:, 0] = proposal_x / mags
+        dirs[:, 1] = proposal_y / mags
 
+    # Return the final aggregated angle after n_microsteps
+    return np.arctan2(dirs[:, 1], dirs[:, 0])
 
-def turn_score(obs, sim_turn, bins: int = 72):
+def turn_score(obs, sim_turn, bins = 72):
     obs = wrap_pi(np.asarray(obs))
     sim_turn = wrap_pi(np.asarray(sim_turn))
 
@@ -266,44 +406,69 @@ def turn_score(obs, sim_turn, bins: int = 72):
 
     return np.mean((p_obs - p_sim) ** 2)
 
-
 def fit_crw_turn(
     df: pd.DataFrame,
+    dt_sim = 0.1,
     persistence_grid=None,
     turn_sigma_grid=None,
-    n_sim: int = 50_000,
-    random_state: int = 0,
+    n_sim = 10_000,
+    random_state = 0,
 ):
-    obs = df["turn"].dropna().to_numpy()
-    obs = obs[np.isfinite(obs)]
+    d = df[["turn", "dt"]].dropna()
+    d = d[np.isfinite(d["turn"]) & (d["dt"] > 0)].copy()
 
-    if len(obs) == 0:
+    if len(d) == 0:
         return {
             "persistence": 0.0,
             "turn_sigma": 1.0,
         }
 
-    if persistence_grid is None:
-        persistence_grid = np.linspace(0.0, 2.0, 20)
+    # Bin dt to nearest 0.5s to handle variable sampling
+    d["dt_bin"] = np.round(d["dt"] * 2) / 2
+    
+    bin_counts = d["dt_bin"].value_counts()
+    valid_bins = bin_counts[bin_counts >= 50].index.to_list()
+    
+    if not valid_bins:
+        valid_bins =[float(d["dt"].median())]
+        d["dt_bin"] = valid_bins[0]
 
+    # Because dt=0.1 is very fine, persistence is usually higher and sigma is lower
+    if persistence_grid is None:
+        persistence_grid = np.linspace(0.1, 1.2, 5) 
     if turn_sigma_grid is None:
-        turn_sigma_grid = np.linspace(0.05, 1.0, 10)
+        turn_sigma_grid = np.linspace(0.01, 0.8, 5)
 
     best = None
     best_score = np.inf
 
     for persistence in persistence_grid:
         for turn_sigma in turn_sigma_grid:
-            sim_turn = _simulate_dir_steps(
-                persistence=persistence,
-                turn_sigma=turn_sigma,
-                n=n_sim,
-                random_state=random_state,
-            )
-            score = turn_score(obs, sim_turn)
+            total_score = 0.0
+            total_weight = 0.0
+            
+            for dt_obs in valid_bins:
+                obs = d.loc[d["dt_bin"] == dt_obs, "turn"].to_numpy()
+                weight = len(obs)
+                
+                # Micro-step the proposed RL parameters to match this bin's observation gap
+                sim_turn = _simulate_dir_steps(
+                    persistence_sim=persistence,
+                    turn_sigma_sim=turn_sigma,
+                    dt_obs=dt_obs,
+                    dt_sim=dt_sim,
+                    n=n_sim,
+                    random_state=random_state,
+                )
+                
+                score = turn_score(obs, sim_turn)
+                total_score += score * weight
+                total_weight += weight
 
-            if score < best_score:
-                best_score = score
+            avg_score = total_score / total_weight
+
+            if avg_score < best_score:
+                best_score = avg_score
                 best = {
                     "persistence": float(persistence),
                     "turn_sigma": float(turn_sigma),
@@ -311,12 +476,10 @@ def fit_crw_turn(
 
     return best
 
-
-def fit_CRW(df: pd.DataFrame):
-    speed_params = fit_crw_speed(df)
-    turn_params = fit_crw_turn(df)
+def fit_CRW(df: pd.DataFrame, dt_sim = 0.1):
+    speed_params = fit_crw_speed(df, dt_sim=dt_sim)
+    turn_params = fit_crw_turn(df, dt_sim=dt_sim)
     return CRW_CFG(**speed_params, **turn_params, bias_gain=0.0)
-
 
 def fit_ttl_trigger(df: pd.DataFrame, explore_label: str = "explore", exploit_label: str = "exploit"):
     d = df[["segment", "t", "state"]].dropna().sort_values(["segment", "t"]).copy()
@@ -365,24 +528,22 @@ def fit_ttl_trigger(df: pd.DataFrame, explore_label: str = "explore", exploit_la
     }
 
 
-def fit_EE(df: pd.DataFrame, random_state: int = 0):
-    labeled = determine_state_kmeans(df, n_clusters=2, random_state=random_state)
-
-    df_explore = labeled[labeled["state"] == "explore"].copy()
-    df_exploit = labeled[labeled["state"] == "exploit"].copy()
+def fit_EE(df: pd.DataFrame, random_state = 0, dt_sim = 0.1):
+    df_explore = df[df["state"] == "explore"].copy()
+    df_exploit = df[df["state"] == "exploit"].copy()
 
     explore_cfg = CRW_CFG(
-        **fit_crw_speed(df_explore),
-        **fit_crw_turn(df_explore),
+        **fit_crw_speed(df_explore, dt_sim=dt_sim),
+        **fit_crw_turn(df_explore, dt_sim=dt_sim),
         bias_gain=0.0,
     )
     exploit_cfg = CRW_CFG(
-        **fit_crw_speed(df_exploit),
-        **fit_crw_turn(df_exploit),
+        **fit_crw_speed(df_exploit, dt_sim=dt_sim),
+        **fit_crw_turn(df_exploit, dt_sim=dt_sim),
         bias_gain=0.0,
     )
 
-    ttl_trigger = fit_ttl_trigger(labeled)
+    ttl_trigger = fit_ttl_trigger(df)
 
     ee_cfg = EE_CFG(
         explore_cfg=explore_cfg,
@@ -390,10 +551,9 @@ def fit_EE(df: pd.DataFrame, random_state: int = 0):
         time_to_leave=ttl_trigger["time_to_leave"],
     )
 
-    return ee_cfg, ttl_trigger, labeled
+    return ee_cfg, ttl_trigger, df
 
-
-def infer_pois_from_exploit(df: pd.DataFrame, eps: float = 25.0, min_samples: int = 20):
+def infer_pois_from_exploit(df: pd.DataFrame, eps = 25.0, min_samples = 20):
     pts = df[df["state"] == "exploit"][["x", "y"]].dropna().copy()
     if len(pts) == 0:
         return np.empty((0, 2), dtype=float)
@@ -441,14 +601,13 @@ def infer_pois_by_segment(df, eps=25.0, min_samples=20):
 
     return poi_dict
 
-
 def fit_POI(
     ee_fit: tuple,
-    random_state: int = 0,
-    bias_gain: float = 0.5,
-    arrive_dist: float = 10.0,
-    poi_eps: float = 25.0,
-    poi_min_samples: int = 20,
+    random_state = 0,
+    bias_gain = 0.5,
+    arrive_dist = 10.0,
+    poi_eps = 25.0,
+    poi_min_samples = 20,
 ):
     ee_cfg, ttl_trigger, labeled = ee_fit
     pois = infer_pois_from_exploit(labeled, eps=poi_eps, min_samples=poi_min_samples)
@@ -472,10 +631,10 @@ def fit_POI(
 def infer_poi_weights(
     df: pd.DataFrame,
     pois,
-    radius: float = 10.0,
-    min_return_time: float = 0.0,
-    alpha: float = 0.25,
-    beta: float = 0.01,
+    radius = 10.0,
+    min_return_time = 0.0,
+    alpha = 0.25,
+    beta = 0.01,
 ):
     pois = np.asarray(pois, dtype=float)
     n_poi = len(pois)
@@ -530,24 +689,17 @@ def infer_poi_weights(
     return raw / raw.sum()
 
 def fit_LPOI(
-    ee_fit: tuple,
-    random_state: int = 0,
-    bias_gain: float = 0.5,
-    arrive_dist: float = 10.0,
-    poi_eps: float = 25.0,
-    poi_min_samples: int = 20,
-    epsilon: float = 0.2,
-    learning_rate: float = 0.3,
-    disturbance_penalty: float = 1.0,
+    poi_fit: tuple,
+    random_state = 0,
+    bias_gain = 0.5,
+    arrive_dist = 10.0,
+    poi_eps = 25.0,
+    poi_min_samples = 20,
+    epsilon = 0.2,
+    learning_rate = 0.3,
+    disturbance_penalty = 1.0,
 ):
-    poi_cfg, pois, labeled, _ = fit_POI(
-        ee_fit=ee_fit,
-        random_state=random_state,
-        bias_gain=bias_gain,
-        arrive_dist=arrive_dist,
-        poi_eps=poi_eps,
-        poi_min_samples=poi_min_samples,
-    )
+    poi_cfg, pois, labeled, _ = poi_fit
 
     poi_weights = infer_poi_weights(
         labeled[labeled["state"] == "exploit"],
@@ -568,10 +720,9 @@ def fit_LPOI(
 
     return lpoi_cfg, pois, poi_weights, labeled
 
+# endregion
 
-# ============================================================
-# Dummy resource maps / simulation
-# ============================================================
+# region Simulation / Dummy classes 
 
 class NullMap:
     def is_encounter(self, pos, rng):
@@ -580,9 +731,8 @@ class NullMap:
     def get_pois(self):
         return []
 
-
 class RandomEncounterMap:
-    def __init__(self, lambda_enter: float = 1.0, dt: float = 5.0):
+    def __init__(self, lambda_enter = 1.0, dt = 5.0):
         self.lambda_enter = lambda_enter
         self.dt = dt
         self.p_encounter = 1.0 - np.exp(-self.lambda_enter * self.dt)
@@ -592,7 +742,6 @@ class RandomEncounterMap:
 
     def get_pois(self):
         return []
-
 
 class FixedPOIMap:
     def __init__(self, pois, encounter_radius=10.0):
@@ -608,7 +757,6 @@ class FixedPOIMap:
         d = np.hypot(self.pois[:, 0] - pos.x, self.pois[:, 1] - pos.y)
         return bool(np.any(d <= self.encounter_radius)), None
 
-
 class DummyAnimal:
     def __init__(self, x=0.0, y=0.0, z=0.0, movement_dim=MovementDim.TWO_D, resource_map=None):
         self.pos = Vector(x, y, z)
@@ -618,16 +766,13 @@ class DummyAnimal:
         self.resource_map = resource_map if resource_map is not None else NullMap()
         self.disturbance = 0.0
 
-
 def update_animal_position(animal, dt):
     animal.pos = animal.pos.add(animal.vel_dir.scale(animal.vel_speed * dt))
-
 
 def make_random_encounter_factory(lambda_enter: float, dt: float):
     def factory(seed):
         return RandomEncounterMap(lambda_enter=lambda_enter, dt=dt)
     return factory
-
 
 def make_fixed_poi_factory(pois, arrive_dist: float):
     pois = np.asarray(pois, dtype=float)
@@ -636,14 +781,13 @@ def make_fixed_poi_factory(pois, arrive_dist: float):
         return FixedPOIMap(pois=pois, encounter_radius=arrive_dist)
     return factory
 
-
 def simulate_behavior(
     behavior,
-    n_steps: int = 2048,
-    dt: float = 5.0,
-    n_seeds: int = 10,
-    x0: float = 0.0,
-    y0: float = 0.0,
+    n_steps = 2048,
+    dt = 5.0,
+    n_seeds = 10,
+    x0 = 0.0,
+    y0 = 0.0,
     resource_map_factory=None,
 ):
     state_lut = {
@@ -696,10 +840,37 @@ def simulate_behavior(
 
     return pd.concat(frames, ignore_index=True)
 
+# endregion
 
-# ============================================================
-# Evaluation
-# ============================================================
+# region Evaluation
+
+def _scale_std(x: np.ndarray):
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+
+    if len(x) == 0:
+        return 1.0
+
+    sd = float(np.std(x, ddof=1)) if len(x) > 1 else float(np.std(x))
+    if sd > 0 and np.isfinite(sd):
+        return sd
+
+    return 1.0
+
+def normalized_wasserstein(obs, sim):
+    obs = np.asarray(obs, dtype=float)
+    sim = np.asarray(sim, dtype=float)
+
+    obs = obs[np.isfinite(obs)]
+    sim = sim[np.isfinite(sim)]
+
+    if len(obs) == 0 or len(sim) == 0:
+        return np.nan
+
+    wd = float(wasserstein_distance(obs, sim))
+    scale = _scale_std(obs)
+
+    return wd / scale
 
 def compute_distribution_scores(obs_df: pd.DataFrame, sim_df: pd.DataFrame):
     cols = ["speed", "turn", "tortuosity"]
@@ -717,27 +888,25 @@ def compute_distribution_scores(obs_df: pd.DataFrame, sim_df: pd.DataFrame):
                 y = sim_df.loc[sim_df["state"] == state, col].dropna().to_numpy()
 
                 if len(x) > 0 and len(y) > 0:
-                    wd = wasserstein_distance(x, y)
+                    wd = normalized_wasserstein(x, y)
                     scores[f"{col}_{state}"] = float(wd)
                     dists.append(wd)
 
-        # mean over available states
         if dists:
             scores[col] = float(np.mean(dists))
         else:
-            # fallback: overall score when state is missing or no overlap
             x = obs_df[col].dropna().to_numpy()
             y = sim_df[col].dropna().to_numpy()
             if len(x) > 0 and len(y) > 0:
-                scores[col] = float(wasserstein_distance(x, y))
+                scores[col] = float(normalized_wasserstein(x, y))
 
     return scores
 
 def compute_poi_revisitation_score(
     df: pd.DataFrame,
     pois,
-    radius: float = 10.0,
-    min_return_time: float = 0.0,
+    radius = 10.0,
+    min_return_time = 0.0,
 ):
     pois = np.asarray(pois, dtype=float)
     if pois.size == 0:
@@ -795,44 +964,83 @@ def compute_poi_revisitation_score(
 def evaluate_fit_distribution(
     behavior,
     df: pd.DataFrame,
-    n_steps: int = 204_800,
-    dt: float = 5.0,
-    n_seeds: int = 5,
+    n_steps = 204_800,
+    dt_sim = 0.1,
+    n_seeds = 5,
     resource_map_factory=None,
 ):
-    sim_df = simulate_behavior(
+    sim_df_high_res = simulate_behavior(
         behavior,
         n_steps=n_steps,
-        dt=dt,
+        dt=dt_sim,
         n_seeds=n_seeds,
         resource_map_factory=resource_map_factory,
-        x0 = float(df["x"].mean()),
-        y0 = float(df["y"].mean()),
+        x0=float(df["x"].mean()),
+        y0=float(df["y"].mean()),
     )
+    
+    valid_dts = df["dt"].dropna().to_numpy()
+    valid_dts = valid_dts[valid_dts > 0]
 
+    rng = np.random.default_rng(42)
+    sampled_frames =[]
+
+    # Subsample the simulation at gps rate
+    for segment_id, group in sim_df_high_res.groupby("segment", sort=False):
+        max_t = group["t"].max()
+
+        sampled_dts = rng.choice(valid_dts, size=int((max_t / valid_dts.min()) + 100))
+        obs_times = np.cumsum(np.insert(sampled_dts, 0, 0.0))
+        obs_times = obs_times[obs_times <= max_t]
+
+        indices = np.round(obs_times / dt_sim).astype(int)
+        indices = np.clip(indices, 0, len(group) - 1)
+        
+        sampled_group = group.iloc[indices].copy()
+        
+        sampled_group["t"] = obs_times
+        sampled_frames.append(sampled_group)
+
+    sim_df = pd.concat(sampled_frames, ignore_index=True)
     sim_df = compute_step_turn(sim_df)
     sim_df = compute_tortuosity(sim_df, half_window=3)
 
     return compute_distribution_scores(df, sim_df), sim_df
 
+# endregion
 
-# ============================================================
-# Plotting
-# ============================================================
+# region Plotting
 
-def _ensure_parent(path: str | Path):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+def _state_color(state: str):
+    return {
+        "explore": "black",
+        "exploit": "blue",
+    }.get(str(state), "black")
 
-
-def plot_speed_turn_hist(df: pd.DataFrame, out: str | Path):
+def plot_speed_turn_hist(df: pd.DataFrame, out):
     _ensure_parent(out)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     for state in sorted(df["state"].dropna().unique()):
         mask = df["state"] == state
-        axes[0].hist(df.loc[mask, "speed"].dropna(), bins=50, alpha=0.5, label=str(state))
-        axes[1].hist(df.loc[mask, "turn"].dropna(), bins=50, alpha=0.5, label=str(state))
+        color = _state_color(state)
+        alpha = 0.4 if str(state) == "explore" else 0.5
+
+        axes[0].hist(
+            df.loc[mask, "speed"].dropna(),
+            bins=50,
+            alpha=alpha,
+            label=str(state),
+            color=color,
+        )
+        axes[1].hist(
+            df.loc[mask, "turn"].dropna(),
+            bins=50,
+            alpha=alpha,
+            label=str(state),
+            color=color,
+        )
 
     axes[0].set_xlabel("speed")
     axes[0].set_ylabel("count")
@@ -848,34 +1056,124 @@ def plot_speed_turn_hist(df: pd.DataFrame, out: str | Path):
     plt.savefig(out, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-
-def plot_scatter_states(df: pd.DataFrame, out: str | Path):
+def plot_scatter_states(df: pd.DataFrame, out):
     _ensure_parent(out)
 
-    plt.figure()
-    for state in sorted(df["state"].dropna().unique()):
-        mask = df["state"] == state
-        plt.scatter(df.loc[mask, "x"], df.loc[mask, "y"], alpha=0.2, s=5, label=str(state))
+    states = sorted(df["state"].dropna().unique())
+    if len(states) == 0:
+        return
 
-    plt.legend()
-    plt.title("States")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.axis("equal")
+    xmin, xmax = df["x"].min(), df["x"].max()
+    ymin, ymax = df["y"].min(), df["y"].max()
+
+    fig, axes = plt.subplots(1, len(states), figsize=(6 * len(states), 5), squeeze=False)
+    axes = axes.ravel()
+
+    for ax, state in zip(axes, states):
+        mask = df["state"] == state
+        ax.scatter(
+            df.loc[mask, "x"],
+            df.loc[mask, "y"],
+            alpha=0.005,
+            s=5,
+            color=_state_color(state),
+        )
+        ax.set_title(f"State: {state}")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.set_aspect("equal", adjustable="box")
 
     plt.tight_layout()
     plt.savefig(out, dpi=200, bbox_inches="tight")
-    plt.close()
+    plt.close(fig)
+
+def plot_speed_turn_scatter(df: pd.DataFrame, out, n_sample: int = 5000):
+    _ensure_parent(out)
+
+    use = df.dropna(subset=["speed", "abs_turn", "state"]).copy()
+    if len(use) > n_sample:
+        use = use.sample(n_sample, random_state=0)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    for state in sorted(use["state"].unique()):
+        part = use[use["state"] == state]
+        ax.scatter(
+            part["speed"],
+            part["abs_turn"],
+            s=6,
+            alpha=0.3,
+            label=state,
+            color=_state_color(state),
+        )
+
+    ax.set_xlabel("speed")
+    ax.set_ylabel("abs_turn")
+    ax.set_title("Speed vs abs_turn")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+def plot_dt_hist(df: pd.DataFrame, out):
+    _ensure_parent(out)
+
+    vals = df["dt"].dropna()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(vals, bins=50, color="black", alpha=0.5)
+    ax.set_xlabel("dt")
+    ax.set_ylabel("count")
+    ax.set_title("Observation interval distribution")
+    plt.tight_layout()
+    plt.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
 
 
-# ============================================================
-# Main
-# ============================================================
+def plot_turn_polar(df: pd.DataFrame, out, bins: int = 36):
+    _ensure_parent(out)
+
+    states = sorted(df["state"].dropna().unique())
+    if len(states) == 0:
+        return
+
+    fig, axes = plt.subplots(
+        1,
+        len(states),
+        subplot_kw={"projection": "polar"},
+        figsize=(5 * len(states), 4),
+        squeeze=False,
+    )
+    axes = axes.ravel()
+
+    for ax, state in zip(axes, states):
+        vals = df.loc[df["state"] == state, "turn"].dropna().to_numpy()
+        hist, edges = np.histogram(vals, bins=bins, range=(-np.pi, np.pi))
+        theta = (edges[:-1] + edges[1:]) / 2
+        width = np.diff(edges)
+        ax.bar(
+            theta,
+            hist,
+            width=width,
+            alpha=0.5,
+            color=_state_color(state),
+        )
+        ax.set_title(str(state))
+
+    plt.tight_layout()
+    plt.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+# endregion
+
+# region Main
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=str, required=True)
-    parser.add_argument("--n_steps", type=int, default=20_480)
+    parser.add_argument("--poi_inference", type=str, default="km")
+    parser.add_argument("--n_steps", type=int, default=500_000) 
+    parser.add_argument("--dt_sim", type=float, default=0.1)
     parser.add_argument("--n_seeds", type=int, default=50)
     parser.add_argument("--random_state", type=int, default=0)
     parser.add_argument("--outdir", type=str, default="figures")
@@ -892,46 +1190,48 @@ def main():
     df = compute_step_turn(df)
     df = compute_tortuosity(df, half_window=3)
 
-    dt = 1.0
-    print("mean dt:", dt)
+    dt_sim = args.dt_sim
+    print(f"Targeting simulation tick rate: {dt_sim}s")
 
-    labeled = determine_state_kmeans(df, random_state=args.random_state)
-    plot_speed_turn_hist(labeled, outdir / "speed_turn_hist_real.png")
-    plot_scatter_states(labeled, outdir / "scatter_real.png")
+    match args.poi_inference:
+        case "km":
+            labeled = determine_state_kmeans(df, n_clusters=2, random_state=0)
+        case "km_sm":
+            labeled = determine_state_kmeans_smooth(df, n_clusters=2, random_state=0)
+        case "hmm":
+            labeled = determine_state_hmm(df, n_clusters=2, random_state=0)
+        case _:
+            raise NotImplementedError("Invalid poi_inference method")
 
     # CRW
-    crw_cfg = fit_CRW(df)
-    # print(crw_cfg)
+    crw_cfg = fit_CRW(df, dt_sim=dt_sim)
     crw_behavior = CorrelatedRandomWalk(crw_cfg)
     crw_scores, crw_sim = evaluate_fit_distribution(
         crw_behavior,
         df,
         n_steps=args.n_steps,
-        dt=dt,
+        dt_sim=dt_sim,
         n_seeds=args.n_seeds,
     )
-    plot_speed_turn_hist(crw_sim, outdir / "speed_turn_hist_crw_sim.png")
 
     # EE
-    ee_fit = fit_EE(df, random_state=args.random_state)
+    ee_fit = fit_EE(labeled, random_state=args.random_state, dt_sim=dt_sim)
     ee_cfg, ttl_trigger, ee_labeled = ee_fit
-    # print(ee_cfg)
     ee_behavior = ExploreExploit(ee_cfg)
     ee_scores, ee_sim = evaluate_fit_distribution(
         ee_behavior,
         labeled,
         n_steps=args.n_steps,
-        dt=dt,
+        dt_sim=dt_sim,
         n_seeds=args.n_seeds,
         resource_map_factory=make_random_encounter_factory(
             lambda_enter=ttl_trigger["lambda_enter"],
-            dt=dt,
+            dt=dt_sim, # Passed dt_sim here so math uses 0.1s encounter probability
         ),
     )
-    plot_speed_turn_hist(ee_sim, outdir / "speed_turn_hist_ee_sim.png")
 
     # POI
-    poi_cfg, pois, poi_labeled, _ = fit_POI(
+    poi_fit = fit_POI(
         ee_fit,
         random_state=args.random_state,
         bias_gain=args.poi_bias_gain,
@@ -939,32 +1239,30 @@ def main():
         poi_eps=args.poi_eps,
         poi_min_samples=args.poi_min_samples,
     )
-    # print(poi_cfg)
+    poi_cfg, pois, poi_labeled, _ = poi_fit
     poi_behavior = PointOfInterest(poi_cfg)
     poi_scores, poi_sim = evaluate_fit_distribution(
         poi_behavior,
         labeled,
         n_steps=args.n_steps,
-        dt=dt,
+        dt_sim=dt_sim,
         n_seeds=args.n_seeds,
         resource_map_factory=make_fixed_poi_factory(
             pois=pois,
             arrive_dist=poi_cfg.arrive_dist,
         ),
     )
-    plot_speed_turn_hist(poi_sim, outdir / "speed_turn_hist_poi_sim.png")
     
     # LPOI
     lpoi_cfg, lpois, poi_weights, lpoi_labeled = fit_LPOI(
-        ee_fit,
+        poi_fit,
         random_state=args.random_state,
         bias_gain=args.poi_bias_gain,
         arrive_dist=args.poi_arrive_dist,
         poi_eps=args.poi_eps,
         poi_min_samples=args.poi_min_samples,
     )
-    # print(lpoi_cfg)
-    lpoi_behavior = LearningPointOfInterest(lpoi_cfg, reset_memory=False)
+    lpoi_behavior = LearningPointOfInterest(lpoi_cfg)
     lpoi_behavior.poi_values = {
         tuple(map(float, poi)): float(w)
         for poi, w in zip(lpois, poi_weights)
@@ -973,20 +1271,45 @@ def main():
         lpoi_behavior,
         labeled,
         n_steps=args.n_steps,
-        dt=dt,
+        dt_sim=dt_sim,
         n_seeds=args.n_seeds,
         resource_map_factory=make_fixed_poi_factory(
             pois=lpois,
             arrive_dist=lpoi_cfg.arrive_dist,
         ),
     )
-    plot_speed_turn_hist(lpoi_sim, outdir / "speed_turn_hist_lpoi_sim.png")
 
     revisit_kwargs = {
         "pois": pois,
         "radius": args.poi_arrive_dist,
-        "min_return_time": 3.0 * dt,   # filters boundary jitter / immediate re-entry
+        "min_return_time": 30.0,
     }
+
+    plot_speed_turn_hist(labeled, outdir / "real" / "speed_turn_hist_real.png")
+    plot_scatter_states(labeled, outdir / "real" / "scatter_real.png")
+    plot_speed_turn_scatter(labeled, outdir / "real" / "speed_turn_scatter_real.png")
+    plot_dt_hist(labeled, outdir / "real" / "dt_hist_real.png")
+    plot_turn_polar(labeled, outdir / "real" / "turn_polar_real.png")
+
+    plot_speed_turn_hist(crw_sim, outdir / "crw" / "speed_turn_hist_crw_sim.png")
+    plot_scatter_states(crw_sim, outdir / "crw" / "scatter_crw_sim.png")
+    plot_speed_turn_scatter(crw_sim, outdir / "crw" / "speed_turn_scatter_crw_sim.png")
+    plot_turn_polar(crw_sim, outdir / "crw" / "turn_polar_crw_sim.png")
+
+    plot_speed_turn_hist(ee_sim, outdir / "ee" / "speed_turn_hist_ee_sim.png")
+    plot_scatter_states(ee_sim, outdir / "ee" / "scatter_ee_sim.png")
+    plot_speed_turn_scatter(ee_sim, outdir / "ee" / "speed_turn_scatter_ee_sim.png")
+    plot_turn_polar(ee_sim, outdir / "ee" / "turn_polar_ee_sim.png")
+
+    plot_speed_turn_hist(poi_sim, outdir / "poi" / "speed_turn_hist_poi_sim.png")
+    plot_scatter_states(poi_sim, outdir / "poi" / "scatter_poi_sim.png")
+    plot_speed_turn_scatter(poi_sim, outdir / "poi" / "speed_turn_scatter_poi_sim.png")
+    plot_turn_polar(poi_sim, outdir / "poi" / "turn_polar_poi_sim.png")
+
+    plot_speed_turn_hist(lpoi_sim, outdir / "lpoi" / "speed_turn_hist_lpoi_sim.png")
+    plot_scatter_states(lpoi_sim, outdir / "lpoi" / "scatter_lpoi_sim.png")
+    plot_speed_turn_scatter(lpoi_sim, outdir / "lpoi" / "speed_turn_scatter_lpoi_sim.png")
+    plot_turn_polar(lpoi_sim, outdir / "lpoi" / "turn_polar_lpoi_sim.png")
 
     real_revisit = compute_poi_revisitation_score(labeled, **revisit_kwargs)
     crw_revisit = compute_poi_revisitation_score(crw_sim, **revisit_kwargs)
@@ -998,6 +1321,7 @@ def main():
     ee_scores["revisitation"] = abs(ee_revisit["revisitation_score"] - real_revisit["revisitation_score"])
     poi_scores["revisitation"] = abs(poi_revisit["revisitation_score"] - real_revisit["revisitation_score"])
     lpoi_scores["revisitation"] = abs(lpoi_revisit["revisitation_score"] - real_revisit["revisitation_score"])
+    
     with open(outdir / "report.txt", "w") as f:
         print(
             "REAL revisitation:",
@@ -1044,6 +1368,8 @@ def main():
             "zero_centered": False,
         },
     )
+
+# endregion
 
 if __name__ == "__main__":
     main()

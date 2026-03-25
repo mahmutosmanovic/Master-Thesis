@@ -159,17 +159,23 @@ class PointOfInterest(BehaviorBase):
         self.time_since_arrival = 0.0
         self.target = None
 
+    def choose_target(self, animal, rng, k=10):
+        pois = animal.resource_map.get_pois()
+        if len(pois) == 0:
+            print("[Warning] POIS are empty")
+            return
+
+        d = np.hypot(pois[:, 0] - animal.pos.x, pois[:, 1] - animal.pos.y)
+        nearest_idx = np.argsort(d)[:min(k, len(pois))]
+        poi = pois[int(rng.choice(nearest_idx))]
+        return Vector(float(poi[0]), float(poi[1]), 0.0)
+
     def fn(self, animal, rng, dt):
         # update state
         bias_vec = None
         if self.state == BehaviorState.EXPLORE:
-            if self.target == None:
-                pois = animal.resource_map.get_pois()
-                if len(pois) == 0:
-                    print("[Warning] POIS are empty")
-                    return
-                poi = rng.choice(pois)
-                self.target = Vector(poi[0], poi[1], 0) # pois are sorted based on probability of resource, could also be used for target selection
+            if self.target is None:
+                self.target = self.choose_target(animal, rng)
 
             bias_vec = self.target.add(animal.pos.scale(-1)) # scale is safe, other functions can mutate state...
             dist = bias_vec.norm()
@@ -246,26 +252,36 @@ class LearningPointOfInterest(BehaviorBase):
         self.poi_values = {}   # (x, y) -> learned value
         self.reward_sum = 0.0
 
-    def choose_target(self, animal, rng):
-        pois = animal.resource_map.get_pois()
+    def choose_target(self, animal, rng, k=10):
+        pois = np.asarray(animal.resource_map.get_pois(), dtype=float)
         if len(pois) == 0:
             print("[Warning] POIS are empty")
             return None, None
 
-        # populate poi_values
+        # populate values for unseen POIs
         for poi in pois:
-            key = (poi[0], poi[1])
+            key = (float(poi[0]), float(poi[1]))
             if key not in self.poi_values:
-                self.poi_values[key] = 0
+                self.poi_values[key] = 0.0
 
-        # epsilon-greedy selection
+        # restrict choice to k nearest POIs
+        dists = np.hypot(pois[:, 0] - animal.pos.x, pois[:, 1] - animal.pos.y)
+        k = min(k, len(pois))
+        nearest_idx = np.argsort(dists)[:k]
+        nearest_pois = pois[nearest_idx]
+
+        # epsilon-greedy within nearest set
         if rng.random() < self.cfg.epsilon:
-            poi = rng.choice(pois)
+            idx_local = int(rng.integers(0, len(nearest_pois)))
+            poi = nearest_pois[idx_local]
         else:
-            poi = max(pois, key=lambda p: self.poi_values[(p[0], p[1])])
+            poi = max(
+                nearest_pois,
+                key=lambda p: self.poi_values[(float(p[0]), float(p[1]))]
+            )
 
-        key = (poi[0], poi[1])
-        target = Vector(poi[0], poi[1], 0)
+        key = (float(poi[0]), float(poi[1]))
+        target = Vector(float(poi[0]), float(poi[1]), 0.0)
         return key, target
 
     def fn(self, animal, rng, dt):
