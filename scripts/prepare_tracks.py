@@ -300,7 +300,7 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = segments_from_dt(df, max_gap=20)
     
     df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
-    df = split_segments_on_motion(df, id_col="tag-local-identifier", segment_col="segment", max_speed=20)
+    df = split_segments_on_motion(df, id_col="tag-local-identifier", segment_col="segment", max_speed=100)
 
     df = reset_first_dt_in_segment(df)
     df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
