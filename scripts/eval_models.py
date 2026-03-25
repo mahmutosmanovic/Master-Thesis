@@ -15,10 +15,12 @@ from model import PPOAgent, MAPPOAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
+import pandas as pd
 from .plots.policy_heatmap import (
     plot_policy_heatmap_from_csv,
     plot_xy_policy_heatmap_from_csv,
     plot_reward_heatmap_from_csv,
+    plot_disturbance_heatmap_from_csv
 )
 
 BASELINES = {
@@ -796,29 +798,40 @@ def main():
 
     if args.plot_heatmaps:
         rl_csv = eval_dir / f"{agent_type}.csv"
+        df = pd.read_csv(rl_csv)
+        reward_min = df['reward'].min()
+        reward_max = df['reward'].max()
+        reward_range = reward_max - reward_min
+        vmin = reward_min
+        vmax = reward_max
 
         _ = plot_policy_heatmap_from_csv(rl_csv)
+        _ = plot_disturbance_heatmap_from_csv(rl_csv)
         _ = plot_xy_policy_heatmap_from_csv(rl_csv)
         _ = plot_reward_heatmap_from_csv(
             rl_csv,
             bins=60,
             cmap="jet",
-            vmin=0.0,
-            vmax=1.0,
+            vmin=vmin,
+            vmax=vmax,
             use_radial=True,
         )
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
+            df = pd.read_csv(baseline_csv)
+            vmin = df['reward'].min()
+            vmax = df['reward'].max()
 
             _ = plot_policy_heatmap_from_csv(baseline_csv)
+            _ = plot_disturbance_heatmap_from_csv(baseline_csv)
             _ = plot_xy_policy_heatmap_from_csv(baseline_csv)
             _ = plot_reward_heatmap_from_csv(
                 baseline_csv,
                 bins=60,
                 cmap="jet",
-                vmin=0.0,
-                vmax=1.0,
+                vmin=vmin,
+                vmax=vmax,
                 use_radial=True,
             )
 

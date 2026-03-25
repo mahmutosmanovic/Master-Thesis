@@ -85,6 +85,9 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
         range=[[-lim, lim], [-lim, lim]],
     )
 
+    vmin = np.min(H)
+    vmax = np.max(H)
+
     plt.figure(figsize=(7, 6))
 
     plt.imshow(
@@ -92,6 +95,9 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80):
         origin="lower",
         aspect="equal",
         extent=[-lim, lim, -lim, lim],
+        cmap="jet",
+        vmin=vmin,
+        vmax=vmax,
     )
 
     plt.xlabel("Drone x relative to animal")
@@ -123,6 +129,9 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80):
         range=[[0, r_max], [0, z_max]],
     )
 
+    vmin = np.min(H)
+    vmax = np.max(H)
+
     plt.figure(figsize=(7, 6))
 
     plt.imshow(
@@ -130,6 +139,9 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80):
         origin="lower",
         aspect="auto",
         extent=[0, r_max, 0, z_max],
+        cmap="jet",
+        vmin=vmin,
+        vmax=vmax,
     )
 
     plt.xlabel("Radial Distance (√(x²+y²))")
@@ -144,6 +156,107 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80):
 
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
+
+def load_positions_and_disturbance_from_csv(csv_path):
+    df = pd.read_csv(csv_path)
+
+    x = pd.to_numeric(df["x"], errors="coerce").to_numpy()
+    y = pd.to_numeric(df["y"], errors="coerce").to_numpy()
+    z = pd.to_numeric(df["z"], errors="coerce").to_numpy()
+    p_disturbance = pd.to_numeric(df["p_disturbance"], errors="coerce").to_numpy()
+
+    mask = (
+        np.isfinite(x) &
+        np.isfinite(y) &
+        np.isfinite(z) &
+        np.isfinite(p_disturbance)
+    )
+
+    x = x[mask]
+    y = y[mask]
+    z = z[mask]
+    p_disturbance = p_disturbance[mask]
+
+    r = np.sqrt(x**2 + y**2)
+    return r, z, p_disturbance
+
+
+def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80):
+    r_max = np.max(r_vals) if len(r_vals) else 1.0
+    z_max = np.max(z_vals) if len(z_vals) else 1.0
+
+    if r_max <= 0:
+        r_max = 1.0
+    if z_max <= 0:
+        z_max = 1.0
+
+    # sum disturbance per bin
+    H_sum, _, _ = np.histogram2d(
+        r_vals,
+        z_vals,
+        bins=bins,
+        range=[[0, r_max], [0, z_max]],
+        weights=disturbance_vals,
+    )
+
+    # count samples per bin
+    H_count, _, _ = np.histogram2d(
+        r_vals,
+        z_vals,
+        bins=bins,
+        range=[[0, r_max], [0, z_max]],
+    )
+
+    # mean disturbance
+    H_mean = np.divide(
+        H_sum,
+        H_count,
+        out=np.full_like(H_sum, np.nan, dtype=float),
+        where=H_count > 0,
+    )
+
+    # compute color range
+    valid = np.isfinite(H_mean)
+    if np.any(valid):
+        vmin = np.nanmin(H_mean)
+        vmax = np.nanmax(H_mean)
+    else:
+        vmin, vmax = 0.0, 1.0
+
+    # set empty bins to lowest color
+    H_plot = np.where(np.isfinite(H_mean), H_mean, vmin)
+
+    plt.figure(figsize=(7, 6))
+
+    plt.imshow(
+        H_plot.T,
+        origin="lower",
+        aspect="auto",
+        extent=[0, r_max, 0, z_max],
+        cmap="jet",
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    plt.xlabel("Radial Distance (√(x²+y²))")
+    plt.ylabel("Altitude (z)")
+    plt.title("Drone Disturbance Heatmap")
+
+    cbar = plt.colorbar()
+    cbar.set_label("Mean p_disturbance")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+def plot_disturbance_heatmap_from_csv(csv_path, bins=80):
+    csv_path = Path(csv_path)
+    r_vals, z_vals, disturbance_vals = load_positions_and_disturbance_from_csv(csv_path)
+    out_path = make_output_path(csv_path).with_name(make_output_path(csv_path).stem + "_disturbance.png")
+    plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=bins)
+    return out_path
 
 def plot_policy_heatmap_from_csv(csv_path, bins=80):
     csv_path = Path(csv_path)
