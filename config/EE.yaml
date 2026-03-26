@@ -11,7 +11,7 @@ model:
   space:
     n_actions: 5
     drone_features: 4
-    animal_features: 7
+    animal_features: 8
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
@@ -32,10 +32,10 @@ model:
 
 # Drone configuration
 drone:
-  medium:
+  large:
     count: 1
     view_range: 200
-    disturbance_mult: 0.9 # [0,1]
+    disturbance_mult: 1.0 # [0,1]
     min_speed: 0
     max_speed: 25
     ver_angle: 90

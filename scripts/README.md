@@ -9,8 +9,7 @@ Example:
 
 `ppo` choices to train with "ppo" or "mappo"
 
-
-    python -m scripts.train_agent --config train --agent ppo --seed 42 --wandb
+    python -m scripts.train_agent --config CRW --agent ppo --seed 42 --wandb
 
 ## Inference Instructions
 Example:

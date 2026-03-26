@@ -28,7 +28,7 @@ do
     eval_name=$(python -m scripts.eval_models \
         --run "$run_name" \
         --baseline centroid \
-        --num-episodes 100 \
+        --num-episodes 30 \
         --plot-rewards \
         --plot-heatmaps \
         --start-seed 42 | tee /dev/tty | grep "EVAL_DIR::" | cut -d':' -f3)
