@@ -16,11 +16,7 @@ from environment import horizontal_gain, altitude_gain, angle_gain, truncate_col
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
-def plot_visitation_on_disturbance_background(
-    csv_path,
-    bins=50,
-    disturbance_cmap="Greys",
-):
+def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cmap="Greys", title="Unspecified"):
     csv_path = Path(csv_path)
     r_vals, z_vals = load_positions_from_csv(csv_path)
     out_path = csv_path.with_name(f"{csv_path.stem}_policy_heatmap_disturbance_bg.png")
@@ -156,7 +152,7 @@ def plot_visitation_on_disturbance_background(
 
     ax.set_xlabel("Radial Distance (√(x²+y²))", size=16)
     ax.set_ylabel("Altitude (z)", size=16)
-    ax.set_title("CRW", size=18)
+    ax.set_title(title, size=18)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
@@ -255,7 +251,7 @@ def load_xy_positions_from_csv(csv_path):
 
     return x_local, y_local
 
-def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet"):
+def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
     lim = max(np.max(np.abs(dx_vals)), np.max(np.abs(dy_vals)))
     if lim <= 0:
@@ -285,6 +281,7 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet"):
 
     plt.xlabel("Drone x relative to animal", size=16)
     plt.ylabel("Drone y relative to animal", size=16)
+    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Visit Count")
@@ -295,7 +292,7 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet"):
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet"):
+def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
     r_max = np.max(r_vals)
     z_max = np.max(z_vals)
@@ -329,6 +326,7 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet"):
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
+    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Visit Count")
@@ -363,7 +361,7 @@ def load_positions_and_disturbance_from_csv(csv_path):
     return r, z, p_disturbance
 
 
-def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80, cmap="jet"):
+def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
     r_max = np.max(r_vals) if len(r_vals) else 1.0
     z_max = np.max(z_vals) if len(z_vals) else 1.0
@@ -423,6 +421,7 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
+    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Disturbance")
@@ -433,28 +432,28 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_disturbance_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
+def plot_disturbance_heatmap_from_csv(csv_path, bins=50, cmap="turbo", title="Unspecified"):
     csv_path = Path(csv_path)
     r_vals, z_vals, disturbance_vals = load_positions_and_disturbance_from_csv(csv_path)
     out_path = make_output_path(csv_path).with_name(make_output_path(csv_path).stem + "_disturbance.png")
-    plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=bins, cmap=cmap)
+    plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=bins, cmap=cmap, title=title)
     return out_path
 
-def plot_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
+def plot_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo", title="Unspecified"):
     csv_path = Path(csv_path)
     r_vals, z_vals = load_positions_from_csv(csv_path)
     out_path = make_output_path(csv_path)
-    plot_heatmap(r_vals, z_vals, out_path, bins=bins, cmap=cmap)
+    plot_heatmap(r_vals, z_vals, out_path, bins=bins, cmap=cmap, title=title)
     return out_path
 
-def plot_xy_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo"):
+def plot_xy_policy_heatmap_from_csv(csv_path, bins=50, cmap="turbo", title="Unspecified"):
     csv_path = Path(csv_path)
     dx_vals, dy_vals = load_xy_positions_from_csv(csv_path)
     out_path = make_xy_output_path(csv_path)
-    plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=bins, cmap=cmap)
+    plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=bins, cmap=cmap, title=title)
     return out_path
 
-def plot_reward_heatmap_from_csv(csv_path, bins=80, cmap="YlGn", vmin=0.0, vmax=1.0, use_radial=True):
+def plot_reward_heatmap_from_csv(csv_path, bins=80, cmap="YlGn", vmin=0.0, vmax=1.0, use_radial=True, title="Unspecified"):
     """
     Plot a dense reward heatmap similar in style to the visitation heatmap.
 
@@ -540,6 +539,7 @@ def plot_reward_heatmap_from_csv(csv_path, bins=80, cmap="YlGn", vmin=0.0, vmax=
 
     plt.xlabel(xlabel, size=16)
     plt.ylabel(ylabel, size=16)
+    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Step Reward")

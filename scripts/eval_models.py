@@ -685,6 +685,7 @@ def main():
 
     cfg, run_dir = load_run(args.run)
     config = Box(cfg)
+    behavior_name = str(config._config_name)
 
     env = Env(config)
     env.enable_step_logging = True
@@ -805,11 +806,11 @@ def main():
         vmin = reward_min
         vmax = reward_max
 
-        _ = plot_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo")
-        _ = plot_disturbance_heatmap_from_csv(rl_csv, bins=100, cmap="turbo")
-        _ = plot_xy_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo")
-        _ = plot_reward_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", vmin=vmin, vmax=vmax, use_radial=True)
-        _ = plot_visitation_on_disturbance_background(csv_path=rl_csv, bins=100, disturbance_cmap="bone_r")
+        _ = plot_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
+        _ = plot_disturbance_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
+        _ = plot_xy_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
+        _ = plot_reward_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", vmin=vmin, vmax=vmax, use_radial=True, title=behavior_name)
+        _ = plot_visitation_on_disturbance_background(csv_path=rl_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
@@ -817,11 +818,11 @@ def main():
             vmin = df['reward'].min()
             vmax = df['reward'].max()
 
-            _ = plot_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo")
-            _ = plot_disturbance_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo")
-            _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo")
-            _ = plot_reward_heatmap_from_csv(baseline_csv, bins=100, cmap ="turbo",vmin= vmin,vmax= vmax,use_radial= True)
-            _ = plot_visitation_on_disturbance_background(csv_path=baseline_csv, bins=100, disturbance_cmap="bone_r")
+            _ = plot_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
+            _ = plot_disturbance_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
+            _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
+            _ = plot_reward_heatmap_from_csv(baseline_csv, bins=100, cmap ="turbo",vmin= vmin,vmax= vmax,use_radial= True, title=behavior_name)
+            _ = plot_visitation_on_disturbance_background(csv_path=baseline_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
 
     print(f"EVAL_DIR::{eval_dir.name}")
 
