@@ -8,27 +8,28 @@ manifests=(
 )
 
 poi_inferences=(
-  "km"
   "km_sm"
-  "hmm"
 )
 
 for animal in "${manifests[@]}"; do
   for poi_inf in "${poi_inferences[@]}"; do
-    outdir="./behaviors_40k100/${animal}_${poi_inf}"
+    outdir="./behaviors_t3/${animal}_${poi_inf}"
 
     case "$animal" in
       pigeons)
-        arrive_dist=25
+        arrive_dist=15
         bias_gain=0.2
+        poi_eps=5
         ;;
       jackals)
-        arrive_dist=75
+        arrive_dist=50
         bias_gain=0.2
+        poi_eps=75
         ;;
       spur_winged_lapwings)
-        arrive_dist=75
+        arrive_dist=50
         bias_gain=0.2
+        poi_eps=75
         ;;
       *)
         echo "Unknown animal: $animal" >&2
@@ -45,6 +46,7 @@ for animal in "${manifests[@]}"; do
       --n_steps 40000 \
       --n_seeds 100 \
       --poi_arrive_dist "$arrive_dist" \
-      --poi_bias_gain "$bias_gain"
+      --poi_bias_gain "$bias_gain" \
+      --poi_eps "$poi_eps"
   done
 done

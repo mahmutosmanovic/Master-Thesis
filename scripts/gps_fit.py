@@ -406,6 +406,57 @@ def turn_score(obs, sim_turn, bins = 72):
 
     return np.mean((p_obs - p_sim) ** 2)
 
+def circular_scale(obs):
+    obs = wrap_pi(np.asarray(obs, dtype=float))
+    obs = obs[np.isfinite(obs)]
+
+    if len(obs) == 0:
+        return 1.0
+
+    # circular mean direction
+    mu = np.angle(np.mean(np.exp(1j * obs)))
+
+    # mean absolute circular deviation from the mean direction
+    scale = np.mean(np.abs(wrap_pi(obs - mu)))
+
+    if not np.isfinite(scale) or scale <= 1e-8:
+        return 1.0
+
+    return float(scale)
+
+def circular_turn_distance(obs, sim_turn, bins=72, scale=None):
+    obs = wrap_pi(np.asarray(obs, dtype=float))
+    sim_turn = wrap_pi(np.asarray(sim_turn, dtype=float))
+
+    obs = obs[np.isfinite(obs)]
+    sim_turn = sim_turn[np.isfinite(sim_turn)]
+
+    if len(obs) == 0 or len(sim_turn) == 0:
+        return np.nan
+
+    h_obs, _ = np.histogram(obs, bins=bins, range=(-np.pi, np.pi), density=False)
+    h_sim, _ = np.histogram(sim_turn, bins=bins, range=(-np.pi, np.pi), density=False)
+
+    p = h_obs.astype(float)
+    q = h_sim.astype(float)
+
+    p /= p.sum()
+    q /= q.sum()
+
+    s = np.cumsum(p - q)
+    c = np.median(s)
+
+    delta = 2.0 * np.pi / bins
+    w1 = delta * np.sum(np.abs(s - c))
+
+    if scale is None:
+        scale = circular_scale(obs)
+
+    if not np.isfinite(scale) or scale <= 1e-8:
+        scale = 1.0
+
+    return float(w1 / scale)
+
 def fit_crw_turn(
     df: pd.DataFrame,
     dt_sim = 0.1,
@@ -461,7 +512,7 @@ def fit_crw_turn(
                     random_state=random_state,
                 )
                 
-                score = turn_score(obs, sim_turn)
+                score = circular_turn_distance(obs, sim_turn)
                 total_score += score * weight
                 total_weight += weight
 
@@ -857,7 +908,7 @@ def _scale_std(x: np.ndarray):
 
     return 1.0
 
-def normalized_wasserstein(obs, sim):
+def normalized_wasserstein(obs, sim, scale=None):
     obs = np.asarray(obs, dtype=float)
     sim = np.asarray(sim, dtype=float)
 
@@ -868,37 +919,73 @@ def normalized_wasserstein(obs, sim):
         return np.nan
 
     wd = float(wasserstein_distance(obs, sim))
-    scale = _scale_std(obs)
+
+    if scale is None:
+        scale = _scale_std(obs)
+
+    if not np.isfinite(scale) or scale <= 1e-8:
+        scale = 1.0
 
     return wd / scale
+
 
 def compute_distribution_scores(obs_df: pd.DataFrame, sim_df: pd.DataFrame):
     cols = ["speed", "turn", "tortuosity"]
     scores = {}
-
     states = ["explore", "exploit"]
+
+    # normalize everything using the full observed distribution
+    global_scales = {
+        "speed": _scale_std(obs_df["speed"].to_numpy()),
+        "tortuosity": _scale_std(obs_df["tortuosity"].to_numpy()),
+        "turn": circular_scale(obs_df["turn"].to_numpy()),
+    }
+
+    have_states = (
+        "state" in obs_df.columns
+        and "state" in sim_df.columns
+        and obs_df["state"].notna().any()
+        and sim_df["state"].notna().any()
+    )
 
     for col in cols:
         dists = []
 
-        # only do per-state scoring if both dfs actually have state
-        if "state" in obs_df.columns and "state" in sim_df.columns:
+        if have_states:
             for state in states:
                 x = obs_df.loc[obs_df["state"] == state, col].dropna().to_numpy()
                 y = sim_df.loc[sim_df["state"] == state, col].dropna().to_numpy()
 
                 if len(x) > 0 and len(y) > 0:
-                    wd = normalized_wasserstein(x, y)
-                    scores[f"{col}_{state}"] = float(wd)
-                    dists.append(wd)
+                    if col == "turn":
+                        dist = circular_turn_distance(
+                            x, y, bins=72, scale=global_scales["turn"]
+                        )
+                    else:
+                        dist = normalized_wasserstein(
+                            x, y, scale=global_scales[col]
+                        )
+
+                    scores[f"{col}_{state}"] = float(dist)
+                    dists.append(dist)
 
         if dists:
             scores[col] = float(np.mean(dists))
         else:
             x = obs_df[col].dropna().to_numpy()
             y = sim_df[col].dropna().to_numpy()
+
             if len(x) > 0 and len(y) > 0:
-                scores[col] = float(normalized_wasserstein(x, y))
+                if col == "turn":
+                    dist = circular_turn_distance(
+                        x, y, bins=72, scale=global_scales["turn"]
+                    )
+                else:
+                    dist = normalized_wasserstein(
+                        x, y, scale=global_scales[col]
+                    )
+
+                scores[col] = float(dist)
 
     return scores
 
@@ -1333,27 +1420,27 @@ def main():
             "CRW,  speed:", crw_scores["speed"],
             "turn:", crw_scores["turn"],
             "tortuosity:", crw_scores["tortuosity"],
-            "sim_revisit:", crw_revisit["revisitation_score"],
-            "mean_score:", (crw_scores["speed"] + crw_scores["turn"] + crw_scores["tortuosity"] + 1 - crw_revisit["revisitation_score"]) / 4, file=f)
+            "revisit:", crw_scores["revisitation"],
+            "mean_score:", (crw_scores["speed"] + crw_scores["turn"] + crw_scores["tortuosity"] + crw_scores["revisitation"]) / 4, file=f)
 
         print(
             "EE,   speed:", ee_scores["speed"],
             "turn:", ee_scores["turn"],
             "tortuosity:", ee_scores["tortuosity"],
-            "sim_revisit:", ee_revisit["revisitation_score"],
-            "mean_score:", (ee_scores["speed"] + ee_scores["turn"] + ee_scores["tortuosity"] + 1 - ee_revisit["revisitation_score"]) / 4, file=f)
+            "revisit:", ee_scores["revisitation"],
+            "mean_score:", (ee_scores["speed"] + ee_scores["turn"] + ee_scores["tortuosity"] + ee_scores["revisitation"]) / 4, file=f)
         print(
             "POI,  speed:", poi_scores["speed"],
             "turn:", poi_scores["turn"],
             "tortuosity:", poi_scores["tortuosity"],
-            "sim_revisit:", poi_revisit["revisitation_score"],
-            "mean_score:", (poi_scores["speed"] + poi_scores["turn"] + poi_scores["tortuosity"] + 1 - poi_revisit["revisitation_score"]) / 4, file=f)
+            "revisit:", poi_scores["revisitation"],
+            "mean_score:", (poi_scores["speed"] + poi_scores["turn"] + poi_scores["tortuosity"] + poi_scores["revisitation"]) / 4, file=f)
         print(
             "LPOI, speed:", lpoi_scores["speed"],
             "turn:", lpoi_scores["turn"],
             "tortuosity:", lpoi_scores["tortuosity"],
-            "sim_revisit:", lpoi_revisit["revisitation_score"],
-            "mean_score:", (lpoi_scores["speed"] + lpoi_scores["turn"] + lpoi_scores["tortuosity"] + 1 - lpoi_revisit["revisitation_score"]) / 4, file=f)
+            "revisit:", lpoi_scores["revisitation"],
+            "mean_score:", (lpoi_scores["speed"] + lpoi_scores["turn"] + lpoi_scores["tortuosity"] + lpoi_scores["revisitation"]) / 4, file=f)
         print("n inferred POIs:", len(pois))
 
     save_configs_yaml(

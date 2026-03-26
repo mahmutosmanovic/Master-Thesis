@@ -36,7 +36,7 @@ POI_CFG:
     speed_sigma: 0.3189556726240407
     speed_smooth: 0.014067749857495038
     bias_gain: 0.0
-  arrive_dist: 75.0
+  arrive_dist: 50.0
   time_to_leave: 8.0
 LPOI_CFG:
   explore_cfg:
@@ -53,7 +53,7 @@ LPOI_CFG:
     speed_sigma: 0.3189556726240407
     speed_smooth: 0.014067749857495038
     bias_gain: 0.0
-  arrive_dist: 75.0
+  arrive_dist: 50.0
   time_to_leave: 8.0
   epsilon: 0.2
   learning_rate: 0.3

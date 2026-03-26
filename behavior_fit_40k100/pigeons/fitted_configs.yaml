@@ -1,6 +1,6 @@
 CRW_CFG:
-  persistence: 0.1
-  turn_sigma: 0.405
+  persistence: 0.6499999999999999
+  turn_sigma: 0.20750000000000002
   target_speed: 5.8134995354297985
   speed_sigma: 1.1330204330848734
   speed_smooth: 0.01094484432926357
@@ -14,8 +14,8 @@ EE_CFG:
     speed_smooth: 0.03538493843110069
     bias_gain: 0.0
   exploit_cfg:
-    persistence: 1.2
-    turn_sigma: 0.8
+    persistence: 0.1
+    turn_sigma: 0.405
     target_speed: 2.885360974944134
     speed_sigma: 0.8862567707276099
     speed_smooth: 0.018018383145344985
@@ -30,13 +30,13 @@ POI_CFG:
     speed_smooth: 0.03538493843110069
     bias_gain: 0.2
   exploit_cfg:
-    persistence: 1.2
-    turn_sigma: 0.8
+    persistence: 0.1
+    turn_sigma: 0.405
     target_speed: 2.885360974944134
     speed_sigma: 0.8862567707276099
     speed_smooth: 0.018018383145344985
     bias_gain: 0.0
-  arrive_dist: 25.0
+  arrive_dist: 15.0
   time_to_leave: 110.0
 LPOI_CFG:
   explore_cfg:
@@ -47,13 +47,13 @@ LPOI_CFG:
     speed_smooth: 0.03538493843110069
     bias_gain: 0.2
   exploit_cfg:
-    persistence: 1.2
-    turn_sigma: 0.8
+    persistence: 0.1
+    turn_sigma: 0.405
     target_speed: 2.885360974944134
     speed_sigma: 0.8862567707276099
     speed_smooth: 0.018018383145344985
     bias_gain: 0.0
-  arrive_dist: 25.0
+  arrive_dist: 15.0
   time_to_leave: 110.0
   epsilon: 0.2
   learning_rate: 0.3
