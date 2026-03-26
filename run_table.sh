@@ -2,7 +2,7 @@
 set -e
 
 configs=("CRW" "EE" "POI" "LPOI")
-max_jobs=2
+max_jobs=1
 
 mkdir -p table
 manifest="table/runs_manifest_$(date +%Y%m%d_%H%M%S).csv"

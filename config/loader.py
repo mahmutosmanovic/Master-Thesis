@@ -38,7 +38,9 @@ def load_config(name: str):
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
     
-    with open("config/behaviors.yaml", "r") as f:
+    behavior_cfg = Path(cfg["behavior_cfg"]) / "fitted_configs.yaml"
+
+    with open(behavior_cfg, "r") as f:
         behavior_cfg = yaml.safe_load(f)
 
     # --- enums ---
