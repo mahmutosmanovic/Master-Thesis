@@ -9,8 +9,7 @@ Example:
 
 `ppo` choices to train with "ppo" or "mappo"
 
-
-    python -m scripts.train_agent --config train --agent ppo --seed 42 --wandb
+    python -m scripts.train_agent --config CRW --agent ppo --seed 42 --wandb
 
 ## Inference Instructions
 Example:
@@ -106,6 +105,22 @@ This will:
 `weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
 
     python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --plot-rewards --plot-heatmaps --weights last
+
+    python -m scripts.eval_models \
+    --run "CRW_seed42_2026-03-23_20-39-50" \
+    --checkpoint-prefix ppo_ \
+    --checkpoint-episodes \
+    --num-episodes 100 \
+    --start-seed 42 \
+    --append-summary-csv table/all_model_episode_rewards.csv
+
+    python -m scripts.eval_models \
+    --run "CRW_seed42_2026-03-23_20-39-50" \
+    --checkpoint-prefix ppo_ \
+    --checkpoint-episodes \
+    --num-episodes 1 \
+    --start-seed 42 \
+    --append-summary-csv table/all_model_episode_rewards.csv
     
 ## Simulate Real GPS Behavior
 > GPS DATA PRE-PROCESSING

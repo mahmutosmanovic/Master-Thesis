@@ -13,6 +13,7 @@ class Env:
         self.set_seed(seed)
         self.render_mode = render_mode
         self.config = config
+        self.disturb_scale = config.disturbance_penalty_scale
         self.viewer = Viewer(config)
         self.resource_map = None
 
@@ -480,7 +481,7 @@ class Env:
         Updates per-animal angular coverage counts using current visibility.
         Only visible observations count toward coverage.
         """
-        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 7)
+        animal_obs = observations[:, 4:].reshape(self.drone_count, self.animal_count, 8)
 
         for d, drone in enumerate(self.drones):
             for a, animal in enumerate(self.animals):
@@ -556,11 +557,13 @@ class Env:
                         v_cam_x,
                         v_cam_y,
                         v_cam_z,
+                        self.disturb_scale,
                     ])
                 else:
                     animal_features.extend([
                         0.0,
                         1.0,
+                        0.0,
                         0.0,
                         0.0,
                         0.0,
@@ -659,7 +662,7 @@ class Env:
 
             # 11 features per animal:
             # [in_view, dist_norm, v_angle, h_angle, velx, vely, velz]
-            animal_obs = drone_obs[4:].reshape(self.animal_count, 7)
+            animal_obs = drone_obs[4:].reshape(self.animal_count, 8)
 
             in_view = animal_obs[:, 0]
             dist = animal_obs[:, 1]
@@ -712,7 +715,7 @@ class Env:
 
         monitor_reward = r_dist * r_align
 
-        final_reward = monitor_reward - self.config.disturbance_penalty_scale * disturbance_penalty - p_vel - p_theta
+        final_reward = monitor_reward - self.disturb_scale * disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
@@ -752,7 +755,7 @@ class Env:
         animal_obs = observations[:, 4:].reshape(
             self.drone_count,
             self.animal_count,
-            7
+            8
         )
 
         visible = animal_obs[:, :, 0] == 1.0

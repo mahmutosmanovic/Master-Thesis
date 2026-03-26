@@ -11,11 +11,11 @@ model:
   space:
     n_actions: 5
     drone_features: 4
-    animal_features: 7
+    animal_features: 8
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
-    gamma: 0.98
+    gamma: 0.99
     actor_lr: 0.0003
     critic_lr: 0.0003
     gae_lambda: 0.95

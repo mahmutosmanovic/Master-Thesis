@@ -6,7 +6,6 @@ from torch.distributions import Normal
 
 EPS = 1e-6
 
-
 class PPOMemory:
     def __init__(self, batch_size):
         self.states = []

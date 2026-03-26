@@ -1,5 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
+    cmap = plt.get_cmap(cmap_name)
+    new_cmap = LinearSegmentedColormap.from_list(
+        f"trunc_{cmap_name}",
+        cmap(np.linspace(minval, maxval, n))
+    )
+    return new_cmap
+
 
 def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
@@ -195,8 +205,8 @@ def distance_plot():
     plt.show()    
 
 def angle_distance_plot():
-    x = np.linspace(-60, 60, 400)
-    z = np.linspace(-60, 60, 400)
+    x = np.linspace(-350, 350, 400)
+    z = np.linspace(-50, 100, 400)
     X, Z = np.meshgrid(x, z)
 
     G = np.zeros_like(X, dtype=float)
@@ -218,7 +228,7 @@ def angle_distance_plot():
         G,
         extent=[x.min(), x.max(), z.min(), z.max()],
         origin="lower",
-        cmap="RdYlGn_r",
+        cmap=truncate_colormap(cmap_name="hot", minval=0, maxval=0.42),
         aspect="auto"
     )
 
@@ -231,57 +241,136 @@ def angle_distance_plot():
     plt.show()
 
 def component_plots():
-    x = np.linspace(-350, 350, 400)
-    z = np.linspace(-350, 350, 400)
-    X, Z = np.meshgrid(x, z)
+    # top-row grids
+    x_top = np.linspace(-350, 350, 400)
+    z_top = np.linspace(-120, 120, 400)
+    X_top, Z_top = np.meshgrid(x_top, z_top)
 
-    G_h = np.zeros_like(X, dtype=float)
-    G_v = np.zeros_like(X, dtype=float)
-    G_a = np.zeros_like(X, dtype=float)
+    G_h = np.zeros_like(X_top, dtype=float)
+    G_v = np.zeros_like(X_top, dtype=float)
 
-    for i in range(X.shape[0]):
-        for j in range(X.shape[1]):
-            dist_vec = (X[i, j], 0.0, Z[i, j])
-
+    for i in range(X_top.shape[0]):
+        for j in range(X_top.shape[1]):
+            dist_vec = (X_top[i, j], 0.0, Z_top[i, j])
             G_h[i, j] = horizontal_gain(dist_vec)
             G_v[i, j] = altitude_gain(dist_vec)
-            G_a[i, j] = angle_gain(dist_vec)
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharex=True, sharey=True)
+    # bottom-row grid: exactly your angle_distance_plot setup
+    x_bot = np.linspace(-350, 350, 400)
+    z_bot = np.linspace(-50, 150, 400)
+    X_bot, Z_bot = np.meshgrid(x_bot, z_bot)
 
-    titles = [
-        "Horizontal Gain",
-        "Altitude Gain",
-        "Angle Gain"
-    ]
-    grids = [G_h, G_v, G_a]
+    G_ad = np.zeros_like(X_bot, dtype=float)
 
-    for ax, G, title in zip(axes, grids, titles):
-        im = ax.imshow(
-            G,
-            extent=[x.min(), x.max(), z.min(), z.max()],
-            origin="lower",
-            cmap="RdYlGn_r",
-            vmin=0,
-            vmax=1,
-            aspect="auto"
-        )
-        ax.set_title(title)
-        ax.set_xlabel("Horizontal Distance")
-        ax.grid(alpha=0.2)
+    for i in range(X_bot.shape[0]):
+        for j in range(X_bot.shape[1]):
+            dist_vec = (X_bot[i, j], 0.0, Z_bot[i, j])
 
-    axes[0].set_ylabel("Vertical Distance")
+            g_h = horizontal_gain(dist_vec)
+            g_v = altitude_gain(dist_vec)
+            g_a = angle_gain(dist_vec)
 
-    cbar = fig.colorbar(im)
+            comps = [g_a]
+            base = g_h * g_v
+            G_ad[i, j] = (base + sum(comps)) / (len(comps) + 1)
+
+    # angle data for polar plot
+    angles = np.linspace(0, 360, 720)
+    gains = []
+    for a in angles:
+        rad = np.radians(a)
+        dist_vec = (np.cos(rad), 0.0, np.sin(rad))
+        gains.append(angle_gain(dist_vec))
+
+    gains = np.array(gains)
+    angles_rad = np.radians(angles)
+
+    r = np.linspace(0, 1, 2)
+    theta, R = np.meshgrid(angles_rad, r)
+    Z_angle = np.tile(gains, (2, 1))
+
+    cmap = truncate_colormap(cmap_name="jet", minval=0.0, maxval=1.0)
+
+    # 2 rows x 4 cols, last col reserved for one tall colorbar
+    fig = plt.figure(figsize=(18, 10))
+    gs = fig.add_gridspec(
+        2, 4,
+        width_ratios=[1, 1, 1, 0.05],
+        height_ratios=[1, 1],
+        wspace=0.25,
+        hspace=0.3
+    )
+
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharex=ax1, sharey=ax1)
+    ax3 = fig.add_subplot(gs[0, 2], projection="polar")
+    ax4 = fig.add_subplot(gs[1, 0:3])   # span row 2, cols 1..3
+    cax = fig.add_subplot(gs[:, 3])     # colorbar spanning both rows
+
+    im1 = ax1.imshow(
+        G_h,
+        extent=[x_top.min(), x_top.max(), z_top.min(), z_top.max()],
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+    ax1.set_title("Horizontal Gain", size=18)
+    ax1.set_xlabel("Horizontal Distance", size=16)
+    ax1.set_ylabel("Vertical Distance", size=16)
+    ax1.grid(alpha=0.2)
+
+    im2 = ax2.imshow(
+        G_v,
+        extent=[x_top.min(), x_top.max(), z_top.min(), z_top.max()],
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+    ax2.set_title("Altitude Gain", size=18)
+    ax2.set_xlabel("Horizontal Distance", size=16)
+    ax2.grid(alpha=0.2)
+
+    im3 = ax3.pcolormesh(
+        theta,
+        R,
+        Z_angle,
+        shading="auto",
+        cmap=cmap,
+        vmin=0,
+        vmax=1
+    )
+    ax3.set_title("Angle Gain", size=18)
+    ax3.set_yticks([])
+    ax3.set_xticks([0, np.pi/4, (np.pi/4)+1*(np.pi/2), (np.pi/4)+2*(np.pi/2), (np.pi/4)+3*(np.pi/2), np.pi, np.pi*3/2])
+
+    im4 = ax4.imshow(
+        G_ad,
+        extent=[x_bot.min(), x_bot.max(), z_bot.min(), z_bot.max()],
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+    
+    ax4.set_title("Combined Angle-Shaped Distance Gain", size=18)
+    ax4.set_xlabel("Horizontal Distance", size=16)
+    ax4.set_ylabel("Vertical Distance", size=16)
+    ax4.grid(alpha=0.2)
+
+    cbar = fig.colorbar(im4, cax=cax)
     cbar.set_label("Gain")
 
-    plt.tight_layout()
-    plt.savefig("./figures/comps.png", dpi=300)
+    plt.savefig("./figures/comps.png", dpi=300, bbox_inches="tight")
     plt.show()
 
 if __name__ == "__main__":
-    angle_plot()
-    distance_plot()
-    angle_distance_plot()
+    # angle_plot()
+    # distance_plot()
+    # angle_distance_plot()
     component_plots()
     ...
