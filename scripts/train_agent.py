@@ -8,7 +8,6 @@ from environment import Env
 # model
 from model import PPOAgent
 from model import MAPPOAgent
-from model import SACAgent
 
 # standard modules
 import os
@@ -72,8 +71,6 @@ def _init_agent(config, agent_type, device):
         return PPOAgent(config, device)
     elif agent_type == "mappo":
         return MAPPOAgent(config, device)
-    elif agent_type == "sac":
-        return SACAgent(config, device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -152,9 +149,6 @@ def _init_train_csv(csv_path):
             "critic_loss",
             "actor_lr",
             "critic_lr",
-            "alpha",
-            "alpha_loss",
-            "mean_q",
         ])
 
 
@@ -163,15 +157,12 @@ def _append_train_csv(csv_path, step, train_metrics):
         writer = csv.writer(f)
         writer.writerow([
             step,
-            train_metrics.get("train_entropy_coef"),
-            train_metrics.get("train_policy_entropy"),
-            train_metrics.get("actor_loss"),
-            train_metrics.get("critic_loss"),
-            train_metrics.get("actor_lr"),
-            train_metrics.get("critic_lr"),
-            train_metrics.get("alpha"),
-            train_metrics.get("alpha_loss"),
-            train_metrics.get("mean_q"),
+            train_metrics["train_entropy_coef"],
+            train_metrics["train_policy_entropy"],
+            train_metrics["actor_loss"],
+            train_metrics["critic_loss"],
+            train_metrics["actor_lr"],
+            train_metrics["critic_lr"],
         ])
 
 
@@ -256,21 +247,6 @@ def agent_env_step(agent, env, obs, agent_type):
 
         agent.remember(obs, actions, log_prob, val, reward, done)
 
-    elif agent_type == "sac":
-        joint_obs = np.asarray(obs, dtype=np.float32).reshape(-1)
-
-        joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=False)
-
-        # reshape back to env action shape
-        env_action = joint_action_flat.reshape(obs.shape[0], -1).astype(np.float32)
-
-        next_obs, reward, terminated, truncated, info = env.step(env_action)
-        done = terminated or truncated
-
-        joint_next_obs = np.asarray(next_obs, dtype=np.float32).reshape(-1)
-
-        agent.remember(joint_obs, joint_action_flat, reward, joint_next_obs, done)
-
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -306,8 +282,12 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     try:
         with tqdm(total=total_steps, desc="Training") as pbar:
             while curr_steps < total_steps:
+                rollout_steps = min(
+                    config.model.sampling.rollout_steps,
+                    total_steps - curr_steps
+                )
 
-                if agent_type == "sac":
+                for _ in range(rollout_steps):
                     curr_steps += 1
                     pbar.update(1)
 
@@ -317,12 +297,6 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 
                     obs = next_obs
                     episode_reward += reward
-
-                    train_metrics = agent.learn()
-                    if _has_train_metrics(train_metrics):
-                        _log_train_local(train_csv_path, curr_steps, train_metrics)
-                        if wandb:
-                            _log_train_wandb(curr_steps, train_metrics)
 
                     if terminated or truncated:
                         episode_reward_norm = episode_reward / config.max_episode_steps
@@ -350,11 +324,8 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                         obs, info = env.reset()
                         done = False
 
-                else:
-                    rollout_steps = min(
-                        config.model.sampling.rollout_steps,
-                        total_steps - curr_steps
-                    )
+                last_value = agent.get_last_value(obs, done)
+                train_metrics = agent.learn(last_value)
 
                 if train_metrics is not None:
                     _log_train_local(train_csv_path, curr_steps, train_metrics)
@@ -374,7 +345,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 def _init_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
-    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac"], help="RL agent type")
+    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo"], help="RL agent type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
