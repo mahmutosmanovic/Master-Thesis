@@ -11,7 +11,7 @@ from box import Box
 from tqdm import tqdm
 
 from environment import Env
-from model import PPOAgent, MAPPOAgent
+from model import PPOAgent, MAPPOAgent, SACAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
@@ -223,16 +223,37 @@ def init_agent(config, run_dir, weight_type="last"):
         agent = PPOAgent(config)
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
+    elif agent_type == "sac":
+        agent = SACAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    agent.actor.chkpt_dir = run_dir
-    agent.critic.chkpt_dir = run_dir
+    if agent_type == "ppo":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic.chkpt_dir = run_dir
+    elif agent_type == "mappo":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic.chkpt_dir = run_dir
+    elif agent_type == "sac":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic_1.chkpt_dir = run_dir
+        agent.critic_2.chkpt_dir = run_dir
+        agent.target_critic_1.chkpt_dir = run_dir
+        agent.target_critic_2.chkpt_dir = run_dir
 
     agent.load_models(name=weight_type)
 
     agent.actor.eval()
-    agent.critic.eval()
+
+    if agent_type == "ppo":
+        agent.critic.eval()
+    elif agent_type == "mappo":
+        agent.critic.eval()
+    elif agent_type == "sac":
+        agent.critic_1.eval()
+        agent.critic_2.eval()
+        agent.target_critic_1.eval()
+        agent.target_critic_2.eval()
 
     return agent, agent_type
 
@@ -240,7 +261,7 @@ def init_agent(config, run_dir, weight_type="last"):
 def init_agent_actor_only(config, run_dir, actor_weight_file):
     """
     Initialize agent and load actor weights only from a checkpoint file like:
-        ppo_ppo_1064960k.pt
+        sac_123456.pt
 
     These files are expected to store a checkpoint dict containing
     at least 'actor_state_dict', and optionally 'train_step'.
@@ -251,6 +272,8 @@ def init_agent_actor_only(config, run_dir, actor_weight_file):
         agent = PPOAgent(config)
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
+    elif agent_type == "sac":
+        agent = SACAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -282,20 +305,26 @@ def init_agent_actor_only(config, run_dir, actor_weight_file):
 
 
 def choose_action(agent, obs, agent_type):
-    """
-    Handles PPO vs MAPPO inference logic.
-    """
     if agent_type == "ppo":
         actions = []
         for drone_obs in obs:
             action, _, _ = agent.choose_action(drone_obs, deterministic=True)
             actions.append(action)
-        return np.array(actions)
+        return np.array(actions, dtype=np.float32)
 
     elif agent_type == "mappo":
         with torch.no_grad():
             actions, _, _ = agent.choose_action(obs, deterministic=True)
-        return actions
+        return np.asarray(actions, dtype=np.float32)
+
+    elif agent_type == "sac":
+        obs_arr = np.asarray(obs, dtype=np.float32)
+        joint_obs = obs_arr.reshape(-1)
+
+        joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
+
+        env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
+        return env_action
 
     else:
         raise ValueError(agent_type)
@@ -795,9 +824,6 @@ def main():
             f"n={report['baseline']['n']}"
         )
 
-    if args.plot_rewards and baseline is not None:
-        _ = plot_eval_reward_distribution(eval_dir)
-
     if args.plot_heatmaps:
         rl_csv = eval_dir / f"{agent_type}.csv"
         df = pd.read_csv(rl_csv)
@@ -814,6 +840,7 @@ def main():
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
+            
             df = pd.read_csv(baseline_csv)
             vmin = df['reward'].min()
             vmax = df['reward'].max()
@@ -823,6 +850,11 @@ def main():
             _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
             _ = plot_reward_heatmap_from_csv(baseline_csv, bins=100, cmap ="turbo",vmin= vmin,vmax= vmax,use_radial= True, title=behavior_name)
             _ = plot_visitation_on_disturbance_background(csv_path=baseline_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
+
+    if args.plot_rewards and baseline is not None:
+        baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv"
+        rl_ep_csv = eval_dir / f"{agent_type}_ep.csv"
+        _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
 
     print(f"EVAL_DIR::{eval_dir.name}")
 
