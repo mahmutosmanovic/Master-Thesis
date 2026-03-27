@@ -1444,7 +1444,7 @@ def main():
         print("n inferred POIs:", len(pois))
 
     save_configs_yaml(
-        outdir / "fitted_configs.yaml",
+        outdir / "behaviors.yaml",
         CRW_CFG=crw_cfg,
         EE_CFG=ee_cfg,
         POI_CFG=poi_cfg,

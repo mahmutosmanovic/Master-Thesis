@@ -84,10 +84,8 @@ def plot_results(base_rewards, rl_rewards, out_path, rl_label="RL", baseline_lab
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
 
-def plot_eval_reward_distribution(eval_dir):
-    eval_dir = Path(eval_dir)
-
-    rl_csv, baseline_csv = get_episode_csvs(eval_dir)
+def plot_eval_reward_distribution(rl_csv, baseline_csv):
+    eval_dir = Path(rl_csv).parent
 
     rl_rewards = load_rewards(rl_csv)
     base_rewards = load_rewards(baseline_csv)

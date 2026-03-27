@@ -3,54 +3,78 @@ import os
 import torch
 
 from box import Box
-
+import numpy as np
 from environment import Env
-from model import PPOAgent, MAPPOAgent
+from model import PPOAgent, MAPPOAgent, SACAgent
 from .run_utils import load_run
 
 
-def init_agent(config, run_dir, name):
+def init_agent(config, run_dir, weight_type="last"):
     """
-    Load agent based on the stored run configuration.
+    Standard full-agent loading using the project's normal load_models(name=...).
     """
-
-    config.run_dir = run_dir
     agent_type = config.agent_type
 
     if agent_type == "ppo":
         agent = PPOAgent(config)
     elif agent_type == "mappo":
         agent = MAPPOAgent(config)
+    elif agent_type == "sac":
+        agent = SACAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    agent.load_models(name=name)
+    if agent_type == "ppo":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic.chkpt_dir = run_dir
+    elif agent_type == "mappo":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic.chkpt_dir = run_dir
+    elif agent_type == "sac":
+        agent.actor.chkpt_dir = run_dir
+        agent.critic_1.chkpt_dir = run_dir
+        agent.critic_2.chkpt_dir = run_dir
+        agent.target_critic_1.chkpt_dir = run_dir
+        agent.target_critic_2.chkpt_dir = run_dir
+
+    agent.load_models(name=weight_type)
 
     agent.actor.eval()
-    agent.critic.eval()
+
+    if agent_type == "ppo":
+        agent.critic.eval()
+    elif agent_type == "mappo":
+        agent.critic.eval()
+    elif agent_type == "sac":
+        agent.critic_1.eval()
+        agent.critic_2.eval()
+        agent.target_critic_1.eval()
+        agent.target_critic_2.eval()
 
     return agent, agent_type
 
 
 def choose_action(agent, obs, agent_type):
-    """
-    Handles PPO vs MAPPO action inference.
-    """
-
     if agent_type == "ppo":
-
         actions = []
-
         for drone_obs in obs:
             action, _, _ = agent.choose_action(drone_obs, deterministic=True)
             actions.append(action)
-
-        return actions
+        return np.array(actions, dtype=np.float32)
 
     elif agent_type == "mappo":
+        with torch.no_grad():
+            actions, _, _ = agent.choose_action(obs, deterministic=True)
+        return np.asarray(actions, dtype=np.float32)
 
-        action, _, _ = agent.choose_action(obs, deterministic=True)
-        return action
+    elif agent_type == "sac":
+        obs_arr = np.asarray(obs, dtype=np.float32)
+        joint_obs = obs_arr.reshape(-1)
+
+        joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
+        
+        env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
+        return env_action
 
     else:
         raise ValueError(agent_type)
