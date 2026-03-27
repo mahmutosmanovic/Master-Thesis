@@ -26,7 +26,7 @@ model:
     entropy_end_coef: 0.005
 
   sampling:
-    total_timesteps: 800_000
+    total_timesteps: 2_000_000
     rollout_steps: 4096
     mini_batch_size: 128
     n_epochs: 4
