@@ -60,7 +60,6 @@ animal:
 # Disturbance model
 max_angle_relief: 0.5
 max_heading_relief: 0.5
-max_speed_relief: 0.0
 max_axis_relief: 0.5
 
 # reward

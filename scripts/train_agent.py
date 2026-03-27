@@ -12,16 +12,15 @@ from model import MAPPOAgent
 # standard modules
 import os
 import csv
-import wandb
 import argparse
 import subprocess
 import numpy as np
+import wandb as wb
 from box import Box
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
-
 load_dotenv()
 
 project_root = Path(__file__).resolve().parents[1]
@@ -29,7 +28,7 @@ project_root = Path(__file__).resolve().parents[1]
 
 def init_wandb(config, agent_type):
     api_token = os.getenv("API_TOKEN")
-    wandb.login(key=api_token)
+    wb.login(key=api_token)
 
     entity = os.getenv("WANDB_ENTITY")
     project = os.getenv("WANDB_PROJECT")
@@ -38,7 +37,7 @@ def init_wandb(config, agent_type):
     timestamp = now.strftime("%B%d_t%H%M").lower()
     run_name = f"train_{agent_type}_seed{config['seed']}_{timestamp}"
 
-    run = wandb.init(
+    run = wb.init(
         entity=entity,
         project=project,
         name=run_name,
@@ -53,16 +52,16 @@ def init_wandb(config, agent_type):
         source_files += list(root.rglob("*.yaml"))
         source_files += list(root.rglob("*.yml"))
 
-    artifact = wandb.Artifact("source_code", type="code")
+    artifact = wb.Artifact("source_code", type="code")
 
     for f in sorted(source_files):
         rel_path = f.relative_to(project_root)
         artifact.add_file(str(f), name=str(rel_path))
 
-    wandb.log_artifact(artifact)
+    wb.log_artifact(artifact)
 
     commit = subprocess.getoutput("git rev-parse HEAD")
-    wandb.config.update({"git_commit": commit}, allow_val_change=True)
+    wb.config.update({"git_commit": commit}, allow_val_change=True)
 
     return run
 
@@ -182,7 +181,7 @@ def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save
 
 
 def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count):
-    wandb.log({
+    wb.log({
         "episode/reward_norm": episode_reward_norm,
         "episode/progress": r_stats["episode_progress"],
         "episode/step": step,
@@ -210,7 +209,7 @@ def _log_train_local(csv_path, step, train_metrics):
 
 
 def _log_train_wandb(step, train_metrics):
-    wandb.log({
+    wb.log({
         "train/entropy_coef": train_metrics["train_entropy_coef"],
         "train/policy_entropy": train_metrics["train_policy_entropy"],
         "train/actor_loss": train_metrics["actor_loss"],
@@ -254,8 +253,8 @@ def agent_env_step(agent, env, obs, agent_type):
     return next_obs, reward, done, terminated, truncated, info
 
 
-def main(config, agent_type="ppo", wandb=False, device="cpu"):
-    if wandb:
+def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
+    if use_wandb:
         _ = init_wandb(config, agent_type)
 
     config = Box(config)
@@ -305,7 +304,7 @@ def main(config, agent_type="ppo", wandb=False, device="cpu"):
                         r_stats = env.get_reward_stats()
 
                         _log_episode_local(episode_csv_path, curr_steps, episode_reward_norm, stats, r_stats, save_count)
-                        if wandb:
+                        if use_wandb:
                             _log_episode_wandb(curr_steps, episode_reward_norm, stats, r_stats, save_count)
 
                         pbar.set_postfix({
@@ -330,17 +329,17 @@ def main(config, agent_type="ppo", wandb=False, device="cpu"):
 
                 if train_metrics is not None:
                     _log_train_local(train_csv_path, curr_steps, train_metrics)
-                    if wandb:
+                    if use_wandb:
                         _log_train_wandb(curr_steps, train_metrics)
 
             agent.save_models(name="last")
 
-            if wandb:
-                wandb.save(os.path.join(config.run_dir, "*"))
+            if use_wandb:
+                wb.save(os.path.join(config.run_dir, "*"))
 
     finally:
-        if wandb:
-            wandb.finish()
+        if use_wandb:
+            wb.finish()
 
 
 def _init_argparse():
@@ -365,5 +364,5 @@ if __name__ == "__main__":
     save_config_snapshot(cfg, run_dir)
     cfg["run_dir"] = str(run_dir)
 
-    main(cfg, agent_type=args.agent, wandb=args.wandb, device=args.device)
+    main(cfg, agent_type=args.agent, use_wandb=args.wandb, device=args.device)
     print(f"RUN_DIR::{run_dir.name}")

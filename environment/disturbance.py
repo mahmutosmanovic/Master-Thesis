@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
 from matplotlib.colors import LinearSegmentedColormap
 
 def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
@@ -10,23 +11,36 @@ def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
     )
     return new_cmap
 
-
 def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
-    g_h = horizontal_gain(dist_vec)
-    g_v = altitude_gain(dist_vec)
+    g_h = horizontal_gain_sigmoid(dist_vec)
+    g_v = altitude_gain_sigmoid(dist_vec)
     g_a = 1 - angle_gain(dist_vec)
     g_ax = 1 - animal_axis_gain(dist_vec, animal_vel_dir)
-    g_he = heading_relief(dist_vec, drone_vel_dir)
+    g_he = 1 - heading_gain(dist_vec, drone_vel_dir)
 
-    angle_re = g_a * config.max_angle_relief
-    axis_re = g_ax * config.max_axis_relief
-    heading_re = g_he * config.max_heading_relief
+    angle_re = g_a * config.max_angle_activation
+    axis_re = g_ax * config.max_axis_activation
+    heading_re = g_he * config.max_heading_activation
 
     base = g_h * g_v
     
     D = base * ((1-angle_re) * (1-heading_re) * (1-axis_re))
     return D
+
+def sigmoid_disturbance(x, midpoint, sharpness):
+    x = np.asarray(x, dtype=float)
+    return 1.0 / (1.0 + np.exp((x - midpoint) / sharpness))
+
+def altitude_gain_sigmoid(dist_vec):
+    _, _, dz = dist_vec
+    altitude = abs(dz)
+    return sigmoid_disturbance(altitude, midpoint=60.0, sharpness=7.0)
+
+def horizontal_gain_sigmoid(dist_vec):
+    dx, dy, _ = dist_vec
+    d = np.sqrt(dx*dx + dy*dy)
+    return sigmoid_disturbance(d, midpoint=100.0, sharpness=15.0)
 
 def altitude_gain(dist_vec):
     _, _, z = dist_vec
@@ -49,7 +63,7 @@ def horizontal_gain(dist_vec):
         return 0.8 * (1 - (d - 135) / 165)
     return 0.0
 
-def heading_relief(dist_vec, drone_vel_dir):
+def heading_gain(dist_vec, drone_vel_dir):
     v = np.asarray(drone_vel_dir, dtype=float)
     d = np.asarray(dist_vec, dtype=float)
 
@@ -62,7 +76,7 @@ def heading_relief(dist_vec, drone_vel_dir):
     cos_theta = np.dot(v, d) / (v_norm * d_norm)
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
-    return max(0.0, cos_theta)
+    return 1 - max(0.0, cos_theta)
 
 def animal_axis_gain(dist_vec, animal_vel_dir):
     d = dist_vec
@@ -368,9 +382,131 @@ def component_plots():
     plt.savefig("./figures/comps.png", dpi=300, bbox_inches="tight")
     plt.show()
 
+def sigmoid_disturbance(x, midpoint, sharpness):
+    x = np.asarray(x, dtype=float)
+    return 1.0 / (1.0 + np.exp((x - midpoint) / sharpness))
+
+
+def altitude_disturbance_sigmoid(altitude_m):
+    return sigmoid_disturbance(altitude_m, midpoint=60.0, sharpness=7.0)
+
+
+def horizontal_disturbance_sigmoid(distance_m):
+    return sigmoid_disturbance(distance_m, midpoint=100.0, sharpness=15.0)
+
+
+def find_x_at_level(x, y, level):
+    return np.interp(level, y[::-1], x[::-1])
+
+
+def hor_ver_plot():
+
+    altitudes = np.linspace(0, 200, 2000)
+    distances = np.linspace(0, 500, 2000)
+
+    alt_vals = altitude_disturbance_sigmoid(altitudes)
+    dist_vals = horizontal_disturbance_sigmoid(distances)
+
+    levels = [0.95, 0.90, 0.50, 0.10, 0.05]
+
+    fig = plt.figure(figsize=(10,4))
+
+    # 2 cm offset in inches
+    offset_inches = 2 / 2.54
+
+
+    # --- altitude subplot ---
+    ax1 = plt.subplot(1,2,1)
+
+    for lvl in levels:
+
+        x_cross = find_x_at_level(altitudes, alt_vals, lvl)
+
+        ax1.axhline(
+            lvl,
+            linestyle="--",
+            linewidth=1,
+            color="0.5",
+            zorder=0
+        )
+
+        text_transform = transforms.offset_copy(
+            ax1.transData,
+            fig=fig,
+            x=offset_inches,
+            units='inches'
+        )
+
+        ax1.text(
+            x_cross,
+            lvl,
+            f"{lvl:.2f}",
+            fontsize=9,
+            color="0.5",
+            ha="left",
+            va="center",
+            bbox=dict(facecolor="white", edgecolor="none", pad=0.15),
+            transform=text_transform,
+            zorder=3
+        )
+
+    ax1.plot(altitudes, alt_vals, linewidth=1.8, zorder=2, color='orange')
+
+    ax1.set_title("Altitude disturbance", fontsize=18)
+    ax1.set_xlabel("Altitude (m)", fontsize=16)
+    ax1.set_ylabel("Disturbance gain", fontsize=16)
+
+
+
+    # --- horizontal subplot ---
+    ax2 = plt.subplot(1,2,2)
+
+    for lvl in levels:
+
+        x_cross = find_x_at_level(distances, dist_vals, lvl)
+
+        ax2.axhline(
+            lvl,
+            linestyle="--",
+            linewidth=1,
+            color="0.5",
+            zorder=0
+        )
+
+        text_transform = transforms.offset_copy(
+            ax2.transData,
+            fig=fig,
+            x=offset_inches,
+            units='inches'
+        )
+
+        ax2.text(
+            x_cross,
+            lvl,
+            f"{lvl:.2f}",
+            fontsize=9,
+            color="0.5",
+            ha="left",
+            va="center",
+            bbox=dict(facecolor="white", edgecolor="none", pad=0.15),
+            transform=text_transform,
+            zorder=3
+        )
+
+    ax2.plot(distances, dist_vals, linewidth=1.8, zorder=2, color='tab:orange')
+
+    ax2.set_title("Horizontal disturbance", fontsize=18)
+    ax2.set_xlabel("Horizontal distance (m)", fontsize=16)
+    ax2.set_ylabel("Disturbance gain", fontsize=16)
+
+    plt.tight_layout()
+    plt.savefig("figures/hor_ver.png", dpi=300)
+    plt.show()
+
 if __name__ == "__main__":
     # angle_plot()
     # distance_plot()
     # angle_distance_plot()
-    component_plots()
+    # component_plots()
+    hor_ver_plot()
     ...

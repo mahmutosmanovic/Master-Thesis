@@ -7,7 +7,6 @@ from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
 
-
 class Env:
     def __init__(self, config, render_mode=None, seed=42):
         self.set_seed(seed)
@@ -557,7 +556,7 @@ class Env:
                         v_cam_x,
                         v_cam_y,
                         v_cam_z,
-                        self.disturb_scale,
+                        animal.id,
                     ])
                 else:
                     animal_features.extend([
@@ -707,15 +706,14 @@ class Env:
             dtype=np.float32
         )
 
-        D = np.mean(animal_disturbances)
-        disturbance_penalty = D
+        disturbance_penalty = np.mean(animal_disturbances) *  self.disturb_scale
 
         # bucket coverage reward
         r_bucket = self._bucket_balance_score()
 
-        monitor_reward = r_dist * r_align
+        monitor_reward = (r_dist * r_align)
 
-        final_reward = monitor_reward - self.disturb_scale * disturbance_penalty - p_vel - p_theta
+        final_reward = monitor_reward - disturbance_penalty - p_vel - p_theta
 
         # penalty if nothing visible
         if not visible_any:
