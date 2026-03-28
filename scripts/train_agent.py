@@ -206,173 +206,6 @@ def agent_env_step(agent, env, obs, agent_type):
 
     return next_obs, reward, done, terminated, truncated, info
 
-def _handle_episode_end(
-    agent,
-    env,
-    curr_steps,
-    episode_reward,
-    max_rew,
-    save_count,
-    save_models_frac,
-    total_steps,
-    episode_csv_path,
-    use_wandb,
-):
-    episode_reward_norm = episode_reward / env.config.max_episode_steps
-    stats = env.get_behavior_stats()
-    r_stats = env.get_reward_stats()
-
-    _log_episode_local(
-        episode_csv_path,
-        curr_steps,
-        episode_reward_norm,
-        stats,
-        r_stats,
-        save_count,
-    )
-    if use_wandb:
-        _log_episode_wandb(
-            curr_steps,
-            episode_reward_norm,
-            stats,
-            r_stats,
-            save_count,
-        )
-
-    if (
-        episode_reward_norm > max_rew
-        and curr_steps >= save_models_frac * total_steps
-    ):
-        agent.save_models(name="best")
-        max_rew = episode_reward_norm
-        save_count += 1
-
-    return max_rew, save_count, r_stats
-
-def _run_on_policy_training(
-    agent,
-    env,
-    obs,
-    agent_type,
-    curr_steps,
-    total_steps,
-    episode_reward,
-    max_rew,
-    save_count,
-    save_models_frac,
-    episode_csv_path,
-    train_csv_path,
-    use_wandb,
-    pbar,
-):
-    done = False
-
-    while curr_steps < total_steps:
-        rollout_steps = min(
-            env.config.model.sampling.rollout_steps,
-            total_steps - curr_steps
-        )
-
-        for _ in range(rollout_steps):
-            curr_steps += 1
-            pbar.update(1)
-
-            next_obs, reward, done, terminated, truncated, info = agent_env_step(
-                agent, env, obs, agent_type
-            )
-
-            obs = next_obs
-            episode_reward += reward
-
-            if terminated or truncated:
-                max_rew, save_count, r_stats = _handle_episode_end(
-                    agent=agent,
-                    env=env,
-                    curr_steps=curr_steps,
-                    episode_reward=episode_reward,
-                    max_rew=max_rew,
-                    save_count=save_count,
-                    save_models_frac=save_models_frac,
-                    total_steps=total_steps,
-                    episode_csv_path=episode_csv_path,
-                    use_wandb=use_wandb,
-                )
-
-                pbar.set_postfix({
-                    "rew_100": f"{episode_reward / env.config.max_episode_steps:.2f}",
-                    "mean_dist": f"{r_stats['p_disturbance']:.2f}",
-                })
-
-                episode_reward = 0.0
-                obs, info = env.reset()
-                done = False
-
-        last_value = agent.get_last_value(obs, done)
-        train_metrics = agent.learn(last_value)
-
-        if train_metrics is not None:
-            _log_train_local(train_csv_path, curr_steps, train_metrics)
-            if use_wandb:
-                _log_train_wandb(curr_steps, train_metrics)
-
-    return obs, curr_steps, episode_reward, max_rew, save_count
-
-def _run_sac_training(
-    agent,
-    env,
-    obs,
-    curr_steps,
-    total_steps,
-    episode_reward,
-    max_rew,
-    save_count,
-    save_models_frac,
-    episode_csv_path,
-    train_csv_path,
-    use_wandb,
-    pbar,
-):
-    while curr_steps < total_steps:
-        curr_steps += 1
-        pbar.update(1)
-
-        next_obs, reward, done, terminated, truncated, info = agent_env_step(
-            agent, env, obs, "sac"
-        )
-
-        obs = next_obs
-        episode_reward += reward
-
-        train_metrics = agent.learn()
-        if train_metrics is not None:
-            _log_train_local(train_csv_path, curr_steps, train_metrics)
-            if use_wandb:
-                _log_train_wandb(curr_steps, train_metrics)
-
-        if terminated or truncated:
-            max_rew, save_count, r_stats = _handle_episode_end(
-                agent=agent,
-                env=env,
-                curr_steps=curr_steps,
-                episode_reward=episode_reward,
-                max_rew=max_rew,
-                save_count=save_count,
-                save_models_frac=save_models_frac,
-                total_steps=total_steps,
-                episode_csv_path=episode_csv_path,
-                use_wandb=use_wandb,
-            )
-
-            pbar.set_postfix({
-                "rew_100": f"{episode_reward / env.config.max_episode_steps:.2f}",
-                "mean_dist": f"{r_stats['p_disturbance']:.2f}",
-            })
-
-            episode_reward = 0.0
-            obs, info = env.reset()
-
-    return obs, curr_steps, episode_reward, max_rew, save_count
-
 def _should_train(agent_type, step_in_rollout, rollout_steps):
     if agent_type == "sac":
         return True
@@ -386,7 +219,12 @@ def _train_step(agent, agent_type, obs, done):
         return agent.learn()
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
-    
+
+def _has_train_metrics(train_metrics):
+    if train_metrics is None:
+        return False
+    return any(v is not None for v in train_metrics.values())
+
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
         _ = init_wandb(config, agent_type)
@@ -458,7 +296,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                     if _should_train(agent_type, step_in_rollout, rollout_steps):
                         train_metrics = _train_step(agent, agent_type, obs, done)
 
-                        if train_metrics is not None:
+                        if _has_train_metrics(train_metrics):
                             _log_train_local(train_csv_path, curr_steps, train_metrics)
                             if use_wandb:
                                 _log_train_wandb(curr_steps, train_metrics)
