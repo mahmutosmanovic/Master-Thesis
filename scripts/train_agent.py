@@ -8,6 +8,7 @@ from environment import Env
 # model
 from model import PPOAgent
 from model import MAPPOAgent
+from model import SACAgent
 
 # standard modules
 import os
@@ -71,6 +72,8 @@ def _init_agent(config, agent_type, device):
         return PPOAgent(config, device)
     elif agent_type == "mappo":
         return MAPPOAgent(config, device)
+    elif agent_type == "sac":
+        return SACAgent(config, device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -89,95 +92,38 @@ def _get_train_csv_path(config):
     behavior_name = _get_behavior_name(config)
     return Path(config.run_dir) / f"{behavior_name}_train.csv"
 
-
 # =========================
-# LOCAL CSV: EPISODE LOGGING
+# CSV LOGGING
 # =========================
-def _init_episode_csv(csv_path):
+
+def append_csv_row(csv_path, row):
+    csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "step",
-            "episode_reward_norm",
-            "episode_progress",
-            "calm_frac",
-            "avoid_frac",
-            "flee_frac",
-            "r_monitoring",
-            "p_disturbance",
-            "r_vis",
-            "r_dist",
-            "r_align",
-            "r_bucket",
-            "checkpoint_save_count",
-        ])
 
+    fieldnames = list(row.keys())
 
-def _append_episode_csv(csv_path, step, episode_reward_norm, stats, r_stats, save_count):
-    with open(csv_path, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            step,
-            episode_reward_norm,
-            r_stats["episode_progress"],
-            stats["calm_frac"],
-            stats["avoid_frac"],
-            stats["flee_frac"],
-            r_stats["r_monitoring"],
-            r_stats["p_disturbance"],
-            r_stats["r_vis"],
-            r_stats["r_dist"],
-            r_stats["r_align"],
-            r_stats["r_bucket"],
-            save_count,
-        ])
+    with open(csv_path, "a+", newline="") as f:
+        f.seek(0, 2)
+        write_header = f.tell() == 0
 
-
-# =======================
-# LOCAL CSV: TRAIN LOGGING
-# =======================
-def _init_train_csv(csv_path):
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "step",
-            "train_entropy_coef",
-            "train_policy_entropy",
-            "actor_loss",
-            "critic_loss",
-            "actor_lr",
-            "critic_lr",
-        ])
-
-
-def _append_train_csv(csv_path, step, train_metrics):
-    with open(csv_path, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            step,
-            train_metrics["train_entropy_coef"],
-            train_metrics["train_policy_entropy"],
-            train_metrics["actor_loss"],
-            train_metrics["critic_loss"],
-            train_metrics["actor_lr"],
-            train_metrics["critic_lr"],
-        ])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 # ======================
 # WRAPPERS: EPISODE LOGS
 # ======================
 def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save_count):
-    _append_episode_csv(
-        csv_path=csv_path,
-        step=step,
-        episode_reward_norm=episode_reward_norm,
-        stats=stats,
-        r_stats=r_stats,
-        save_count=save_count,
-    )
+    row = {
+        "step": step,
+        "episode_reward_norm": episode_reward_norm,
+        **stats,
+        **r_stats,
+        "checkpoint_save_count": save_count,
+    }
+    append_csv_row(csv_path, row)
 
 
 def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count):
@@ -205,19 +151,13 @@ def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count):
 # WRAPPERS: TRAIN LOGS
 # ====================
 def _log_train_local(csv_path, step, train_metrics):
-    _append_train_csv(csv_path=csv_path, step=step, train_metrics=train_metrics)
-
+    row = {"step": step, **train_metrics}
+    append_csv_row(csv_path, row)
 
 def _log_train_wandb(step, train_metrics):
-    wb.log({
-        "train/entropy_coef": train_metrics["train_entropy_coef"],
-        "train/policy_entropy": train_metrics["train_policy_entropy"],
-        "train/actor_loss": train_metrics["actor_loss"],
-        "train/critic_loss": train_metrics["critic_loss"],
-        "train/actor_lr": train_metrics["actor_lr"],
-        "train/critic_lr": train_metrics["critic_lr"],
-    }, step=step)
-
+    payload = {f"train/{key}": val for key, val in train_metrics.items() if val is not None}
+    if payload:
+        wb.log(payload, step=step)
 
 def agent_env_step(agent, env, obs, agent_type):
     if agent_type == "ppo":
@@ -247,12 +187,206 @@ def agent_env_step(agent, env, obs, agent_type):
 
         agent.remember(obs, actions, log_prob, val, reward, done)
 
+    elif agent_type == "sac":
+        joint_obs = np.asarray(obs, dtype=np.float32).reshape(-1)
+
+        joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=False)
+
+        env_action = joint_action_flat.reshape(obs.shape[0], -1).astype(np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(env_action)
+        done = terminated or truncated
+
+        joint_next_obs = np.asarray(next_obs, dtype=np.float32).reshape(-1)
+
+        agent.remember(joint_obs, joint_action_flat, reward, joint_next_obs, done)
+
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
     return next_obs, reward, done, terminated, truncated, info
 
+def _handle_episode_end(
+    agent,
+    env,
+    curr_steps,
+    episode_reward,
+    max_rew,
+    save_count,
+    save_models_frac,
+    total_steps,
+    episode_csv_path,
+    use_wandb,
+):
+    episode_reward_norm = episode_reward / env.config.max_episode_steps
+    stats = env.get_behavior_stats()
+    r_stats = env.get_reward_stats()
 
+    _log_episode_local(
+        episode_csv_path,
+        curr_steps,
+        episode_reward_norm,
+        stats,
+        r_stats,
+        save_count,
+    )
+    if use_wandb:
+        _log_episode_wandb(
+            curr_steps,
+            episode_reward_norm,
+            stats,
+            r_stats,
+            save_count,
+        )
+
+    if (
+        episode_reward_norm > max_rew
+        and curr_steps >= save_models_frac * total_steps
+    ):
+        agent.save_models(name="best")
+        max_rew = episode_reward_norm
+        save_count += 1
+
+    return max_rew, save_count, r_stats
+
+def _run_on_policy_training(
+    agent,
+    env,
+    obs,
+    agent_type,
+    curr_steps,
+    total_steps,
+    episode_reward,
+    max_rew,
+    save_count,
+    save_models_frac,
+    episode_csv_path,
+    train_csv_path,
+    use_wandb,
+    pbar,
+):
+    done = False
+
+    while curr_steps < total_steps:
+        rollout_steps = min(
+            env.config.model.sampling.rollout_steps,
+            total_steps - curr_steps
+        )
+
+        for _ in range(rollout_steps):
+            curr_steps += 1
+            pbar.update(1)
+
+            next_obs, reward, done, terminated, truncated, info = agent_env_step(
+                agent, env, obs, agent_type
+            )
+
+            obs = next_obs
+            episode_reward += reward
+
+            if terminated or truncated:
+                max_rew, save_count, r_stats = _handle_episode_end(
+                    agent=agent,
+                    env=env,
+                    curr_steps=curr_steps,
+                    episode_reward=episode_reward,
+                    max_rew=max_rew,
+                    save_count=save_count,
+                    save_models_frac=save_models_frac,
+                    total_steps=total_steps,
+                    episode_csv_path=episode_csv_path,
+                    use_wandb=use_wandb,
+                )
+
+                pbar.set_postfix({
+                    "rew_100": f"{episode_reward / env.config.max_episode_steps:.2f}",
+                    "mean_dist": f"{r_stats['p_disturbance']:.2f}",
+                })
+
+                episode_reward = 0.0
+                obs, info = env.reset()
+                done = False
+
+        last_value = agent.get_last_value(obs, done)
+        train_metrics = agent.learn(last_value)
+
+        if train_metrics is not None:
+            _log_train_local(train_csv_path, curr_steps, train_metrics)
+            if use_wandb:
+                _log_train_wandb(curr_steps, train_metrics)
+
+    return obs, curr_steps, episode_reward, max_rew, save_count
+
+def _run_sac_training(
+    agent,
+    env,
+    obs,
+    curr_steps,
+    total_steps,
+    episode_reward,
+    max_rew,
+    save_count,
+    save_models_frac,
+    episode_csv_path,
+    train_csv_path,
+    use_wandb,
+    pbar,
+):
+    while curr_steps < total_steps:
+        curr_steps += 1
+        pbar.update(1)
+
+        next_obs, reward, done, terminated, truncated, info = agent_env_step(
+            agent, env, obs, "sac"
+        )
+
+        obs = next_obs
+        episode_reward += reward
+
+        train_metrics = agent.learn()
+        if train_metrics is not None:
+            _log_train_local(train_csv_path, curr_steps, train_metrics)
+            if use_wandb:
+                _log_train_wandb(curr_steps, train_metrics)
+
+        if terminated or truncated:
+            max_rew, save_count, r_stats = _handle_episode_end(
+                agent=agent,
+                env=env,
+                curr_steps=curr_steps,
+                episode_reward=episode_reward,
+                max_rew=max_rew,
+                save_count=save_count,
+                save_models_frac=save_models_frac,
+                total_steps=total_steps,
+                episode_csv_path=episode_csv_path,
+                use_wandb=use_wandb,
+            )
+
+            pbar.set_postfix({
+                "rew_100": f"{episode_reward / env.config.max_episode_steps:.2f}",
+                "mean_dist": f"{r_stats['p_disturbance']:.2f}",
+            })
+
+            episode_reward = 0.0
+            obs, info = env.reset()
+
+    return obs, curr_steps, episode_reward, max_rew, save_count
+
+def _should_train(agent_type, step_in_rollout, rollout_steps):
+    if agent_type == "sac":
+        return True
+    return step_in_rollout == rollout_steps - 1
+
+def _train_step(agent, agent_type, obs, done):
+    if agent_type in ("ppo", "mappo"):
+        last_value = agent.get_last_value(obs, done)
+        return agent.learn(last_value)
+    elif agent_type == "sac":
+        return agent.learn()
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+    
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
         _ = init_wandb(config, agent_type)
@@ -264,9 +398,6 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 
     episode_csv_path = _get_episode_csv_path(config)
     train_csv_path = _get_train_csv_path(config)
-
-    _init_episode_csv(episode_csv_path)
-    _init_train_csv(train_csv_path)
 
     obs, info = env.reset()
     done = False
@@ -282,12 +413,12 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     try:
         with tqdm(total=total_steps, desc="Training") as pbar:
             while curr_steps < total_steps:
-                rollout_steps = min(
+                rollout_steps = 1 if agent_type == "sac" else min(
                     config.model.sampling.rollout_steps,
                     total_steps - curr_steps
                 )
 
-                for _ in range(rollout_steps):
+                for step_in_rollout in range(rollout_steps):
                     curr_steps += 1
                     pbar.update(1)
 
@@ -324,13 +455,13 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                         obs, info = env.reset()
                         done = False
 
-                last_value = agent.get_last_value(obs, done)
-                train_metrics = agent.learn(last_value)
+                    if _should_train(agent_type, step_in_rollout, rollout_steps):
+                        train_metrics = _train_step(agent, agent_type, obs, done)
 
-                if train_metrics is not None:
-                    _log_train_local(train_csv_path, curr_steps, train_metrics)
-                    if use_wandb:
-                        _log_train_wandb(curr_steps, train_metrics)
+                        if train_metrics is not None:
+                            _log_train_local(train_csv_path, curr_steps, train_metrics)
+                            if use_wandb:
+                                _log_train_wandb(curr_steps, train_metrics)
 
             agent.save_models(name="last")
 
@@ -345,7 +476,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 def _init_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
-    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo"], help="RL agent type")
+    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac"], help="RL agent type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
