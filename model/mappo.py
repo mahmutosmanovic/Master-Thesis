@@ -272,8 +272,8 @@ class MAPPOAgent:
 
         if self.memory.get_length() == 0:
             return {
-                "train_entropy_coef": self.get_entropy_coef(),
-                "train_policy_entropy": None,
+                "entropy_coef": self.get_entropy_coef(),
+                "policy_entropy": None,
                 "actor_loss": None,
                 "critic_loss": None,
                 "actor_lr": None,
@@ -384,8 +384,8 @@ class MAPPOAgent:
         self.memory.clear_memory()
 
         return {
-            "train_entropy_coef": last_entropy_coef if last_entropy_coef is not None else self.get_entropy_coef(),
-            "train_policy_entropy": last_policy_entropy,
+            "entropy_coef": last_entropy_coef if last_entropy_coef is not None else self.get_entropy_coef(),
+            "policy_entropy": last_policy_entropy,
             "actor_loss": last_actor_loss,
             "critic_loss": last_critic_loss,
             "actor_lr": new_actor_lr,
