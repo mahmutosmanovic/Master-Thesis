@@ -169,7 +169,6 @@ class SACAgent:
         sampling_hpt = getattr(config.model, "sampling", None)
 
         self.device = T.device(device)
-        self.act_dim = self.space_hpt.n_actions
 
         drone_features = config.model.space.drone_features
         animal_features = config.model.space.animal_features * config.animal.env.count

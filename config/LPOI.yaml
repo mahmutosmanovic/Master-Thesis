@@ -59,9 +59,9 @@ animal:
     max_spawn_radius: 200
 
 # Disturbance model
-max_angle_relief: 0.5
-max_heading_relief: 0.5
-max_axis_relief: 0.5
+max_angle_activation: 0.5
+max_heading_activation: 0.5
+max_axis_activation: 0.5
 
 # reward
 disturbance_penalty_scale: 1

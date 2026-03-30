@@ -711,7 +711,7 @@ class Env:
         # bucket coverage reward
         r_bucket = self._bucket_balance_score()
 
-        monitor_reward = (r_dist * r_align)
+        monitor_reward = (0.9*r_dist + 0.1*r_align)
 
         final_reward = monitor_reward - disturbance_penalty - p_vel - p_theta
 

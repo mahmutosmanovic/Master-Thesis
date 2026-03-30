@@ -13,8 +13,8 @@ def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
 
 def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
-    g_h = horizontal_gain_sigmoid(dist_vec)
-    g_v = altitude_gain_sigmoid(dist_vec)
+    g_h = horizontal_gain(dist_vec)
+    g_v = altitude_gain(dist_vec)
     g_a = 1 - angle_gain(dist_vec)
     g_ax = 1 - animal_axis_gain(dist_vec, animal_vel_dir)
     g_he = 1 - heading_gain(dist_vec, drone_vel_dir)
@@ -25,7 +25,7 @@ def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
     base = g_h * g_v
     
-    D = base * ((1-angle_re) * (1-heading_re) * (1-axis_re))
+    D = base * (1-angle_re) * (1-heading_re) * (1-axis_re)
     return D
 
 def sigmoid_disturbance(x, midpoint, sharpness):
