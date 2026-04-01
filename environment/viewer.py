@@ -97,11 +97,11 @@ class Viewer:
     def _extract_visible_mask(self, drones, animals, fov):
         visible = np.zeros(len(animals), dtype=bool)
 
+
         if fov is None or len(animals) == 0:
             return visible
-
         try:
-            animal_obs = fov[:, 4:].reshape(
+            animal_obs = fov[:, 4:4 + len(animals) * self.config.model.space.animal_features].reshape(
                 len(drones),
                 len(animals),
                 self.config.model.space.animal_features,

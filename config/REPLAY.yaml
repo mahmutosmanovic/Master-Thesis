@@ -12,6 +12,7 @@ model:
     n_actions: 5
     drone_features: 4
     animal_features: 8
+    other_drone_features: 0
     action_type: rel # [rel, abs] rel -> relative to camera view direction
 
   optimization:
@@ -62,10 +63,15 @@ max_angle_relief: 0.5
 max_heading_relief: 0.5
 max_axis_relief: 0.5
 
-# reward
-disturbance_penalty_scale: 1
-p_vel_scale: 0.1
-p_theta_scale: 0.1
+# Reward
+disturbance_penalty_scale: 0.3
+p_vel_scale: 0.01
+p_theta_scale: 0.01
+p_dir_change_scale: 0.02
+
+# Termination / visibility recovery
+track_loss_grace: 50
+not_visible_penalty: 0.1
 
 # Resource model
 resource:

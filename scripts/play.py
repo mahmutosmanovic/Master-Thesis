@@ -1002,7 +1002,7 @@ def choose_action(agent, obs, agent_type):
 
     elif agent_type == "mappo":
         with torch.no_grad():
-            actions, _, _ = agent.choose_action(obs, deterministic=True)
+            actions, _, _ = agent.choose_actions(obs, deterministic=True)
         return np.asarray(actions, dtype=np.float32)
 
     elif agent_type == "sac":

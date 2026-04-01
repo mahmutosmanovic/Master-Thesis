@@ -13,6 +13,7 @@ model:
     n_actions: 5
     drone_features: 4
     animal_features: 8
+    other_drone_features: 0
     action_type: rel   # [rel, abs]
 
   optimization:
@@ -69,7 +70,7 @@ p_theta_scale: 0.01
 p_dir_change_scale: 0.02
 
 # Termination / visibility recovery
-max_out_of_view_steps: 50
+track_loss_grace: 50
 not_visible_penalty: 0.1
 
 # Resource model

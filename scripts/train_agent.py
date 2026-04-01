@@ -127,11 +127,12 @@ def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save
     append_csv_row(csv_path, row)
 
 
-def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count):
+def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, spawn_radius):
     wb.log({
         "episode/reward_norm": episode_reward_norm,
         "episode/progress": r_stats["episode_progress"],
         "episode/step": step,
+        "episode/spawn_radius": spawn_radius,
 
         "behavior/calm_frac": stats["calm_frac"],
         "behavior/avoid_frac": stats["avoid_frac"],
@@ -183,7 +184,7 @@ def agent_env_step(agent, env, obs, agent_type):
             agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done)
 
     elif agent_type == "mappo":
-        actions, log_prob, val = agent.choose_action(obs)
+        actions, log_prob, val = agent.choose_actions(obs)
 
         next_obs, reward, terminated, truncated, info = env.step(actions)
         done = terminated or truncated
@@ -231,12 +232,37 @@ def _has_train_metrics(train_metrics):
         return False
     return any(v is not None for v in train_metrics.values())
 
+class spawn_radius_schedule:
+    def __init__(self, cooldown, min_radius, step_size):
+        self.cooldown = cooldown
+        self.min_radius = min_radius
+        self.step_size = step_size
+        self.counter = 0
+    
+    def check_cooldown(self):
+        if self.counter <= 0:
+            return True
+        else:
+            self.counter -= 1
+            return False
+
+    def step(self, curr):
+        self.counter = self.cooldown
+        if curr - self.step_size > self.min_radius:
+            return curr - self.step_size
+        else:
+            return self.min_radius
 
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
         _ = init_wandb(config, agent_type)
 
     config = Box(config)
+
+    if args.schedule_spawn:
+        from collections import deque
+        srs = spawn_radius_schedule(50, 200, 100)
+        rewards = deque(maxlen=50)
 
     env = Env(config)
     agent = _init_agent(config, agent_type, device)
@@ -292,13 +318,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             save_count
                         )
                         if use_wandb:
-                            _log_episode_wandb(
-                                curr_steps,
-                                episode_reward_norm,
-                                stats,
-                                r_stats,
-                                save_count
-                            )
+                            _log_episode_wandb(curr_steps, episode_reward_norm, stats, r_stats, save_count, env.spawn_radius)
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
@@ -322,6 +342,11 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             agent.save_models(name="best")
                             max_rew = episode_reward_norm
                             save_count += 1
+
+                        if args.schedule_spawn:
+                            rewards.append(episode_reward_norm)
+                            if srs.check_cooldown() and np.mean(rewards) >= 1.0: # needs tuning
+                                env.spawn_radius = srs.step(env.spawn_radius)
 
                         episode_reward = 0.0
                         obs, info = env.reset()
@@ -352,6 +377,7 @@ def _init_argparse():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
+    parser.add_argument("--schedule_spawn", action="store_true", help="Enable animal spawn radius scheduling")
     return parser.parse_args()
 
 
