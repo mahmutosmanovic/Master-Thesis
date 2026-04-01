@@ -92,6 +92,7 @@ def _get_train_csv_path(config):
     behavior_name = _get_behavior_name(config)
     return Path(config.run_dir) / f"{behavior_name}_train.csv"
 
+
 # =========================
 # CSV LOGGING
 # =========================
@@ -154,10 +155,12 @@ def _log_train_local(csv_path, step, train_metrics):
     row = {"step": step, **train_metrics}
     append_csv_row(csv_path, row)
 
+
 def _log_train_wandb(step, train_metrics):
     payload = {f"train/{key}": val for key, val in train_metrics.items() if val is not None}
     if payload:
         wb.log(payload, step=step)
+
 
 def agent_env_step(agent, env, obs, agent_type):
     if agent_type == "ppo":
@@ -206,10 +209,12 @@ def agent_env_step(agent, env, obs, agent_type):
 
     return next_obs, reward, done, terminated, truncated, info
 
+
 def _should_train(agent_type, step_in_rollout, rollout_steps):
     if agent_type == "sac":
         return True
     return step_in_rollout == rollout_steps - 1
+
 
 def _train_step(agent, agent_type, obs, done):
     if agent_type in ("ppo", "mappo"):
@@ -220,10 +225,12 @@ def _train_step(agent, agent_type, obs, done):
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
+
 def _has_train_metrics(train_metrics):
     if train_metrics is None:
         return False
     return any(v is not None for v in train_metrics.values())
+
 
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
@@ -247,6 +254,10 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     save_count = 0
     save_models_frac = 0.5
     total_steps = config.model.sampling.total_timesteps
+
+    # milestone checkpoints: save only once when threshold is first reached
+    milestone_thresholds = []
+    milestone_saved = {thr: False for thr in milestone_thresholds}
 
     try:
         with tqdm(total=total_steps, desc="Training") as pbar:
@@ -272,15 +283,38 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                         stats = env.get_behavior_stats()
                         r_stats = env.get_reward_stats()
 
-                        _log_episode_local(episode_csv_path, curr_steps, episode_reward_norm, stats, r_stats, save_count)
+                        _log_episode_local(
+                            episode_csv_path,
+                            curr_steps,
+                            episode_reward_norm,
+                            stats,
+                            r_stats,
+                            save_count
+                        )
                         if use_wandb:
-                            _log_episode_wandb(curr_steps, episode_reward_norm, stats, r_stats, save_count)
+                            _log_episode_wandb(
+                                curr_steps,
+                                episode_reward_norm,
+                                stats,
+                                r_stats,
+                                save_count
+                            )
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
                             "mean_dist": f"{r_stats['p_disturbance']:.2f}",
                         })
 
+                        # save milestone checkpoints once
+                        for thr in milestone_thresholds:
+                            if (not milestone_saved[thr]) and (episode_reward_norm >= thr):
+                                tag = str(thr).replace(".", "p")
+                                agent.save_models(name=f"reward_{tag}")
+                                milestone_saved[thr] = True
+                                save_count += 1
+                                print(f"[INFO] Saved milestone checkpoint at reward >= {thr:.1f}")
+
+                        # save best as usual, after some fraction of training
                         if (
                             episode_reward_norm > max_rew
                             and curr_steps >= save_models_frac * total_steps

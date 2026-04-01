@@ -1,7 +1,7 @@
 # Environment
 dt: 0.1
 max_episode_steps: 2048
-behavior_cfg: behavior_fit_40k100/jackals
+behavior_cfg: behavior_fit_40k100/spur_winged_lapwings
 
 # Model
 model:

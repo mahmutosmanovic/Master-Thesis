@@ -28,8 +28,8 @@ class CentroidStandoff:
     def __init__(
         self,
         config,
-        target_range_ratio=0.2,
-        target_altitude_ratio=0.3,
+        target_range_ratio=0.4,
+        target_altitude_ratio=0.5,
         xy_gain=1.5,
         z_gain=1.75,
         theta_gain=0.4,
@@ -238,8 +238,8 @@ def run_episode(env, policy, seed):
     return norm_reward, step_count, stats
 
 GRID = {
-    "target_range_ratio":    [0.2, 0.3, 0.40, 0.50],
-    "target_altitude_ratio": [0.3, 0.4, 0.5, 0.6],
+    "target_range_ratio":    [0.30, 0.40, 0.50, 0.60],
+    "target_altitude_ratio": [0.30, 0.40, 0.50, 0.60],
     "xy_gain":                   [1.5],
     "z_gain":                   [1.75],
     "theta_gain":               [0.4],

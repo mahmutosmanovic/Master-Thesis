@@ -13,36 +13,36 @@ model:
     n_actions: 5
     drone_features: 4
     animal_features: 8
-    action_type: rel # [rel, abs] rel -> relative to camera view direction
+    action_type: rel   # [rel, abs]
 
   optimization:
-    gamma: 0.98
+    gamma: 0.99
     actor_lr: 0.0003
     critic_lr: 0.0003
     gae_lambda: 0.95
-    policy_clip: 0.1
+    policy_clip: 0.2
     val_loss_coef: 0.5
-    entropy_start_coef: 0.005
-    entropy_end_coef: 0.005
+    entropy_start_coef: 0.02
+    entropy_end_coef: 0.002
 
   sampling:
-    total_timesteps: 2_000_000
-    rollout_steps: 4096
-    mini_batch_size: 128
-    n_epochs: 4
+    total_timesteps: 800_000
+    rollout_steps: 2048
+    mini_batch_size: 256
+    n_epochs: 10
 
 # Drone configuration
 drone:
   large:
     count: 1
     view_range: 200
-    disturbance_mult: 1.0 # [0,1]
+    disturbance_mult: 1.0
     min_speed: 0
-    max_speed: 50
+    max_speed: 25
     ver_angle: 90
     hor_angle: 140
     max_cam_rot: 90
-    spawn_dist: [40, 100]
+    spawn_dist: [70, 90]
     view_dir: [1, 0, -0.7]
     max_altitude: 150
 
@@ -53,20 +53,25 @@ animal:
 
   init:
     min_speed: 0
-    max_speed: 40
-    behavior: POI_CFG        # mapped -> POI_CFG()
-    movement_dim: TWO_D  # mapped -> MovementDim.TWO_D
+    max_speed: 12
+    behavior: POI_CFG
+    movement_dim: TWO_D
     max_spawn_radius: 200
 
 # Disturbance model
-max_angle_activation: 0.5
-max_heading_activation: 0.5
-max_axis_activation: 0.5
+max_angle_activation: 0.2
+max_heading_activation: 0.2
+max_axis_activation: 0.2
 
-# reward
-disturbance_penalty_scale: 1
-p_vel_scale: 0.1
-p_theta_scale: 0.1
+# Reward
+disturbance_penalty_scale: 0.3
+p_vel_scale: 0.01
+p_theta_scale: 0.01
+p_dir_change_scale: 0.02
+
+# Termination / visibility recovery
+max_out_of_view_steps: 50
+not_visible_penalty: 0.1
 
 # Resource model
 resource:

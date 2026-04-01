@@ -340,31 +340,74 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet", title="Unspecifi
 def load_positions_and_disturbance_from_csv(csv_path):
     df = pd.read_csv(csv_path)
 
-    x = pd.to_numeric(df["x"], errors="coerce").to_numpy()
-    y = pd.to_numeric(df["y"], errors="coerce").to_numpy()
-    z = pd.to_numeric(df["z"], errors="coerce").to_numpy()
-    p_disturbance = pd.to_numeric(df["p_disturbance"], errors="coerce").to_numpy()
+    drone = df[df["entity_type"] == "large"].reset_index(drop=True)
+    animal = df[df["entity_type"] == "animal"].reset_index(drop=True)
+
+    n = min(len(drone), len(animal))
+    if n == 0:
+        raise ValueError(f"No matched drone/animal rows found in {csv_path}")
+
+    drone = drone.iloc[:n].copy()
+    animal = animal.iloc[:n].copy()
+
+    for col in ["x", "y", "z"]:
+        drone[col] = pd.to_numeric(drone[col], errors="coerce")
+        animal[col] = pd.to_numeric(animal[col], errors="coerce")
+
+    dx = drone["x"].to_numpy(dtype=float) - animal["x"].to_numpy(dtype=float)
+    dy = drone["y"].to_numpy(dtype=float) - animal["y"].to_numpy(dtype=float)
+    z = drone["z"].to_numpy(dtype=float)
+
+    candidate_cols = ["mean_disturbance", "p_disturbance", "disturbance"]
+
+    disturbance = None
+    chosen_col = None
+
+    for candidate in candidate_cols:
+        if candidate not in df.columns:
+            continue
+
+        vals = pd.to_numeric(drone[candidate], errors="coerce").to_numpy(dtype=float)
+        if np.isfinite(vals).sum() > 0:
+            disturbance = vals
+            chosen_col = candidate
+            break
+
+    if disturbance is None:
+        raise ValueError(
+            f"No usable disturbance column found in {csv_path}. "
+            f"Tried {candidate_cols}, but all were missing or non-finite on drone rows."
+        )
 
     mask = (
-        np.isfinite(x) &
-        np.isfinite(y) &
+        np.isfinite(dx) &
+        np.isfinite(dy) &
         np.isfinite(z) &
-        np.isfinite(p_disturbance)
+        np.isfinite(disturbance)
     )
 
-    x = x[mask]
-    y = y[mask]
+    dx = dx[mask]
+    dy = dy[mask]
     z = z[mask]
-    p_disturbance = p_disturbance[mask]
+    disturbance = disturbance[mask]
 
-    r = np.sqrt(x**2 + y**2)
-    return r, z, p_disturbance
+    if len(z) == 0:
+        raise ValueError(
+            f"All rows were filtered out in {csv_path}. "
+            f"Chosen disturbance column: {chosen_col}"
+        )
 
+    r = np.sqrt(dx**2 + dy**2)
+
+    return r, z, disturbance
 
 def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
-    r_max = np.max(r_vals) if len(r_vals) else 1.0
-    z_max = np.max(z_vals) if len(z_vals) else 1.0
+    if len(r_vals) == 0 or len(z_vals) == 0 or len(disturbance_vals) == 0:
+        raise ValueError("No valid disturbance samples to plot.")
+    
+    r_max = np.max(r_vals)
+    z_max = np.max(z_vals)
 
     if r_max <= 0:
         r_max = 1.0
