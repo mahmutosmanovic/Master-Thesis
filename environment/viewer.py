@@ -186,7 +186,7 @@ class Viewer:
         visible = np.zeros(len(animals), dtype=bool)
 
         if fov is not None and len(animals) > 0:
-            animal_obs = fov[:, 4:].reshape(
+            animal_obs = fov[:, 4:4+ len(animals) * self.config.model.space.animal_features].reshape(
                 len(drones),
                 len(animals),
                 self.config.model.space.animal_features

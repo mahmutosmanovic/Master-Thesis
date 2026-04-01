@@ -90,14 +90,18 @@ class CentroidStandoff:
 
             # --- split observation ---
             drone_features = obs_d[:self.config.model.space.drone_features]
-            animal_obs = obs_d[self.config.model.space.drone_features:].reshape(self.config.animal.env.count, self.config.model.space.animal_features)
+            d_feats = self.config.model.space.drone_features
+            a_feats = self.config.model.space.animal_features
+            n_a = self.config.animal.env.count
+            animal_obs = obs_d[d_feats:d_feats + n_a*a_feats].reshape(n_a, a_feats)
 
             view_dir = drone_features[:3]
             altitude_norm = drone_features[3]
             current_altitude = altitude_norm * (max_altitude + 1e-8)
 
             in_view = animal_obs[:, 0] > 0.5
-            visible_idx = np.where(in_view)[0]
+            is_target = animal_obs[:, 7] > 0.5
+            visible_idx = np.where(is_target)[0]
 
             x, y, z = self._camera_basis_from_view_dir(view_dir)
 
