@@ -65,7 +65,7 @@ class Env:
 
         self.out_of_view_steps = 0
 
-        self.reward_scale = 1/np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
+        self.reward_shift = 1 - np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
@@ -192,7 +192,7 @@ class Env:
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
 
-        self.reward_scale = 1/np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
+        self.reward_shift = 1 - np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
         info = {}
         return observations, info
@@ -505,7 +505,7 @@ class Env:
             altitude = drone.pos.to_numpy()[2]
             altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
-            drone_features = [x[0], x[1], x[2], altitude_norm]
+            drone_features = [x[0], x[1], x[2], altitude_norm, self.D_R_scale]
 
             y = np.cross(world_z, x)
             y = y / (np.linalg.norm(y) + 1e-8)
@@ -722,7 +722,7 @@ class Env:
                 r_align += np.mean(align_term ** ALIGN_EXP)
             else:
                 r_dist += -1.0
-                
+
             p_vel += (
                 (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8))
                 * self.config.p_vel_scale
@@ -747,7 +747,7 @@ class Env:
             dtype=np.float32
         )
         disturbance_penalty = np.mean(animal_disturbances)
-        disturbance_reward_tradeoff = ((self.D_R_scale) * (1 - disturbance_penalty) + (1 - self.D_R_scale) * r_dist) * self.reward_scale
+        disturbance_reward_tradeoff = ((self.D_R_scale) * (1 - disturbance_penalty) + (1 - self.D_R_scale) * r_dist) + self.reward_shift
 
         r_bucket = self._bucket_balance_score()
 

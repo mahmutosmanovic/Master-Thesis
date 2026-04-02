@@ -22,6 +22,7 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+from collections import deque
 load_dotenv()
 
 project_root = Path(__file__).resolve().parents[1]
@@ -260,9 +261,9 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     config = Box(config)
 
     if args.schedule_spawn:
-        from collections import deque
         srs = spawn_radius_schedule(50, 200, 100)
-        rewards = deque(maxlen=50)
+
+    rewards = deque(maxlen=20)
 
     env = Env(config)
     agent = _init_agent(config, agent_type, device)
@@ -284,6 +285,10 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     # milestone checkpoints: save only once when threshold is first reached
     milestone_thresholds = []
     milestone_saved = {thr: False for thr in milestone_thresholds}
+
+    if args.save_every is not None:
+        save_steps = list(np.arange(0, config.model.sampling.total_timesteps, args.save_every) + args.save_every)
+        saved_steps = {stp: False for stp in save_steps}
 
     try:
         with tqdm(total=total_steps, desc="Training") as pbar:
@@ -324,15 +329,27 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             "rew_100": f"{episode_reward_norm:.2f}",
                             "mean_dist": f"{r_stats['p_disturbance']:.2f}",
                         })
+                        rewards.append(episode_reward_norm)
 
                         # save milestone checkpoints once
-                        for thr in milestone_thresholds:
-                            if (not milestone_saved[thr]) and (episode_reward_norm >= thr):
+                        if milestone_thresholds:
+                            thr = milestone_thresholds[0]
+                            if (not milestone_saved[thr]) and (np.mean(rewards) >= thr):
                                 tag = str(thr).replace(".", "p")
                                 agent.save_models(name=f"reward_{tag}")
                                 milestone_saved[thr] = True
                                 save_count += 1
+                                milestone_thresholds.pop(0)
                                 print(f"[INFO] Saved milestone checkpoint at reward >= {thr:.1f}")
+                        
+                        if save_steps:
+                            step = save_steps[0]
+                            if (not saved_steps[step]) and curr_steps >= step:
+                                agent.save_models(name=f"step_{step}")
+                                saved_steps[step] = True
+                                save_count += 1
+                                save_steps.pop(0)
+                                print(f"[INFO] Saved checkpoint at step >= {step:.1f}")
 
                         # save best as usual, after some fraction of training
                         if (
@@ -344,9 +361,11 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             save_count += 1
 
                         if args.schedule_spawn:
-                            rewards.append(episode_reward_norm)
                             if srs.check_cooldown() and np.mean(rewards) >= 1.0: # needs tuning
                                 env.spawn_radius = srs.step(env.spawn_radius)
+                        
+                        if args.randomize_dr_scale:
+                            env.D_R_scale = env.env_rng.uniform(0.22, 1)
 
                         episode_reward = 0.0
                         obs, info = env.reset()
@@ -378,6 +397,8 @@ def _init_argparse():
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--schedule_spawn", action="store_true", help="Enable animal spawn radius scheduling")
+    parser.add_argument("--randomize_dr_scale", action="store_true", help="Enable reward tradeoff randomization")
+    parser.add_argument("--save_every", type=int, default=None, help="Random seed")
     return parser.parse_args()
 
 

@@ -11,7 +11,7 @@ model:
 
   space:
     n_actions: 5
-    drone_features: 4
+    drone_features: 5
     animal_features: 8
     other_drone_features: 0
     action_type: rel   # [rel, abs]
@@ -27,7 +27,7 @@ model:
     entropy_end_coef: 0.002
 
   sampling:
-    total_timesteps: 1_000_000
+    total_timesteps: 2_000_000
     rollout_steps: 2048
     mini_batch_size: 256
     n_epochs: 10

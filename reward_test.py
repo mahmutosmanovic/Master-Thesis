@@ -189,7 +189,7 @@ def evaluate_grids( X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s)
     if base_max <= 1e-12:
         T_final = np.zeros_like(T_raw)
     else:
-        T_final = T_raw / base_max
+        T_final = T_raw + 1 - base_max
 
     return P, U, T_raw, T_final, base_max, x_base_star, z_base_star
 

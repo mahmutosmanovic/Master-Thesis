@@ -79,9 +79,12 @@ SUMMARY_APPEND_FIELDS = [
     "reward",
     "r_monitoring",
     "p_disturbance",
+    "r_dist",
 ]
 
-def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None):
+def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
+    if randomize_dr_scale:
+        env.D_R_scale = env.env_rng.uniform(0.22, 1)
     obs, info = env.reset(seed=seed)
 
     terminated = False
@@ -109,6 +112,7 @@ def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline
         "episode": getattr(env, "episode", 1),
         "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
         "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
+        "r_dist": float(reward_stats.get("r_dist", np.nan)),
     }
 
 def evaluate_checkpoint_prefix_episodes(
@@ -119,6 +123,7 @@ def evaluate_checkpoint_prefix_episodes(
     checkpoint_prefix,
     seeds,
     append_summary_csv,
+    randomize_dr_scale=False
 ):
     weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
 
@@ -154,6 +159,7 @@ def evaluate_checkpoint_prefix_episodes(
                         seed=seed,
                         agent=agent,
                         agent_type=agent_type,
+                        randomize_dr_scale=randomize_dr_scale
                     )
 
                     out_row = {
@@ -330,7 +336,9 @@ def choose_action(agent, obs, agent_type):
         raise ValueError(agent_type)
 
 
-def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None):
+def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
+    if randomize_dr_scale:
+        env.D_R_scale = env.env_rng.uniform(0.22, 1)
     obs, info = env.reset(seed=seed)
 
     terminated = False
@@ -354,11 +362,13 @@ def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, s
     return ep_reward / config.max_episode_steps
 
 
-def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None):
+def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, randomize_dr_scale=False):
     """
     Run up to n inference steps, stopping early if terminated/truncated.
     Returns one summary row per executed step.
     """
+    if randomize_dr_scale:
+        env.D_R_scale = env.env_rng.uniform(0.22, 1)
     obs, info = env.reset(seed=seed)
 
     terminated = False
@@ -385,6 +395,7 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None):
             "reward": float(reward),
             "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
             "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
+            "r_dist": float(reward_stats.get("p_disturbance", np.nan)),
         })
 
     return rows
@@ -411,6 +422,7 @@ def evaluate_checkpoint_prefix_steps(
     num_steps,
     seeds,
     append_summary_csv,
+    randomize_dr_scale=False
 ):
     weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
 
@@ -444,6 +456,7 @@ def evaluate_checkpoint_prefix_steps(
                         n_steps=num_steps,
                         agent=agent,
                         agent_type=agent_type,
+                        randomize_dr_scale=randomize_dr_scale,
                     )
 
                     for row in step_rows:
@@ -473,7 +486,7 @@ def evaluate_checkpoint_prefix_steps(
     }
 
 
-def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None):
+def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None, randomize_dr_scale=False):
     total = len(seeds) if baseline is None else 2 * len(seeds)
 
     rl_rewards = []
@@ -706,6 +719,12 @@ def _init_argparse():
         help="In checkpoint sweep mode, evaluate full episodes and append one row per episode",
     )
 
+    parser.add_argument(
+        "--randomize_dr_scale",
+        action="store_true",
+        help="Enable reward tradeoff randomization"
+    )
+
     return parser.parse_args()
 
 
@@ -746,6 +765,7 @@ def main():
                 checkpoint_prefix=args.checkpoint_prefix,
                 seeds=seeds,
                 append_summary_csv=args.append_summary_csv,
+                randomize_dr_scale=args.randomize_dr_scale 
             )
 
             print("\n=== CHECKPOINT EPISODE SWEEP DONE ===")
@@ -769,6 +789,7 @@ def main():
             num_steps=args.num_steps,
             seeds=seeds,
             append_summary_csv=args.append_summary_csv,
+            randomize_dr_scale=args.randomize_dr_scale 
         )
 
         print("\n=== CHECKPOINT STEP SWEEP DONE ===")
@@ -806,6 +827,7 @@ def main():
         agent_type=agent_type,
         baseline=baseline,
         log_dir=eval_dir,
+        randomize_dr_scale=args.randomize_dr_scale
     )
 
     print("\n=== RESULTS ===")
