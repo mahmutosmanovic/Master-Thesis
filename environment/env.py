@@ -2,7 +2,7 @@ import numpy as np
 from .vec import Vector
 from .viewer import Viewer
 from .entity import Drone, Animal
-from .disturbance import disturbance_gain, animal_axis_gain
+from .disturbance import disturbance_gain, analytic_upper_bound
 from .resource_map import ResourceMap
 from .immutables import MovementDim
 from .behaviors import CRW_CFG
@@ -13,7 +13,7 @@ class Env:
         self.set_seed(seed)
         self.render_mode = render_mode
         self.config = config
-        self.disturb_scale = config.disturbance_penalty_scale
+        self.D_R_scale = config.D_R_scale
         self.viewer = Viewer(config)
         self.resource_map = None
         self.lost_track_counter = 0
@@ -64,6 +64,8 @@ class Env:
         self.last_step_stats = {}
 
         self.out_of_view_steps = 0
+
+        self.reward_scale = 1/np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
@@ -189,6 +191,8 @@ class Env:
 
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
+
+        self.reward_scale = 1/np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
         info = {}
         return observations, info
@@ -346,10 +350,12 @@ class Env:
         if self._env_steps == 0:
             return None
 
+        n = max(self.animal_count * self._env_steps, 1)
+
         return {
-            "calm_frac": self.state_counts["calm"] / self._env_steps,
-            "avoid_frac": self.state_counts["avoid"] / self._env_steps,
-            "flee_frac": self.state_counts["flee"] / self._env_steps,
+            "calm_frac": self.state_counts["calm"] / n,
+            "avoid_frac": self.state_counts["avoid"] / n,
+            "flee_frac": self.state_counts["flee"] / n,
         }
 
     def get_reward_stats(self):
@@ -666,12 +672,10 @@ class Env:
         r_vis = 0.0
         r_dist = 0.0
         r_align = 0.0
-        r_cover = 0.0
 
         visible_target = np.array([0.0]*self.drone_count)
 
         ALIGN_DEADZONE = 0.05
-        DIST_EXP = 1.0
         ALIGN_EXP = 1.0
 
         p_vel = 0.0
@@ -704,42 +708,21 @@ class Env:
             if np.any(is_target):
                 visible_target[d] = 1.0
 
-                target_dist = 0.45
-                dist_err = np.abs(dist[is_target] - target_dist) / target_dist
-                dist_term_vis = np.clip(1.0 - dist_err, 0.0, 1.0)
-                r_dist += np.mean(dist_term_vis ** DIST_EXP)
+                # distance shaping
+                dist_term = -dist[is_target]
+                r_dist += np.mean(dist_term)
 
+                # alignment with dead-zone
                 v_vis = np.maximum(0.0, v[is_target] - ALIGN_DEADZONE)
                 h_vis = np.maximum(0.0, h[is_target] - ALIGN_DEADZONE)
 
-                align_term_vis = 1.0 - 0.5 * (v_vis + h_vis)
-                align_term_vis = np.clip(align_term_vis, 0.0, 1.0)
-                r_align += np.mean(align_term_vis ** ALIGN_EXP)
+                align_term = 1.0 - 0.5 * (v_vis + h_vis)
+                align_term = np.clip(align_term, 0.0, 1.0)
 
-                cover_terms = []
-                visible_indices = np.where(is_target)[0]
-
-                drone_pos = np.asarray(self.drones[d].pos.to_numpy(), dtype=np.float32)
-
-                for local_idx, a_idx in enumerate(visible_indices):
-                    animal_pos = np.asarray(self.animals[a_idx].pos.to_numpy(), dtype=np.float32)
-                    animal_vel_dir = np.asarray(self.animals[a_idx].vel_dir.to_numpy(), dtype=np.float32)
-
-                    world_dist_vec = drone_pos - animal_pos
-
-                    # side-on high, front/back low
-                    cover_raw = 1.0 - animal_axis_gain(world_dist_vec, animal_vel_dir)
-
-                    dist_q = float(dist_term_vis[local_idx] ** DIST_EXP)
-                    align_q = float(align_term_vis[local_idx] ** ALIGN_EXP)
-
-                    # only reward coverage when observation quality is already decent
-                    cover_term = cover_raw * np.sqrt(dist_q * align_q)
-                    cover_terms.append(cover_term)
-
-                if len(cover_terms) > 0:
-                    r_cover += float(np.mean(cover_terms))
-
+                r_align += np.mean(align_term ** ALIGN_EXP)
+            else:
+                r_dist += -1.0
+                
             p_vel += (
                 (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8))
                 * self.config.p_vel_scale
@@ -755,7 +738,6 @@ class Env:
         r_vis /= self.drone_count
         r_dist /= self.drone_count
         r_align /= self.drone_count
-        r_cover /= self.drone_count
         p_vel /= self.drone_count
         p_theta /= self.drone_count
         p_dir_change /= self.drone_count
@@ -764,31 +746,26 @@ class Env:
             [animal.disturbance for animal in self.animals],
             dtype=np.float32
         )
-        disturbance_penalty = float(np.mean(animal_disturbances)) * self.disturb_scale
+        disturbance_penalty = np.mean(animal_disturbances)
+        disturbance_reward_tradeoff = ((self.D_R_scale) * (1 - disturbance_penalty) + (1 - self.D_R_scale) * r_dist) * self.reward_scale
 
         r_bucket = self._bucket_balance_score()
 
-        frac_visible = visible_target.sum() / self.drone_count
+        # frac_visible = visible_target.sum() / self.drone_count
         # bonus scaling by number of drones that lost their target
-        visible_bonus = frac_visible * 0.05
+        # visible_bonus = frac_visible * 0.05
 
         monitor_reward = (
-            0.85 * r_dist +
-            0.85 * r_align +
-            0.65 * r_cover +
-            visible_bonus
+            0.9 * disturbance_reward_tradeoff +
+            0.1 * r_align
         )
 
         final_reward = (
             monitor_reward
-            - disturbance_penalty
             - p_vel
             - p_theta
             - p_dir_change
         )
-
-        # penalty scaling by number of drones that lost their target
-        final_reward -= (1.0 - frac_visible) * float(self.config.not_visible_penalty)
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += disturbance_penalty
@@ -814,7 +791,6 @@ class Env:
                 "r_vis": float(r_vis),
                 "r_dist": float(r_dist),
                 "r_align": float(r_align),
-                "r_cover": float(r_cover),
             }
 
         return float(final_reward), monitor_reward, disturbance_penalty
@@ -855,9 +831,7 @@ class Env:
 
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
-
         self._update_view_buckets(observations)
-        observations = self._build_observations(geometry)
 
         reward, monitor_r, disturbance_p = self.compute_reward(observations, actions)
 

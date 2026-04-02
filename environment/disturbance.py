@@ -12,20 +12,77 @@ def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
     return new_cmap
 
 def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
-    g_h = horizontal_gain_sigmoid(dist_vec)
-    g_v = altitude_gain_sigmoid(dist_vec)
+    dx, dy, dz = dist_vec
+    radial_distance = np.sqrt(dx * dx + dy * dy)
+    z_abs = abs(dz)
 
-    g_a = 1.0 - angle_gain(dist_vec)
-    g_he = 1.0 - heading_gain(dist_vec, drone_vel_dir)
+    s0 = (
+        radial_distance / max(config.XY_scale, 1e-9) +
+        z_abs / max(config.Z_scale, 1e-9)
+    )
 
-    angle_re = g_a * config.max_angle_activation
-    heading_re = g_he * config.max_heading_activation
+    # Geometry should matter mainly nearby and fade with distance
+    gate = np.exp(-s0)
 
-    base = g_h * g_v
-    geom_amp = angle_re + heading_re
+    angle_bad = angle_gain(dist_vec)
+    heading_bad = heading_gain(dist_vec, drone_vel_dir)
+    axis_bad = animal_axis_gain(dist_vec, animal_vel_dir)
 
-    D = base * (1.0 + 0.5 * geom_amp)
-    return float(np.clip(D, 0.0, 1.0))
+    angle_eff = angle_bad * gate
+    heading_eff = heading_bad * gate
+    axis_eff = axis_bad * gate
+
+    # Axis pushes preferred stand-off outward
+    s = (
+        (radial_distance / max(config.XY_scale, 1e-9)) * (1.0 + config.w_axis * axis_eff) +
+        z_abs / max(config.Z_scale, 1e-9)
+    )
+    utility_base = 1.0 - np.exp(-s)
+
+    g_an = np.clip(1.0 - config.w_angle * angle_eff, 0.0, 1.0)
+    g_he = np.clip(1.0 - config.w_heading * heading_eff, 0.0, 1.0)
+    g_ax = np.clip(1.0 - config.w_axis * axis_eff, 0.0, 1.0)
+
+    utility = utility_base * g_an * g_he * g_ax
+    disturbance = 1.0 - np.clip(utility, 0.0, 1.0)
+    return float(disturbance)
+
+# Analytic base-only maximum (radial + z only)
+def analytic_upper_bound(XY_scale, Z_scale, r_scale, D_R_scale, eps=1e-12):
+    """
+    Base-only reward:
+        R_base(x,z) = (1-D_R_scale) * (-sqrt(x^2+z^2) / r_scale) + D_R_scale * (1 - exp(-(x/XY_scale + z/Z_scale)))
+
+    over x,z >= 0.
+
+    Returns:
+        base_max, x_star, z_star
+    """
+    if D_R_scale <= eps:
+        return 0.0, 0.0, 0.0
+
+    if (1.0 - D_R_scale) <= eps:
+        # Supremum is 1 at infinity
+        return 1.0, np.inf, np.inf
+
+    S = np.sqrt(XY_scale * XY_scale + Z_scale * Z_scale)
+
+    log_arg = D_R_scale * r_scale * S / max((1.0 - D_R_scale) * XY_scale * Z_scale, eps)
+
+    if log_arg <= 1.0:
+        return 0.0, 0.0, 0.0
+
+    lam = (XY_scale * Z_scale / (XY_scale * XY_scale + Z_scale * Z_scale)) * np.log(log_arg)
+
+    x_star = lam * Z_scale
+    z_star = lam * XY_scale
+
+    d = lam * S
+    expo = lam * (XY_scale * XY_scale + Z_scale * Z_scale) / (XY_scale * Z_scale)
+
+    base_max = (1.0 - D_R_scale) * (-d / r_scale) + D_R_scale * (1.0 - np.exp(-expo))
+
+    return float(base_max), float(x_star), float(z_star)
 
 def sigmoid_disturbance(x, midpoint, sharpness):
     x = np.asarray(x, dtype=float)
@@ -75,7 +132,7 @@ def heading_gain(dist_vec, drone_vel_dir):
     cos_theta = np.dot(v, d) / (v_norm * d_norm)
     cos_theta = np.clip(cos_theta, -1.0, 1.0)
 
-    return 1 - max(0.0, cos_theta)
+    return max(0.0, -cos_theta)
 
 def animal_axis_gain(dist_vec, animal_vel_dir):
     d = dist_vec
