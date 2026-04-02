@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-configs=("CRW" "EE" "POI" "LPOI")
+configs=("CRW_MAPPO_ds100" "CRW_MAPPO_ds200" "CRW_MAPPO_ds400" "CRW_MAPPO_ds800")
 max_jobs=1
 
 mkdir -p table
@@ -27,10 +27,7 @@ do
 
     eval_name=$(python -m scripts.eval_models \
         --run "$run_name" \
-        --baseline centroid \
         --num-episodes 30 \
-        --plot-rewards \
-        --plot-heatmaps \
         --start-seed 42 | tee /dev/tty | grep "EVAL_DIR::" | cut -d':' -f3)
 
     echo "Finished config: $cfg"

@@ -34,7 +34,7 @@ model:
 
 drone:
   large:
-    count: 3
+    count: 4
     disturbance_mult: 1.0
     hor_angle: 140
     ver_angle: 90
@@ -49,7 +49,7 @@ drone:
 # Animal configuration
 animal:
   env:
-    count: 3
+    count: 4
 
   init:
     min_speed: 0

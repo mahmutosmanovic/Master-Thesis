@@ -34,7 +34,7 @@ model:
 
 drone:
   large:
-    count: 3
+    count: 4
     disturbance_mult: 1.0
     hor_angle: 140
     ver_angle: 90
@@ -49,14 +49,14 @@ drone:
 # Animal configuration
 animal:
   env:
-    count: 3
+    count: 4
 
   init:
     min_speed: 0
     max_speed: 12
     behavior: CRW_CFG
     movement_dim: TWO_D
-    max_spawn_radius: 200
+    max_spawn_radius: 800
 
 # Disturbance model
 max_angle_activation: 0.2
