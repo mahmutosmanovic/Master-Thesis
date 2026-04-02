@@ -42,43 +42,72 @@ def animal_axis_gain_xz_grid(X, animal_vel_dir):
     if a_norm < 1e-8:
         return np.zeros_like(X, dtype=float)
 
-    # dist horizontal direction is (sign(X), 0) whenever X != 0
-    # abs(dot((±1,0), a_xy/a_norm)) = |a_x| / ||a_xy||
     const_val = abs(a_xy[0]) / a_norm
-
     G = np.full_like(X, const_val, dtype=float)
     G[np.abs(X) < 1e-12] = 0.0
     return G
 
-# Monitoring penalty and low-disturbance utility (vectorized)
+# Monitoring penalty and low-disturbance utility
 def monitoring_penalty_grid(X, Z, r_f):
     d = np.sqrt(X * X + Z * Z)
     return -d / max(r_f, 1e-9)
 
-def low_disturbance_base_utility_grid(X, Z, R, Z_scale):
-    radial_distance = np.abs(X)
+def low_disturbance_utility_grid(X,Z,animal_vel_dir,R,Z_scale,w_angle,w_axis):
+    """
+    Recommended formulation:
+
+      s0 = r/R + |z|/Z
+      g  = exp(-s0)
+
+      angle_eff = angle_bad * g
+      axis_eff  = axis_bad  * g
+
+      s = (r/R) * (1 + w_axis * axis_eff) + |z|/Z
+
+      U_base = 1 - exp(-s)
+
+      U = U_base * (1 - w_angle * angle_eff) * (1 - w_axis * axis_eff)
+
+    Properties:
+      - angle/axis effects decay with distance
+      - axis both lowers reward and pushes optimum outward
+      - utility stays in [0, 1]
+    """
+    radial_distance = np.abs(X)   # x-z slice => horizontal distance is |x|
     z_distance = np.abs(Z)
-
-    s_base = (
-        radial_distance / max(R, 1e-9) +
-        z_distance / max(Z_scale, 1e-9)
-    )
-    return 1.0 - np.exp(-s_base)
-
-def low_disturbance_utility_grid(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis):
-    U_base = low_disturbance_base_utility_grid(X, Z, R, Z_scale)
 
     angle_bad = angle_gain_grid(X, Z)
     axis_bad = animal_axis_gain_xz_grid(X, animal_vel_dir)
 
-    f_angle = np.clip(1.0 - w_angle * angle_bad, 0.0, 1.0)
-    f_axis = np.clip(1.0 - w_axis * axis_bad, 0.0, 1.0)
+    # Base distance score
+    s0 = (
+        radial_distance / max(R, 1e-9) +
+        z_distance / max(Z_scale, 1e-9)
+    )
 
-    geom_scale = f_angle * f_axis
-    return U_base * geom_scale
+    # Distance gate: geometry matters nearby, fades far away
+    g = np.exp(-s0)
 
-def total_reward_raw_grid(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
-    Pm = monitoring_penalty_grid(X, Z, r_f=r_f)
+    angle_eff = angle_bad * g
+    axis_eff = axis_bad * g
+
+    # Axis pushes preferred stand-off outward
+    s = (
+        (radial_distance / max(R, 1e-9)) * (1.0 + w_axis * axis_eff) +
+        z_distance / max(Z_scale, 1e-9)
+    )
+
+    U_base = 1.0 - np.exp(-s)
+
+    # Geometry also reduces amplitude
+    f_angle = np.clip(1.0 - w_angle * angle_eff, 0.0, 1.0)
+    f_axis = np.clip(1.0 - w_axis * axis_eff, 0.0, 1.0)
+
+    U = U_base * f_angle * f_axis
+    return np.clip(U, 0.0, 1.0)
+
+def total_reward_raw_grid( X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
+    P = monitoring_penalty_grid(X, Z, r_f=r_f)
     U = low_disturbance_utility_grid(
         X=X,
         Z=Z,
@@ -88,7 +117,7 @@ def total_reward_raw_grid(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f
         w_angle=w_angle,
         w_axis=w_axis,
     )
-    return (1.0 - d_s) * Pm + d_s * U
+    return (1.0 - d_s) * P + d_s * U
 
 # Analytic base-only maximum (radial + z only)
 def analytic_base_case_max(R, Z_scale, r_f, d_s, eps=1e-12):
@@ -108,7 +137,6 @@ def analytic_base_case_max(R, Z_scale, r_f, d_s, eps=1e-12):
         return 0.0, 0.0, 0.0
 
     if (1.0 - d_s) <= eps:
-        # Supremum is 1 at infinity
         return 1.0, np.inf, np.inf
 
     S = np.sqrt(R * R + Z_scale * Z_scale)
@@ -136,7 +164,8 @@ def analytic_base_case_max(R, Z_scale, r_f, d_s, eps=1e-12):
 
     return float(base_max), float(x_star), float(z_star)
 
-def evaluate_grids(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
+
+def evaluate_grids( X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
     P = monitoring_penalty_grid(X, Z, r_f=r_f)
     U = low_disturbance_utility_grid(
         X=X,
@@ -149,8 +178,12 @@ def evaluate_grids(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
     )
     T_raw = (1.0 - d_s) * P + d_s * U
 
+    # Base max still computed ONLY from radial + vertical terms
     base_max, x_base_star, z_base_star = analytic_base_case_max(
-        R=R, Z_scale=Z_scale, r_f=r_f, d_s=d_s
+        R=R,
+        Z_scale=Z_scale,
+        r_f=r_f,
+        d_s=d_s,
     )
 
     if base_max <= 1e-12:
@@ -160,18 +193,21 @@ def evaluate_grids(X, Z, animal_vel_dir, R, Z_scale, w_angle, w_axis, r_f, d_s):
 
     return P, U, T_raw, T_final, base_max, x_base_star, z_base_star
 
+
+# ------------------------------------------------------------
 # Main interactive plot
+# ------------------------------------------------------------
 def main():
     animal_vel_dir = np.array([1.0, 0.0, 0.0], dtype=float)
 
-    x = np.linspace(-250.0, 250.0, 180)
-    z = np.linspace(-180.0, 180.0, 180)
+    x = np.linspace(-200.0, 200.0, 180)
+    z = np.linspace(-200.0, 200.0, 180)
     X, Z = np.meshgrid(x, z)
 
     R0 = 100.0
     Z0 = 60.0
     angle0 = 0.5
-    axis0 = 0.5
+    axis0 = 0.7
     ds0 = 0.5
     rf0 = 200.0
 
@@ -253,8 +289,8 @@ def main():
 
     s_R = Slider(ax_R, "R", 10.0, 300.0, valinit=R0)
     s_Z = Slider(ax_Z, "Z", 10.0, 200.0, valinit=Z0)
-    s_angle = Slider(ax_angle, "angle", 0.0, 2.0, valinit=angle0)
-    s_axis = Slider(ax_axis, "axis", 0.0, 2.0, valinit=axis0)
+    s_angle = Slider(ax_angle, "angle", 0.0, 1.0, valinit=angle0)
+    s_axis = Slider(ax_axis, "axis", 0.0, 1.0, valinit=axis0)
     s_ds = Slider(ax_ds, "d_s", 0.0, 1.0, valinit=ds0)
 
     def update(_):
@@ -286,10 +322,7 @@ def main():
             p1.set_data([], [])
             p2.set_data([], [])
 
-        # Keep penalty dynamic
         im_p.set_clim(np.min(Pm), 0.0)
-
-        # Keep these capped at 1
         im_u.set_clim(0.0, 1.0)
         im_traw.set_clim(np.min(Traw), 1.0)
         im_tfinal.set_clim(np.min(Tfinal), 1.0)
@@ -300,6 +333,7 @@ def main():
         slider.on_changed(update)
 
     plt.show()
+
 
 if __name__ == "__main__":
     main()
