@@ -5,8 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environment import non_disturbance, angle_gain, truncate_colormap
-
+from environment import combined_non_disturbance, angle_gain, truncate_colormap
 
 def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cmap="Greys", title="Unspecified"):
     csv_path = Path(csv_path)
@@ -30,12 +29,9 @@ def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cma
         for j in range(R.shape[1]):
             dist_vec = (R[i, j], 0.0, Z[i, j])
 
-            g_rad = non_disturbance(R[i, j], dist_type="radial")
-            g_alt = non_disturbance(Z[i, j], dist_type="altitude")
+            cnd = combined_non_disturbance(R[i, j], Z[i, j])
             g_ang_bad = angle_gain(dist_vec)
-
-            nd_dist = 0.5 * (g_rad + g_alt)
-            G[i, j] = nd_dist * (1.0 - g_ang_bad)
+            G[i, j] = cnd * (1.0 - g_ang_bad)
 
     G = (G - G.min()) / (G.max() - G.min() + 1e-8)
 
