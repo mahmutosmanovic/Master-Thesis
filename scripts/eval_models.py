@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from box import Box
 from tqdm import tqdm
@@ -15,13 +16,11 @@ from model import PPOAgent, MAPPOAgent, SACAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
-import pandas as pd
 from .plots.policy_heatmap import (
     plot_policy_heatmap_from_csv,
     plot_xy_policy_heatmap_from_csv,
     plot_reward_heatmap_from_csv,
-    plot_disturbance_heatmap_from_csv,
-    plot_visitation_on_disturbance_background
+    plot_visitation_on_disturbance_background,
 )
 
 BASELINES = {
@@ -55,6 +54,12 @@ STEP_LOG_FIELDS = [
     "r_vis",
     "r_dist",
     "r_align",
+    "r_bucket",
+    "episode_progress",
+    "bucket_front",
+    "bucket_left",
+    "bucket_back",
+    "bucket_right",
 ]
 
 EPISODE_LOG_FIELDS = [
@@ -68,11 +73,14 @@ EPISODE_LOG_FIELDS = [
     "r_vis",
     "r_dist",
     "r_align",
+    "r_bucket",
+    "episode_progress",
 ]
 
 SUMMARY_APPEND_FIELDS = [
     "run_name",
     "checkpoint_name",
+    "train_step",
     "seed",
     "episode",
     "step",
@@ -82,109 +90,6 @@ SUMMARY_APPEND_FIELDS = [
     "r_dist",
 ]
 
-def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
-    if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
-    obs, info = env.reset(seed=seed)
-
-    terminated = False
-    truncated = False
-    ep_reward = 0.0
-
-    while not (terminated or truncated):
-        if agent is not None:
-            with torch.no_grad():
-                action = choose_action(agent, obs, agent_type)
-        else:
-            action = baseline.act(obs)
-
-        obs, reward, terminated, truncated, info = env.step(action)
-
-        if step_writer is not None:
-            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
-
-        ep_reward += float(reward)
-
-    behavior_stats = env.get_behavior_stats()
-    reward_stats = env.get_reward_stats()
-
-    return {
-        "episode": getattr(env, "episode", 1),
-        "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
-        "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
-        "r_dist": float(reward_stats.get("r_dist", np.nan)),
-    }
-
-def evaluate_checkpoint_prefix_episodes(
-    env,
-    config,
-    run_dir,
-    run_name,
-    checkpoint_prefix,
-    seeds,
-    append_summary_csv,
-    randomize_dr_scale=False
-):
-    weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
-
-    if not weight_files:
-        raise FileNotFoundError(
-            f"No actor checkpoints found in {run_dir} with prefix '{checkpoint_prefix}'. "
-            f"Expected files like {checkpoint_prefix}*.pt"
-        )
-
-    print(f"Found {len(weight_files)} matching actor checkpoints:")
-    for w in weight_files:
-        print(f"  - {w}")
-
-    total = len(weight_files) * len(seeds)
-
-    f, writer = init_append_logger(append_summary_csv, SUMMARY_APPEND_FIELDS)
-
-    try:
-        with tqdm(total=total, desc="Checkpoint episode sweep") as pbar:
-            for weight_file in weight_files:
-                agent, agent_type, train_step = init_agent_actor_only(
-                    config=config,
-                    run_dir=run_dir,
-                    actor_weight_file=weight_file,
-                )
-
-                env.reset_episode_id()
-
-                for seed in seeds:
-                    ep_row = run_episode_summary(
-                        env=env,
-                        config=config,
-                        seed=seed,
-                        agent=agent,
-                        agent_type=agent_type,
-                        randomize_dr_scale=randomize_dr_scale
-                    )
-
-                    out_row = {
-                        "run_name": run_name,
-                        "checkpoint_name": weight_file,
-                        "train_step": train_step,
-                        "seed": seed,
-                        **ep_row,
-                    }
-                    write_log_row(writer, out_row, SUMMARY_APPEND_FIELDS)
-
-                    f.flush()
-                    pbar.update(1)
-
-    finally:
-        f.close()
-
-    return {
-        "mode": "checkpoint_prefix_episodes",
-        "run_name": run_name,
-        "checkpoint_prefix": checkpoint_prefix,
-        "num_checkpoints": len(weight_files),
-        "num_episodes": len(seeds),
-        "summary_csv": str(append_summary_csv),
-    }
 
 def init_logger(path, fieldnames):
     path = Path(path)
@@ -220,9 +125,6 @@ def write_log_row(writer, row, fieldnames):
 
 
 def init_agent(config, run_dir, weight_type="last"):
-    """
-    Standard full-agent loading using the project's normal load_models(name=...).
-    """
     agent_type = config.agent_type
 
     if agent_type == "ppo":
@@ -265,13 +167,6 @@ def init_agent(config, run_dir, weight_type="last"):
 
 
 def init_agent_actor_only(config, run_dir, actor_weight_file):
-    """
-    Initialize agent and load actor weights only from a checkpoint file like:
-        sac_123456.pt
-
-    These files are expected to store a checkpoint dict containing
-    at least 'actor_state_dict', and optionally 'train_step'.
-    """
     agent_type = config.agent_type
 
     if agent_type == "ppo":
@@ -318,28 +213,35 @@ def choose_action(agent, obs, agent_type):
             actions.append(action)
         return np.array(actions, dtype=np.float32)
 
-    elif agent_type == "mappo":
+    if agent_type == "mappo":
         with torch.no_grad():
             actions, _, _ = agent.choose_actions(obs, deterministic=True)
         return np.asarray(actions, dtype=np.float32)
 
-    elif agent_type == "sac":
+    if agent_type == "sac":
         obs_arr = np.asarray(obs, dtype=np.float32)
         joint_obs = obs_arr.reshape(-1)
-
         joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
-
         env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
         return env_action
 
-    else:
-        raise ValueError(agent_type)
+    raise ValueError(agent_type)
 
 
-def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
-    if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
+def run_episode(
+    env,
+    config,
+    seed,
+    agent=None,
+    agent_type=None,
+    baseline=None,
+    step_writer=None,
+    randomize_dr_scale=False,
+):
     obs, info = env.reset(seed=seed)
+
+    if randomize_dr_scale and hasattr(env, "D_R_scale"):
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
 
     terminated = False
     truncated = False
@@ -362,14 +264,61 @@ def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, s
     return ep_reward / config.max_episode_steps
 
 
-def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, randomize_dr_scale=False):
-    """
-    Run up to n inference steps, stopping early if terminated/truncated.
-    Returns one summary row per executed step.
-    """
-    if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
+def run_episode_summary(
+    env,
+    config,
+    seed,
+    agent=None,
+    agent_type=None,
+    baseline=None,
+    step_writer=None,
+    randomize_dr_scale=False,
+):
     obs, info = env.reset(seed=seed)
+
+    if randomize_dr_scale and hasattr(env, "D_R_scale"):
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
+
+    terminated = False
+    truncated = False
+
+    while not (terminated or truncated):
+        if agent is not None:
+            with torch.no_grad():
+                action = choose_action(agent, obs, agent_type)
+        else:
+            action = baseline.act(obs)
+
+        obs, reward, terminated, truncated, info = env.step(action)
+
+        if step_writer is not None:
+            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+
+    reward_stats = env.get_reward_stats() or {}
+
+    return {
+        "episode": getattr(env, "episode", 1),
+        "step": getattr(env, "_env_steps", np.nan),
+        "reward": float(reward_stats.get("r_monitoring", np.nan)),
+        "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
+        "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
+        "r_dist": float(reward_stats.get("r_dist", np.nan)),
+    }
+
+
+def run_n_steps(
+    env,
+    seed,
+    n_steps,
+    agent=None,
+    agent_type=None,
+    baseline=None,
+    randomize_dr_scale=False,
+):
+    obs, info = env.reset(seed=seed)
+
+    if randomize_dr_scale and hasattr(env, "D_R_scale"):
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
 
     terminated = False
     truncated = False
@@ -386,8 +335,7 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, 
             action = baseline.act(obs)
 
         obs, reward, terminated, truncated, info = env.step(action)
-
-        reward_stats = env.get_reward_stats()
+        reward_stats = env.get_reward_stats() or {}
 
         rows.append({
             "episode": getattr(env, "episode", 1),
@@ -395,34 +343,27 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, 
             "reward": float(reward),
             "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
             "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
-            "r_dist": float(reward_stats.get("p_disturbance", np.nan)),
+            "r_dist": float(reward_stats.get("r_dist", np.nan)),
         })
 
     return rows
 
 
 def list_matching_actor_weight_files(run_dir, checkpoint_prefix):
-    """
-    Lists files directly in run_dir matching:
-        <checkpoint_prefix>*.pt
-    Example:
-        ppo_ppo_1064960k.pt
-    """
     run_dir = Path(run_dir)
     paths = sorted(run_dir.glob(f"{checkpoint_prefix}*.pt"))
     return [p.name for p in paths if p.is_file()]
 
 
-def evaluate_checkpoint_prefix_steps(
+def evaluate_checkpoint_prefix_episodes(
     env,
     config,
     run_dir,
     run_name,
     checkpoint_prefix,
-    num_steps,
     seeds,
     append_summary_csv,
-    randomize_dr_scale=False
+    randomize_dr_scale=False,
 ):
     weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
 
@@ -437,7 +378,77 @@ def evaluate_checkpoint_prefix_steps(
         print(f"  - {w}")
 
     total = len(weight_files) * len(seeds)
+    f, writer = init_append_logger(append_summary_csv, SUMMARY_APPEND_FIELDS)
 
+    try:
+        with tqdm(total=total, desc="Checkpoint episode sweep") as pbar:
+            for weight_file in weight_files:
+                agent, agent_type, train_step = init_agent_actor_only(
+                    config=config,
+                    run_dir=run_dir,
+                    actor_weight_file=weight_file,
+                )
+
+                env.reset_episode_id()
+
+                for seed in seeds:
+                    ep_row = run_episode_summary(
+                        env=env,
+                        config=config,
+                        seed=seed,
+                        agent=agent,
+                        agent_type=agent_type,
+                        randomize_dr_scale=randomize_dr_scale,
+                    )
+
+                    out_row = {
+                        "run_name": run_name,
+                        "checkpoint_name": weight_file,
+                        "train_step": train_step,
+                        "seed": seed,
+                        **ep_row,
+                    }
+                    write_log_row(writer, out_row, SUMMARY_APPEND_FIELDS)
+                    f.flush()
+                    pbar.update(1)
+
+    finally:
+        f.close()
+
+    return {
+        "mode": "checkpoint_prefix_episodes",
+        "run_name": run_name,
+        "checkpoint_prefix": checkpoint_prefix,
+        "num_checkpoints": len(weight_files),
+        "num_episodes": len(seeds),
+        "summary_csv": str(append_summary_csv),
+    }
+
+
+def evaluate_checkpoint_prefix_steps(
+    env,
+    config,
+    run_dir,
+    run_name,
+    checkpoint_prefix,
+    num_steps,
+    seeds,
+    append_summary_csv,
+    randomize_dr_scale=False,
+):
+    weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
+
+    if not weight_files:
+        raise FileNotFoundError(
+            f"No actor checkpoints found in {run_dir} with prefix '{checkpoint_prefix}'. "
+            f"Expected files like {checkpoint_prefix}*.pt"
+        )
+
+    print(f"Found {len(weight_files)} matching actor checkpoints:")
+    for w in weight_files:
+        print(f"  - {w}")
+
+    total = len(weight_files) * len(seeds)
     f, writer = init_append_logger(append_summary_csv, SUMMARY_APPEND_FIELDS)
 
     try:
@@ -493,7 +504,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
     base_rewards = []
 
     with tqdm(total=total, desc="Evaluation") as pbar:
-
         if baseline is not None:
             env.reset_episode_id()
             f, writer = init_logger(log_dir / f"{type(baseline).__name__}.csv", STEP_LOG_FIELDS)
@@ -510,11 +520,12 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                         seed=seed,
                         baseline=baseline,
                         step_writer=writer,
+                        randomize_dr_scale=randomize_dr_scale,
                     )
                     base_rewards.append(base_r)
 
-                    behavior_stats = env.get_behavior_stats()
-                    reward_stats = env.get_reward_stats()
+                    behavior_stats = env.get_behavior_stats() or {}
+                    reward_stats = env.get_reward_stats() or {}
 
                     ep_row = {
                         "episode": env.episode,
@@ -523,7 +534,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                         **reward_stats,
                     }
                     write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
-
                     pbar.update(1)
             finally:
                 f.close()
@@ -543,11 +553,12 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                     agent=agent,
                     agent_type=agent_type,
                     step_writer=writer,
+                    randomize_dr_scale=randomize_dr_scale,
                 )
                 rl_rewards.append(rl_r)
 
-                behavior_stats = env.get_behavior_stats()
-                reward_stats = env.get_reward_stats()
+                behavior_stats = env.get_behavior_stats() or {}
+                reward_stats = env.get_reward_stats() or {}
 
                 ep_row = {
                     "episode": env.episode,
@@ -556,7 +567,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                     **reward_stats,
                 }
                 write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
-
                 pbar.update(1)
         finally:
             f.close()
@@ -646,83 +656,35 @@ def plot_results(base_rewards, rl_rewards):
 def _init_argparse():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "--run",
-        type=str,
-        required=True,
-        help="Run folder name or 'latest'",
-    )
-
-    parser.add_argument(
-        "--baseline",
-        type=str,
-        choices=list(BASELINES.keys()),
-        default=None,
-        help="Baseline policy",
-    )
-
-    parser.add_argument(
-        "--num-episodes",
-        type=int,
-        default=100,
-    )
-
-    parser.add_argument(
-        "--start-seed",
-        type=int,
-        default=0,
-    )
-
-    parser.add_argument(
-        "--weights",
-        type=str,
-        default="best",
-        help="best or latest weights",
-    )
-
-    parser.add_argument(
-        "--plot-rewards",
-        action="store_true",
-        help="Create reward distribution plot after evaluation",
-    )
-
-    parser.add_argument(
-        "--plot-heatmaps",
-        action="store_true",
-        help="Create policy heatmaps from generated step logs",
-    )
-
+    parser.add_argument("--run", type=str, required=True, help="Run folder name or 'latest'")
+    parser.add_argument("--baseline", type=str, choices=list(BASELINES.keys()), default=None, help="Baseline policy")
+    parser.add_argument("--num-episodes", type=int, default=100)
+    parser.add_argument("--start-seed", type=int, default=0)
+    parser.add_argument("--weights", type=str, default="best", help="best or latest weights")
+    parser.add_argument("--plot-rewards", action="store_true", help="Create reward distribution plot after evaluation")
+    parser.add_argument("--plot-heatmaps", action="store_true", help="Create policy heatmaps from generated step logs")
     parser.add_argument(
         "--checkpoint-prefix",
         type=str,
         default=None,
         help="Evaluate all actor checkpoint files matching this prefix, e.g. ppo_ppo_",
     )
-
-    parser.add_argument(
-        "--num-steps",
-        type=int,
-        default=3,
-        help="Number of inference steps per checkpoint in checkpoint sweep mode",
-    )
-
+    parser.add_argument("--num-steps", type=int, default=3, help="Number of inference steps per checkpoint in checkpoint sweep mode")
     parser.add_argument(
         "--append-summary-csv",
         type=str,
         default=None,
         help="Single CSV file to append summary rows to in checkpoint sweep mode",
     )
-
     parser.add_argument(
         "--checkpoint-episodes",
         action="store_true",
         help="In checkpoint sweep mode, evaluate full episodes and append one row per episode",
     )
-
     parser.add_argument(
         "--randomize_dr_scale",
         action="store_true",
-        help="Enable reward tradeoff randomization"
+        help="Enable reward tradeoff randomization",
     )
 
     return parser.parse_args()
@@ -743,9 +705,7 @@ def main():
 
     if args.checkpoint_prefix is not None:
         if args.append_summary_csv is None:
-            raise ValueError(
-                "--append-summary-csv is required when using --checkpoint-prefix"
-            )
+            raise ValueError("--append-summary-csv is required when using --checkpoint-prefix")
 
         seeds = [args.start_seed + i for i in range(args.num_episodes)]
 
@@ -765,7 +725,7 @@ def main():
                 checkpoint_prefix=args.checkpoint_prefix,
                 seeds=seeds,
                 append_summary_csv=args.append_summary_csv,
-                randomize_dr_scale=args.randomize_dr_scale 
+                randomize_dr_scale=args.randomize_dr_scale,
             )
 
             print("\n=== CHECKPOINT EPISODE SWEEP DONE ===")
@@ -789,7 +749,7 @@ def main():
             num_steps=args.num_steps,
             seeds=seeds,
             append_summary_csv=args.append_summary_csv,
-            randomize_dr_scale=args.randomize_dr_scale 
+            randomize_dr_scale=args.randomize_dr_scale,
         )
 
         print("\n=== CHECKPOINT STEP SWEEP DONE ===")
@@ -803,7 +763,6 @@ def main():
         return
 
     agent, agent_type = init_agent(config, run_dir, args.weights)
-
     print(f"Detected RL algorithm: {agent_type}")
 
     baseline = None
@@ -827,7 +786,7 @@ def main():
         agent_type=agent_type,
         baseline=baseline,
         log_dir=eval_dir,
-        randomize_dr_scale=args.randomize_dr_scale
+        randomize_dr_scale=args.randomize_dr_scale,
     )
 
     print("\n=== RESULTS ===")
@@ -849,29 +808,50 @@ def main():
     if args.plot_heatmaps:
         rl_csv = eval_dir / f"{agent_type}.csv"
         df = pd.read_csv(rl_csv)
-        reward_min = df['reward'].min()
-        reward_max = df['reward'].max()
-        vmin = reward_min
-        vmax = reward_max
+        reward_min = df["reward"].min()
+        reward_max = df["reward"].max()
 
         _ = plot_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        # _ = plot_disturbance_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
         _ = plot_xy_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        _ = plot_reward_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", vmin=vmin, vmax=vmax, use_radial=True, title=behavior_name)
-        _ = plot_visitation_on_disturbance_background(csv_path=rl_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
+        _ = plot_reward_heatmap_from_csv(
+            rl_csv,
+            bins=100,
+            cmap="turbo",
+            vmin=reward_min,
+            vmax=reward_max,
+            use_radial=True,
+            title=behavior_name,
+        )
+        _ = plot_visitation_on_disturbance_background(
+            csv_path=rl_csv,
+            bins=100,
+            disturbance_cmap="bone_r",
+            title=behavior_name,
+        )
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
-            
             df = pd.read_csv(baseline_csv)
-            vmin = df['reward'].min()
-            vmax = df['reward'].max()
+            vmin = df["reward"].min()
+            vmax = df["reward"].max()
 
             _ = plot_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            # _ = plot_disturbance_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
             _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            _ = plot_reward_heatmap_from_csv(baseline_csv, bins=100, cmap ="turbo",vmin= vmin,vmax= vmax,use_radial= True, title=behavior_name)
-            _ = plot_visitation_on_disturbance_background(csv_path=baseline_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
+            _ = plot_reward_heatmap_from_csv(
+                baseline_csv,
+                bins=100,
+                cmap="turbo",
+                vmin=vmin,
+                vmax=vmax,
+                use_radial=True,
+                title=behavior_name,
+            )
+            _ = plot_visitation_on_disturbance_background(
+                csv_path=baseline_csv,
+                bins=100,
+                disturbance_cmap="bone_r",
+                title=behavior_name,
+            )
 
     if args.plot_rewards and baseline is not None:
         baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv"

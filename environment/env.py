@@ -434,6 +434,9 @@ class Env:
             geometry.append(drone_geom)
 
         return geometry
+    
+    def _monitor_function(self, x):
+        return 10.0 / (10.0 + ((x - 10.0) / 40.0) ** 2)
 
     def _animal_bucket_fractions(self, animal_idx):
         total = self.view_bucket_totals[animal_idx]
@@ -501,7 +504,7 @@ class Env:
             altitude = drone.pos.to_numpy()[2]
             altitude_norm = altitude / (drone.max_altitude + 1e-8)
 
-            drone_features = [x[0], x[1], x[2], altitude_norm, self.id]
+            drone_features = [x[0], x[1], x[2], altitude_norm, self.alpha] # self.alpha?
 
             y = np.cross(world_z, x)
             y = y / (np.linalg.norm(y) + 1e-8)
@@ -664,7 +667,7 @@ class Env:
 
         return reversal_penalty * speed_frac * self.config.p_dir_change_scale
 
-    def _compute_monitoring_terms(self, observations):
+    def _compute_monitoring_terms(self, observations, geometry):
         visibility_reward = 0.0
         distance_reward = 0.0
         alignment_reward = 0.0
@@ -682,7 +685,6 @@ class Env:
             ].reshape(self.animal_count, animal_feat_dim)
 
             in_view = animal_obs[:, 0]
-            dist = animal_obs[:, 1]
             v = np.abs(animal_obs[:, 2])
             h = np.abs(animal_obs[:, 3])
             target = animal_obs[:, 7]
@@ -692,19 +694,31 @@ class Env:
             visibility_reward += np.sum(in_view) / self.animal_count
 
             if np.any(is_target):
-                # current version: closer is better
-                target_dist_reward = -dist[is_target]
-                distance_reward += np.mean(target_dist_reward)
+                target_idxs = np.where(is_target)[0]
 
-                v_vis = np.maximum(0.0, v[is_target] - ALIGN_DEADZONE)
-                h_vis = np.maximum(0.0, h[is_target] - ALIGN_DEADZONE)
+                target_rewards = []
+                target_align_rewards = []
 
-                target_align_reward = 1.0 - 0.5 * (v_vis + h_vis)
-                target_align_reward = np.clip(target_align_reward, 0.0, 1.0)
+                for a in target_idxs:
+                    real_dist = geometry[d][a]["distance"]
+                    target_rewards.append(self._monitor_function(real_dist))
 
-                alignment_reward += np.mean(target_align_reward)
+                    if in_view[a] > 0.5:
+                        v_vis = max(0.0, v[a] - ALIGN_DEADZONE)
+                        h_vis = max(0.0, h[a] - ALIGN_DEADZONE)
+
+                        align_r = 1.0 - 0.5 * (v_vis + h_vis)
+                        align_r = np.clip(align_r, 0.0, 1.0)
+                    else:
+                        align_r = 0.0
+
+                    target_align_rewards.append(align_r)
+
+                distance_reward += float(np.mean(target_rewards))
+                alignment_reward += float(np.mean(target_align_rewards))
             else:
-                distance_reward += -1.0
+                distance_reward += 0.0
+                alignment_reward += 0.0
 
         visibility_reward /= self.drone_count
         distance_reward /= self.drone_count
@@ -816,8 +830,8 @@ class Env:
         }
 
 
-    def compute_reward(self, observations, actions):
-        terms = self._compute_monitoring_terms(observations)
+    def compute_reward(self, observations, actions, geometry):
+        terms = self._compute_monitoring_terms(observations, geometry)
         penalties = self._compute_action_penalties(actions)
         disturbance_penalty = self._compute_disturbance_penalty()
         coverage_reward = self._bucket_balance_score()
@@ -900,7 +914,7 @@ class Env:
         observations = self._build_observations(geometry)
         self._update_view_buckets(observations)
 
-        reward, monitor_r, disturbance_p = self.compute_reward(observations, actions)
+        reward, monitor_r, disturbance_p = self.compute_reward(observations, actions, geometry)
 
         self.prev_vel_dirs = [
             drone.vel_dir.to_numpy().astype(np.float32).copy()
