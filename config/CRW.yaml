@@ -59,13 +59,10 @@ animal:
     max_spawn_radius: 200
 
 # Disturbance/reward model
-XY_scale: 80
-Z_scale: 60
 w_angle: 1.0
 w_axis: 1.0
 w_heading: 1.0
-
-D_R_scale: 0.65 # Disturbance reward tradeoff
+alpha: 0.65
 
 p_vel_scale: 0.01
 p_theta_scale: 0.01
