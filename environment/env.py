@@ -65,7 +65,7 @@ class Env:
 
         self.out_of_view_steps = 0
 
-        self.reward_shift = 1 - np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
+        self.reward_scale = np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
     def _create_resource_map(self):
         if type(self.config["animal"]["init"]["behavior"]) == CRW_CFG:
@@ -192,7 +192,7 @@ class Env:
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
 
-        self.reward_shift = 1 - np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
+        self.reward_scale = np.clip(analytic_upper_bound(self.config.XY_scale, self.config.Z_scale, self.config.drone.large.view_range, self.D_R_scale)[0], 1e-6, 1)
 
         info = {}
         return observations, info
@@ -747,7 +747,7 @@ class Env:
             dtype=np.float32
         )
         disturbance_penalty = np.mean(animal_disturbances)
-        disturbance_reward_tradeoff = ((self.D_R_scale) * (1 - disturbance_penalty) + (1 - self.D_R_scale) * r_dist) + self.reward_shift
+        disturbance_reward_tradeoff = np.clip(((self.D_R_scale) * (1 - disturbance_penalty) + (1 - self.D_R_scale) * r_dist) / self.reward_scale, 0.0, 1.0)
 
         r_bucket = self._bucket_balance_score()
 
@@ -781,7 +781,7 @@ class Env:
 
             n = max(self.animal_count, 1)
             self.last_step_stats = {
-                "reward": float(final_reward),
+                "reward": float(final_reward)**3,
                 "monitor_reward": float(monitor_reward),
                 "disturbance_penalty": float(disturbance_penalty),
                 "calm_frac": behavior_counts["calm"] / n,
@@ -793,7 +793,7 @@ class Env:
                 "r_align": float(r_align),
             }
 
-        return float(final_reward), monitor_reward, disturbance_penalty
+        return float(final_reward)**3, monitor_reward, disturbance_penalty
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:

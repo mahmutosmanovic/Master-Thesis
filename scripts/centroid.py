@@ -244,8 +244,8 @@ def run_episode(env, policy, seed):
 GRID = {
     "target_range_ratio":    [0.30, 0.40, 0.50, 0.60],
     "target_altitude_ratio": [0.30, 0.40, 0.50, 0.60],
-    "xy_gain":                   [1.5],
-    "z_gain":                   [1.75],
+    "xy_gain":                   [1.0],
+    "z_gain":                   [1.0],
     "theta_gain":               [0.4],
     "search_theta":          [0.35],
     "min_speed_norm":        [0.15],
