@@ -436,7 +436,7 @@ class Env:
         return geometry
     
     def _monitor_function(self, x):
-        return 10.0 / (10.0 + ((x - 10.0) / 40.0) ** 2)
+        return 1.0 / (1.0 + ((x - 10.0) / 60.0) ** 4)
 
     def _animal_bucket_fractions(self, animal_idx):
         total = self.view_bucket_totals[animal_idx]

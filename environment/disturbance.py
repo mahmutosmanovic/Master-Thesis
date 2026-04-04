@@ -241,6 +241,7 @@ def plot():
     ax_ang.set_yticks([])
     ax_ang.set_xticks([
         0,
+        np.pi,
         np.pi / 4,
         3 * np.pi / 4,
         5 * np.pi / 4,
