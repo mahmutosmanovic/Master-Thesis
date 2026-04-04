@@ -342,7 +342,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                                 milestone_thresholds.pop(0)
                                 print(f"[INFO] Saved milestone checkpoint at reward >= {thr:.1f}")
                         
-                        if save_steps:
+                        if args.save_every and save_steps:
                             step = save_steps[0]
                             if (not saved_steps[step]) and curr_steps >= step:
                                 agent.save_models(name=f"step_{step}")

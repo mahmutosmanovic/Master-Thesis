@@ -781,7 +781,7 @@ class Env:
 
             n = max(self.animal_count, 1)
             self.last_step_stats = {
-                "reward": float(final_reward)**3,
+                "reward": float(final_reward),
                 "monitor_reward": float(monitor_reward),
                 "disturbance_penalty": float(disturbance_penalty),
                 "calm_frac": behavior_counts["calm"] / n,
@@ -793,7 +793,7 @@ class Env:
                 "r_align": float(r_align),
             }
 
-        return float(final_reward)**3, monitor_reward, disturbance_penalty
+        return float(final_reward), monitor_reward, disturbance_penalty
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:
