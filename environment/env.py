@@ -769,6 +769,7 @@ class Env:
         r_bucket = self._bucket_balance_score()
 
         frac_visible = visible_target.sum() / self.drone_count
+        
         # bonus scaling by number of drones that lost their target
         visible_bonus = frac_visible * 0.05
 
@@ -797,6 +798,7 @@ class Env:
         self.reward_stats["r_align"] += r_align
         self.reward_stats["r_bucket"] += r_bucket
 
+        n_div = 2.40
         if self.enable_step_logging:
             behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
             for animal in self.animals:
@@ -804,8 +806,8 @@ class Env:
 
             n = max(self.animal_count, 1)
             self.last_step_stats = {
-                "reward": float(final_reward),
-                "monitor_reward": float(monitor_reward),
+                "reward": float(final_reward) / n_div,
+                "monitor_reward": float(monitor_reward) / n_div,
                 "disturbance_penalty": float(disturbance_penalty),
                 "calm_frac": behavior_counts["calm"] / n,
                 "avoid_frac": behavior_counts["avoid"] / n,
@@ -817,7 +819,7 @@ class Env:
                 "r_cover": float(r_cover),
             }
 
-        return float(final_reward), monitor_reward, disturbance_penalty
+        return float(final_reward) / n_div, monitor_reward / n_div, disturbance_penalty
 
     def _check_termination(self, observations):
         if self._env_steps >= self.config["max_episode_steps"]:
