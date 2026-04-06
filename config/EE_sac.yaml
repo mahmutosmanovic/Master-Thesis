@@ -23,8 +23,8 @@ model:
     gae_lambda: 0.95
     policy_clip: 0.2
     val_loss_coef: 0.5
-    entropy_start_coef: 0.05
-    entropy_end_coef: 0.004
+    entropy_start_coef: 0.02
+    entropy_end_coef: 0.001
 
   sampling:
     total_timesteps: 1_000_000
