@@ -23,14 +23,14 @@ model:
     gae_lambda: 0.95
     policy_clip: 0.2
     val_loss_coef: 0.5
-    entropy_start_coef: 0.02
-    entropy_end_coef: 0.002
+    entropy_start_coef: 0.05
+    entropy_end_coef: 0.004
 
   sampling:
     total_timesteps: 2_000_000
-    rollout_steps: 2048
+    rollout_steps: 8192
     mini_batch_size: 256
-    n_epochs: 10
+    n_epochs: 4
 
 drone:
   large:
@@ -56,7 +56,7 @@ animal:
     max_speed: 12
     behavior: CRW_CFG
     movement_dim: TWO_D
-    max_spawn_radius: 200
+    max_spawn_radius: 400
 
 # Disturbance/reward model
 XY_scale: 80
@@ -65,11 +65,11 @@ w_angle: 1.0
 w_axis: 1.0
 w_heading: 1.0
 
-D_R_scale: 0.65 # Disturbance reward tradeoff
+D_R_scale: 0.55 # Disturbance reward tradeoff
 
-p_vel_scale: 0.01
-p_theta_scale: 0.01
-p_dir_change_scale: 0.02
+p_vel_scale: 0.1
+p_theta_scale: 0.1
+p_dir_change_scale: 0.1
 
 # Termination / visibility recovery
 track_loss_grace: 50

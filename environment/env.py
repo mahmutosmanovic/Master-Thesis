@@ -677,6 +677,9 @@ class Env:
 
         ALIGN_DEADZONE = 0.05
         ALIGN_EXP = 1.0
+        P_VEL_EXP = 1.5
+        P_THETA_EXP = 1.5
+        P_DIR_CHANGE_EXP = 1.5
 
         p_vel = 0.0
         p_theta = 0.0
@@ -726,14 +729,14 @@ class Env:
             p_vel += (
                 (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8))
                 * self.config.p_vel_scale
-            )
+            ) ** P_VEL_EXP
 
             p_theta += (
                 (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8))
                 * self.config.p_theta_scale
-            )
+            ) ** P_THETA_EXP
 
-            p_dir_change += self._direction_change_penalty(d, drone_action)
+            p_dir_change += self._direction_change_penalty(d, drone_action) ** P_DIR_CHANGE_EXP
 
         r_vis /= self.drone_count
         r_dist /= self.drone_count
