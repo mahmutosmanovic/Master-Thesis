@@ -1,44 +1,54 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 configs=("CRW" "EE" "POI" "LPOI")
+agents=("sac" "ppo")
 max_jobs=2
 
 mkdir -p table
 manifest="table/runs_manifest_$(date +%Y%m%d_%H%M%S).csv"
 
-echo "config,run_name,eval_name" > "$manifest"
+echo "config,agent,full_config,run_name,eval_name" > "$manifest"
 
 for cfg in "${configs[@]}"
 do
+for agent in "${agents[@]}"
+do
 (
+    full_cfg="${cfg}_${agent}"
+
     echo "================================="
-    echo "Training config: $cfg"
+    echo "Training config: $full_cfg"
     echo "================================="
 
     run_name=$(python -m scripts.train_agent \
-        --config "$cfg" \
-        --agent sac \
+        --config "$full_cfg" \
+        --agent "$agent" \
         --seed 42 \
         --wandb | tee /dev/tty | grep "RUN_DIR::" | cut -d':' -f3)
 
     echo "Run created: $run_name"
-    echo "Starting evaluation..."
+    echo "Evaluating run $run_name"
 
     eval_name=$(python -m scripts.eval_models \
         --run "$run_name" \
         --baseline centroid \
-        --num-episodes 30 \
+        --num-episodes 100 \
         --plot-rewards \
         --plot-heatmaps \
         --start-seed 42 | tee /dev/tty | grep "EVAL_DIR::" | cut -d':' -f3)
 
-    echo "Finished config: $cfg"
+    echo "Rendering run $run_name"
+
+    python -m scripts.play \
+        --run "$run_name" 
+
+    echo "Finished config: $full_cfg"
     echo ""
 
     {
         flock 200
-        echo "$cfg,$run_name,$eval_name" >> "$manifest"
+        echo "$cfg,$agent,$full_cfg,$run_name,$eval_name" >> "$manifest"
     } 200>"$manifest.lock"
 
 ) &
@@ -47,6 +57,7 @@ while [ "$(jobs -r | wc -l)" -ge "$max_jobs" ]; do
     sleep 2
 done
 
+done
 done
 
 wait

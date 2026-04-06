@@ -27,7 +27,7 @@ model:
     entropy_end_coef: 0.004
 
   sampling:
-    total_timesteps: 2_000_000
+    total_timesteps: 3_000_000
     rollout_steps: 8192
     mini_batch_size: 256
     n_epochs: 4
@@ -54,7 +54,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 12
-    behavior: POI_CFG
+    behavior: CRW_CFG
     movement_dim: TWO_D
     max_spawn_radius: 400
 
