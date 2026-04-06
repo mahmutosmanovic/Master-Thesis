@@ -620,63 +620,24 @@ class Env:
 
             animal.disturbance = float(np.clip(animal.disturbance, 0.0, 1.0))
 
-    def _bucket_balance_score(self):
-        min_views_before_balance = 8
-        scores = []
-
-        for a in range(self.animal_count):
-            total = self.view_bucket_totals[a]
-            if total < min_views_before_balance:
-                continue
-
-            p = self.view_bucket_counts[a] / (total + 1e-8)
-
-            score = 1.0 - (np.std(p) / 0.4330127)
-            score = np.clip(score, 0.0, 1.0)
-            scores.append(score)
-
-        if len(scores) == 0:
-            return 0.0
-
-        return float(np.mean(scores))
-
-    def _direction_change_penalty(self, drone_idx, drone_action):
-        if self.prev_vel_dirs is None:
-            return 0.0
-
-        curr_dir = drone_action["vel_dir"].to_numpy().astype(np.float32)
-        curr_norm = np.linalg.norm(curr_dir)
-
-        if curr_norm > 1e-8:
-            curr_dir = curr_dir / curr_norm
-        else:
-            return 0.0
-
-        prev_dir = self.prev_vel_dirs[drone_idx]
-        prev_norm = np.linalg.norm(prev_dir)
-
-        if prev_norm > 1e-8:
-            prev_dir = prev_dir / prev_norm
-        else:
-            prev_dir = curr_dir
-
-        cos_turn = np.clip(np.dot(prev_dir, curr_dir), -1.0, 1.0)
-
-        reversal_penalty = max(0.0, -cos_turn)
-        speed_frac = self.drones[drone_idx].vel_speed / (self.drones[drone_idx].max_speed + 1e-8)
-
-        return reversal_penalty * speed_frac * self.config.p_dir_change_scale
-
-    def _compute_monitoring_terms(self, observations, geometry):
+    def compute_reward(self, observations, actions, geometry):
         visibility_reward = 0.0
         distance_reward = 0.0
         alignment_reward = 0.0
 
+        p_vel = 0.0
+        p_theta = 0.0
+        p_dir_change = 0.0
+
+        coverage_reward = 0.0
         ALIGN_DEADZONE = 0.05
 
         drone_feat_dim = self.config.model.space.drone_features
         animal_feat_dim = self.config.model.space.animal_features
 
+        # ----------------------------
+        # monitoring terms
+        # ----------------------------
         for d in range(self.drone_count):
             drone_obs = observations[d]
 
@@ -716,25 +677,14 @@ class Env:
 
                 distance_reward += float(np.mean(target_rewards))
                 alignment_reward += float(np.mean(target_align_rewards))
-            else:
-                distance_reward += 0.0
-                alignment_reward += 0.0
 
         visibility_reward /= self.drone_count
         distance_reward /= self.drone_count
         alignment_reward /= self.drone_count
 
-        return {
-            "visibility_reward": float(visibility_reward),
-            "distance_reward": float(distance_reward),
-            "alignment_reward": float(alignment_reward),
-        }
-
-    def _compute_action_penalties(self, actions):
-        p_vel = 0.0
-        p_theta = 0.0
-        p_dir_change = 0.0
-
+        # ----------------------------
+        # action penalties
+        # ----------------------------
         for d in range(self.drone_count):
             drone_action = actions[d]
 
@@ -748,31 +698,70 @@ class Env:
                 * self.config.p_theta_scale
             )
 
-            p_dir_change += self._direction_change_penalty(d, drone_action)
+            if self.prev_vel_dirs is not None:
+                curr_dir = drone_action["vel_dir"].to_numpy().astype(np.float32)
+                curr_norm = np.linalg.norm(curr_dir)
+
+                if curr_norm > 1e-8:
+                    curr_dir = curr_dir / curr_norm
+
+                    prev_dir = self.prev_vel_dirs[d]
+                    prev_norm = np.linalg.norm(prev_dir)
+
+                    if prev_norm > 1e-8:
+                        prev_dir = prev_dir / prev_norm
+                    else:
+                        prev_dir = curr_dir
+
+                    cos_turn = np.clip(np.dot(prev_dir, curr_dir), -1.0, 1.0)
+                    reversal_penalty = max(0.0, -cos_turn)
+                    speed_frac = self.drones[d].vel_speed / (self.drones[d].max_speed + 1e-8)
+
+                    p_dir_change += (
+                        reversal_penalty
+                        * speed_frac
+                        * self.config.p_dir_change_scale
+                    )
 
         p_vel /= self.drone_count
         p_theta /= self.drone_count
         p_dir_change /= self.drone_count
 
-        return {
-            "p_vel": float(p_vel),
-            "p_theta": float(p_theta),
-            "p_dir_change": float(p_dir_change),
-        }
-
-
-    def _compute_disturbance_penalty(self):
+        # ----------------------------
+        # disturbance penalty
+        # ----------------------------
         animal_disturbances = np.array(
             [animal.disturbance for animal in self.animals],
             dtype=np.float32
         )
-        return float(np.mean(animal_disturbances))
+        disturbance_penalty = float(np.mean(animal_disturbances))
 
-    def _compose_reward(self, distance_reward, alignment_reward, disturbance_penalty, penalties):
-        # convert "higher disturbance is worse" into "higher safety is better"
+        # ----------------------------
+        # bucket / coverage reward
+        # ----------------------------
+        min_views_before_balance = 8
+        coverage_scores = []
+
+        for a in range(self.animal_count):
+            total = self.view_bucket_totals[a]
+            if total < min_views_before_balance:
+                continue
+
+            p = self.view_bucket_counts[a] / (total + 1e-8)
+            score = 1.0 - (np.std(p) / 0.4330127)
+            score = np.clip(score, 0.0, 1.0)
+            coverage_scores.append(score)
+
+        if len(coverage_scores) > 0:
+            coverage_reward = float(np.mean(coverage_scores))
+        else:
+            coverage_reward = 0.0
+
+        # ----------------------------
+        # final composition
+        # ----------------------------
         safety_reward = 1.0 - disturbance_penalty
 
-        # alpha controls safety vs monitoring-distance tradeoff
         tradeoff_reward = (
             self.alpha * safety_reward +
             (1.0 - self.alpha) * distance_reward
@@ -785,73 +774,19 @@ class Env:
 
         final_reward = (
             monitor_reward
-            - penalties["p_vel"]
-            - penalties["p_theta"]
-            - penalties["p_dir_change"]
+            - p_vel
+            - p_theta
+            - p_dir_change
         )
 
-        return {
-            "final_reward": float(final_reward),
-            "monitor_reward": float(monitor_reward),
-            "tradeoff_reward": float(tradeoff_reward),
-            "safety_reward": float(safety_reward),
-        }
-
-
-    def _update_reward_stats(self, monitor_reward, disturbance_penalty, terms, r_bucket):
+        # ----------------------------
+        # stats
+        # ----------------------------
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += disturbance_penalty
-        self.reward_stats["r_vis"] += terms["r_vis"]
-        self.reward_stats["r_dist"] += terms["r_dist"]
-        self.reward_stats["r_align"] += terms["r_align"]
-        self.reward_stats["r_bucket"] += r_bucket
-
-
-    def _update_last_step_stats(self, final_reward, monitor_reward, disturbance_penalty, terms):
-        if not self.enable_step_logging:
-            return
-
-        behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
-        for animal in self.animals:
-            behavior_counts[animal.state] += 1
-
-        n = max(self.animal_count, 1)
-        self.last_step_stats = {
-            "reward": float(final_reward),
-            "monitor_reward": float(monitor_reward),
-            "disturbance_penalty": float(disturbance_penalty),
-            "calm_frac": behavior_counts["calm"] / n,
-            "avoid_frac": behavior_counts["avoid"] / n,
-            "flee_frac": behavior_counts["flee"] / n,
-            "mean_disturbance": float(np.mean([a.disturbance for a in self.animals])),
-            "r_vis": float(terms["r_vis"]),
-            "r_dist": float(terms["r_dist"]),
-            "r_align": float(terms["r_align"]),
-        }
-
-
-    def compute_reward(self, observations, actions, geometry):
-        terms = self._compute_monitoring_terms(observations, geometry)
-        penalties = self._compute_action_penalties(actions)
-        disturbance_penalty = self._compute_disturbance_penalty()
-        coverage_reward = self._bucket_balance_score()
-
-        reward_dict = self._compose_reward(
-            distance_reward=terms["distance_reward"],
-            alignment_reward=terms["alignment_reward"],
-            disturbance_penalty=disturbance_penalty,
-            penalties=penalties,
-        )
-
-        final_reward = reward_dict["final_reward"]
-        monitor_reward = reward_dict["monitor_reward"]
-        safety_reward = reward_dict["safety_reward"]
-
-        self.reward_stats["r_monitoring"] += monitor_reward
-        self.reward_stats["p_disturbance"] += disturbance_penalty
-        self.reward_stats["r_vis"] += terms["visibility_reward"]
-        self.reward_stats["r_dist"] += terms["distance_reward"]
-        self.reward_stats["r_align"] += terms["alignment_reward"]
+        self.reward_stats["r_vis"] += visibility_reward
+        self.reward_stats["r_dist"] += distance_reward
+        self.reward_stats["r_align"] += alignment_reward
         self.reward_stats["r_bucket"] += coverage_reward
 
         if self.enable_step_logging:
@@ -869,9 +804,9 @@ class Env:
                 "avoid_frac": behavior_counts["avoid"] / n,
                 "flee_frac": behavior_counts["flee"] / n,
                 "mean_disturbance": float(np.mean([a.disturbance for a in self.animals])),
-                "r_vis": float(terms["visibility_reward"]),
-                "r_dist": float(terms["distance_reward"]),
-                "r_align": float(terms["alignment_reward"]),
+                "r_vis": float(visibility_reward),
+                "r_dist": float(distance_reward),
+                "r_align": float(alignment_reward),
             }
 
         return float(final_reward), float(monitor_reward), float(disturbance_penalty)

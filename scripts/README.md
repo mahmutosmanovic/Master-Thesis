@@ -58,7 +58,7 @@ This will:
 
 `seed`: base seed (used to generate evaluation seeds)
 
-`eval-seeds`: number of seeds averaged per parameter set
+`eval-seeds`: number of seeds averaged per parameter set 
 
 `render-best`: optionally render the best-performing controller after search
 
