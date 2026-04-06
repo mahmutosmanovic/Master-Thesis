@@ -7,8 +7,9 @@ from environment import Env
 
 # model
 from model import PPOAgent
-from model import MAPPOAgent
 from model import SACAgent
+from model import DQNAgent
+from model import MAPPOAgent
 
 # standard modules
 import os
@@ -74,9 +75,10 @@ def _init_agent(config, agent_type, device):
         return MAPPOAgent(config, device)
     elif agent_type == "sac":
         return SACAgent(config, device)
+    elif agent_type == "dqn":
+        return DQNAgent(config, device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
-
 
 def _get_behavior_name(config):
     behavior_raw = str(config.animal.init.behavior)
@@ -205,6 +207,22 @@ def agent_env_step(agent, env, obs, agent_type):
 
         agent.remember(joint_obs, joint_action_flat, reward, joint_next_obs, done)
 
+    elif agent_type == "dqn":
+        if obs.shape[0] != 1:
+            raise ValueError("Current DQN path expects exactly 1 drone.")
+
+        single_obs = np.asarray(obs[0], dtype=np.float32)
+
+        action_vec, action_idx, _ = agent.choose_action(single_obs, deterministic=False)
+        env_action = action_vec.reshape(1, -1).astype(np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(env_action)
+        done = terminated or truncated
+
+        next_single_obs = np.asarray(next_obs[0], dtype=np.float32)
+
+        agent.remember(single_obs, action_idx, reward, next_single_obs, done)
+
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -212,7 +230,7 @@ def agent_env_step(agent, env, obs, agent_type):
 
 
 def _should_train(agent_type, step_in_rollout, rollout_steps):
-    if agent_type == "sac":
+    if agent_type in ("sac", "dqn"):
         return True
     return step_in_rollout == rollout_steps - 1
 
@@ -221,7 +239,7 @@ def _train_step(agent, agent_type, obs, done):
     if agent_type in ("ppo", "mappo"):
         last_value = agent.get_last_value(obs, done)
         return agent.learn(last_value)
-    elif agent_type == "sac":
+    elif agent_type in ("sac", "dqn"):
         return agent.learn()
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -373,7 +391,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 def _init_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
-    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac"], help="RL agent type")
+    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac", "dqn"], help="RL agent type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")

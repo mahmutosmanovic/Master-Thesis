@@ -11,7 +11,7 @@ from box import Box
 from tqdm import tqdm
 
 from environment import Env
-from model import PPOAgent, MAPPOAgent, SACAgent
+from model import PPOAgent, MAPPOAgent, SACAgent, DQNAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
@@ -81,6 +81,7 @@ SUMMARY_APPEND_FIELDS = [
     "p_disturbance",
 ]
 
+
 def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None):
     obs, info = env.reset(seed=seed)
 
@@ -110,6 +111,7 @@ def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline
         "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
         "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
     }
+
 
 def evaluate_checkpoint_prefix_episodes(
     env,
@@ -180,6 +182,7 @@ def evaluate_checkpoint_prefix_episodes(
         "summary_csv": str(append_summary_csv),
     }
 
+
 def init_logger(path, fieldnames):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,6 +228,8 @@ def init_agent(config, run_dir, weight_type="last"):
         agent = MAPPOAgent(config)
     elif agent_type == "sac":
         agent = SACAgent(config)
+    elif agent_type == "dqn":
+        agent = DQNAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -240,31 +245,43 @@ def init_agent(config, run_dir, weight_type="last"):
         agent.critic_2.chkpt_dir = run_dir
         agent.target_critic_1.chkpt_dir = run_dir
         agent.target_critic_2.chkpt_dir = run_dir
+    elif agent_type == "dqn":
+        agent.q_net.chkpt_dir = run_dir
+        agent.target_q_net.chkpt_dir = run_dir
 
     agent.load_models(name=weight_type)
 
-    agent.actor.eval()
-
     if agent_type == "ppo":
+        agent.actor.eval()
         agent.critic.eval()
     elif agent_type == "mappo":
+        agent.actor.eval()
         agent.critic.eval()
     elif agent_type == "sac":
+        agent.actor.eval()
         agent.critic_1.eval()
         agent.critic_2.eval()
         agent.target_critic_1.eval()
         agent.target_critic_2.eval()
+    elif agent_type == "dqn":
+        agent.q_net.eval()
+        agent.target_q_net.eval()
 
     return agent, agent_type
 
 
 def init_agent_actor_only(config, run_dir, actor_weight_file):
     """
-    Initialize agent and load actor weights only from a checkpoint file like:
-        sac_123456.pt
+    Initialize agent and load actor-like inference weights only from a checkpoint file.
 
-    These files are expected to store a checkpoint dict containing
-    at least 'actor_state_dict', and optionally 'train_step'.
+    PPO / MAPPO / SAC checkpoints are expected to contain:
+        'actor_state_dict'
+
+    DQN checkpoints are expected to contain:
+        'q_net_state_dict'
+
+    Optional:
+        'train_step'
     """
     agent_type = config.agent_type
 
@@ -274,32 +291,52 @@ def init_agent_actor_only(config, run_dir, actor_weight_file):
         agent = MAPPOAgent(config)
     elif agent_type == "sac":
         agent = SACAgent(config)
+    elif agent_type == "dqn":
+        agent = DQNAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    actor_path = Path(run_dir) / actor_weight_file
-    if not actor_path.exists():
-        raise FileNotFoundError(f"Actor checkpoint not found: {actor_path}")
+    weight_path = Path(run_dir) / actor_weight_file
+    if not weight_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {weight_path}")
 
-    checkpoint = torch.load(actor_path, map_location=agent.actor.device)
+    map_location = torch.device("cpu")
+    if agent_type == "ppo":
+        map_location = agent.actor.device
+    elif agent_type == "mappo":
+        map_location = agent.actor.device
+    elif agent_type == "sac":
+        map_location = agent.actor.device
+    elif agent_type == "dqn":
+        map_location = agent.q_net.device
 
+    checkpoint = torch.load(weight_path, map_location=map_location, weights_only=False)
+    
     if not isinstance(checkpoint, dict):
         raise TypeError(
-            f"Unexpected checkpoint format in {actor_path}. "
-            f"Expected dict containing 'actor_state_dict'."
+            f"Unexpected checkpoint format in {weight_path}. "
+            f"Expected dict checkpoint."
         )
 
-    if "actor_state_dict" not in checkpoint:
-        raise KeyError(
-            f"Checkpoint {actor_path} does not contain 'actor_state_dict'. "
-            f"Keys found: {list(checkpoint.keys())}"
-        )
-
-    actor_state_dict = checkpoint["actor_state_dict"]
     train_step = checkpoint.get("train_step", None)
 
-    agent.actor.load_state_dict(actor_state_dict)
-    agent.actor.eval()
+    if agent_type in ("ppo", "mappo", "sac"):
+        if "actor_state_dict" not in checkpoint:
+            raise KeyError(
+                f"Checkpoint {weight_path} does not contain 'actor_state_dict'. "
+                f"Keys found: {list(checkpoint.keys())}"
+            )
+        agent.actor.load_state_dict(checkpoint["actor_state_dict"])
+        agent.actor.eval()
+
+    elif agent_type == "dqn":
+        if "q_net_state_dict" not in checkpoint:
+            raise KeyError(
+                f"Checkpoint {weight_path} does not contain 'q_net_state_dict'. "
+                f"Keys found: {list(checkpoint.keys())}"
+            )
+        agent.q_net.load_state_dict(checkpoint["q_net_state_dict"])
+        agent.q_net.eval()
 
     return agent, agent_type, train_step
 
@@ -324,6 +361,20 @@ def choose_action(agent, obs, agent_type):
         joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
 
         env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
+        return env_action
+
+    elif agent_type == "dqn":
+        obs_arr = np.asarray(obs, dtype=np.float32)
+
+        if obs_arr.shape[0] != 1:
+            raise ValueError(
+                "DQN evaluation currently expects exactly 1 drone, "
+                f"but got obs shape {obs_arr.shape}"
+            )
+
+        single_obs = obs_arr[0]
+        action_vec, _, _ = agent.choose_action(single_obs, deterministic=True)
+        env_action = np.asarray(action_vec, dtype=np.float32).reshape(1, -1)
         return env_action
 
     else:
@@ -394,8 +445,6 @@ def list_matching_actor_weight_files(run_dir, checkpoint_prefix):
     """
     Lists files directly in run_dir matching:
         <checkpoint_prefix>*.pt
-    Example:
-        ppo_ppo_1064960k.pt
     """
     run_dir = Path(run_dir)
     paths = sorted(run_dir.glob(f"{checkpoint_prefix}*.pt"))
@@ -827,29 +876,55 @@ def main():
     if args.plot_heatmaps:
         rl_csv = eval_dir / f"{agent_type}.csv"
         df = pd.read_csv(rl_csv)
-        reward_min = df['reward'].min()
-        reward_max = df['reward'].max()
+        reward_min = df["reward"].min()
+        reward_max = df["reward"].max()
         vmin = reward_min
         vmax = reward_max
 
         _ = plot_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
         _ = plot_disturbance_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
         _ = plot_xy_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        _ = plot_reward_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", vmin=vmin, vmax=vmax, use_radial=True, title=behavior_name)
-        _ = plot_visitation_on_disturbance_background(csv_path=rl_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
+        _ = plot_reward_heatmap_from_csv(
+            rl_csv,
+            bins=100,
+            cmap="turbo",
+            vmin=vmin,
+            vmax=vmax,
+            use_radial=True,
+            title=behavior_name,
+        )
+        _ = plot_visitation_on_disturbance_background(
+            csv_path=rl_csv,
+            bins=100,
+            disturbance_cmap="bone_r",
+            title=behavior_name,
+        )
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
-            
+
             df = pd.read_csv(baseline_csv)
-            vmin = df['reward'].min()
-            vmax = df['reward'].max()
+            vmin = df["reward"].min()
+            vmax = df["reward"].max()
 
             _ = plot_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
             _ = plot_disturbance_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
             _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            _ = plot_reward_heatmap_from_csv(baseline_csv, bins=100, cmap ="turbo",vmin= vmin,vmax= vmax,use_radial= True, title=behavior_name)
-            _ = plot_visitation_on_disturbance_background(csv_path=baseline_csv, bins=100, disturbance_cmap="bone_r", title=behavior_name)
+            _ = plot_reward_heatmap_from_csv(
+                baseline_csv,
+                bins=100,
+                cmap="turbo",
+                vmin=vmin,
+                vmax=vmax,
+                use_radial=True,
+                title=behavior_name,
+            )
+            _ = plot_visitation_on_disturbance_background(
+                csv_path=baseline_csv,
+                bins=100,
+                disturbance_cmap="bone_r",
+                title=behavior_name,
+            )
 
     if args.plot_rewards and baseline is not None:
         baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv"

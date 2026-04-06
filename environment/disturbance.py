@@ -342,7 +342,7 @@ def component_plots():
         vmax=1,
         aspect="auto"
     )
-    ax1.set_title("Horizontal Gain", fontsize=title_fs)
+    ax1.set_title("Radial Gain", fontsize=title_fs)
     ax1.set_xlabel("Radial Distance (m)", fontsize=label_fs, fontweight="bold")
     ax1.set_ylabel("Altitude (m)", fontsize=label_fs, fontweight="bold")
     ax1.tick_params(axis="both", labelsize=tick_fs)

@@ -15,7 +15,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from environment import Env
-from model import PPOAgent, MAPPOAgent, SACAgent
+from model import PPOAgent, MAPPOAgent, SACAgent, DQNAgent
 from .run_utils import load_run
 
 
@@ -646,9 +646,6 @@ class PaperViewer:
         p3 = pos + d2 * size
         p4 = pos - d2 * size
 
-        angle_deg = _heading_angle_deg(f)
-
-        # drone shadow on ground, like the 2D version
         shadow_pts = self._ellipse_points_3d(
             np.array([pos[0] + 6.0, pos[1] - 6.0, 0.0], dtype=float),
             f,
@@ -960,6 +957,8 @@ def init_agent(config, run_dir, weight_type="best"):
         agent = MAPPOAgent(config)
     elif agent_type == "sac":
         agent = SACAgent(config)
+    elif agent_type == "dqn":
+        agent = DQNAgent(config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -975,19 +974,27 @@ def init_agent(config, run_dir, weight_type="best"):
         agent.critic_2.chkpt_dir = run_dir
         agent.target_critic_1.chkpt_dir = run_dir
         agent.target_critic_2.chkpt_dir = run_dir
+    elif agent_type == "dqn":
+        agent.q_net.chkpt_dir = run_dir
+        agent.target_q_net.chkpt_dir = run_dir
 
     agent.load_models(name=weight_type)
-    agent.actor.eval()
 
     if agent_type == "ppo":
+        agent.actor.eval()
         agent.critic.eval()
     elif agent_type == "mappo":
+        agent.actor.eval()
         agent.critic.eval()
     elif agent_type == "sac":
+        agent.actor.eval()
         agent.critic_1.eval()
         agent.critic_2.eval()
         agent.target_critic_1.eval()
         agent.target_critic_2.eval()
+    elif agent_type == "dqn":
+        agent.q_net.eval()
+        agent.target_q_net.eval()
 
     return agent, agent_type
 
@@ -1010,6 +1017,20 @@ def choose_action(agent, obs, agent_type):
         joint_obs = obs_arr.reshape(-1)
         joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
         env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
+        return env_action
+
+    elif agent_type == "dqn":
+        obs_arr = np.asarray(obs, dtype=np.float32)
+
+        if obs_arr.shape[0] != 1:
+            raise ValueError(
+                "DQN playback currently expects exactly 1 drone, "
+                f"but got obs shape {obs_arr.shape}"
+            )
+
+        single_obs = obs_arr[0]
+        action_vec, _, _ = agent.choose_action(single_obs, deterministic=True)
+        env_action = np.asarray(action_vec, dtype=np.float32).reshape(1, -1)
         return env_action
 
     else:
