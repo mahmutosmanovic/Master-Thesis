@@ -23,6 +23,7 @@ from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+
 load_dotenv()
 
 project_root = Path(__file__).resolve().parents[1]
@@ -80,6 +81,7 @@ def _init_agent(config, agent_type, device):
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
+
 def _get_behavior_name(config):
     behavior_raw = str(config.animal.init.behavior)
     return behavior_raw.split("_CFG")[0]
@@ -98,7 +100,6 @@ def _get_train_csv_path(config):
 # =========================
 # CSV LOGGING
 # =========================
-
 def append_csv_row(csv_path, row):
     csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +131,7 @@ def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save
 
 
 def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, spawn_radius):
-    wb.log({
+    payload = {
         "episode/reward_norm": episode_reward_norm,
         "episode/progress": r_stats["episode_progress"],
         "episode/step": step,
@@ -142,13 +143,11 @@ def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, sp
 
         "reward/monitoring": r_stats["r_monitoring"],
         "reward/disturbance_penalty": r_stats["p_disturbance"],
-        "reward/visibility": r_stats["r_vis"],
-        "reward/distance": r_stats["r_dist"],
-        "reward/alignment": r_stats["r_align"],
         "reward/bucket": r_stats["r_bucket"],
 
         "checkpoint/save_count": save_count,
-    }, step=step)
+    }
+    wb.log(payload, step=step)
 
 
 # ====================
@@ -250,13 +249,14 @@ def _has_train_metrics(train_metrics):
         return False
     return any(v is not None for v in train_metrics.values())
 
+
 class spawn_radius_schedule:
     def __init__(self, cooldown, min_radius, step_size):
         self.cooldown = cooldown
         self.min_radius = min_radius
         self.step_size = step_size
         self.counter = 0
-    
+
     def check_cooldown(self):
         if self.counter <= 0:
             return True
@@ -270,6 +270,7 @@ class spawn_radius_schedule:
             return curr - self.step_size
         else:
             return self.min_radius
+
 
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
@@ -299,7 +300,6 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     save_models_frac = 0.5
     total_steps = config.model.sampling.total_timesteps
 
-    # milestone checkpoints: save only once when threshold is first reached
     milestone_thresholds = []
     milestone_saved = {thr: False for thr in milestone_thresholds}
 
@@ -333,17 +333,25 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             episode_reward_norm,
                             stats,
                             r_stats,
-                            save_count
+                            save_count,
                         )
+
                         if use_wandb:
-                            _log_episode_wandb(curr_steps, episode_reward_norm, stats, r_stats, save_count, env.spawn_radius)
+                            _log_episode_wandb(
+                                curr_steps,
+                                episode_reward_norm,
+                                stats,
+                                r_stats,
+                                save_count,
+                                env.spawn_radius,
+                            )
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
                             "mean_dist": f"{r_stats['p_disturbance']:.2f}",
+                            "bucket": f"{r_stats['r_bucket']:.2f}",
                         })
 
-                        # save milestone checkpoints once
                         for thr in milestone_thresholds:
                             if (not milestone_saved[thr]) and (episode_reward_norm >= thr):
                                 tag = str(thr).replace(".", "p")
@@ -352,7 +360,6 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                                 save_count += 1
                                 print(f"[INFO] Saved milestone checkpoint at reward >= {thr:.1f}")
 
-                        # save best as usual, after some fraction of training
                         if (
                             episode_reward_norm > max_rew
                             and curr_steps >= save_models_frac * total_steps
@@ -363,7 +370,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 
                         if args.schedule_spawn:
                             rewards.append(episode_reward_norm)
-                            if srs.check_cooldown() and np.mean(rewards) >= 1.0: # needs tuning
+                            if srs.check_cooldown() and np.mean(rewards) >= 1.0:
                                 env.spawn_radius = srs.step(env.spawn_radius)
 
                         episode_reward = 0.0
