@@ -73,6 +73,9 @@ p_dir_change_scale: 0.02
 track_loss_grace: 50
 not_visible_penalty: 0.1
 
+# alpha
+alpha: 0.5
+
 # Resource model
 resource:
   p_wavelenght: 200

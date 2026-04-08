@@ -165,36 +165,170 @@ class Viewer:
         xmin, xmax, ymin, ymax = self._arena_bounds()
 
         ax.clear()
+
+        # -------------------------
+        # LIGHTER BACKGROUND
+        # -------------------------
+        self.bg_outer = "#ffffff"   # pure white outside
+        self.bg_inner = "#fafafa"   # very light grey inside
+
+        fig.patch.set_facecolor(self.bg_outer)
+        ax.set_facecolor(self.bg_inner)
+
+        # limits
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
         ax.set_aspect("equal")
-        ax.axis("off")
 
-        fig.patch.set_facecolor(self.bg_outer)
-        ax.set_facecolor(self.bg_outer)
+        # remove spines
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
-        ax.add_patch(
-            Rectangle(
-                (xmin, ymin),
-                xmax - xmin,
-                ymax - ymin,
-                facecolor=self.bg_inner,
-                edgecolor="none",
-                zorder=0,
-            )
+        # -------------------------
+        # GRID (always visible)
+        # -------------------------
+        span = max(xmax - xmin, ymax - ymin)
+
+        # adaptive spacing
+        if span < 100:
+            grid_step = 10
+        elif span < 300:
+            grid_step = 25
+        elif span < 800:
+            grid_step = 50
+        else:
+            grid_step = 100
+
+        xticks = np.arange(
+            np.floor(xmin / grid_step) * grid_step,
+            np.ceil(xmax / grid_step) * grid_step + grid_step,
+            grid_step
         )
 
-        ax.add_patch(
-            Rectangle(
-                (xmin, ymin),
-                xmax - xmin,
-                ymax - ymin,
-                facecolor="none",
-                edgecolor=self.border_color,
-                linewidth=1.6,
-                zorder=1,
-            )
+        yticks = np.arange(
+            np.floor(ymin / grid_step) * grid_step,
+            np.ceil(ymax / grid_step) * grid_step + grid_step,
+            grid_step
         )
+
+        ax.set_xticks(xticks)
+        ax.set_yticks(yticks)
+
+        ax.grid(
+            True,
+            linestyle="-",
+            linewidth=0.6,
+            color="#dddddd",
+            alpha=1.0,
+            zorder=0
+        )
+
+        # hide tick labels but KEEP ticks (important!)
+        ax.tick_params(
+            bottom=False,
+            left=False,
+            labelbottom=False,
+            labelleft=False
+        )
+
+        # -------------------------
+        # X AXIS
+        # -------------------------
+        ax.plot(
+            [xmin, xmax],
+            [0, 0],
+            color="#000000",
+            linewidth=1.4,
+            zorder=5
+        )
+
+        ax.annotate(
+            "",
+            xy=(xmax, 0),
+            xytext=(xmax - 0.04*(xmax-xmin), 0),
+            arrowprops=dict(arrowstyle="->", linewidth=1.4),
+            zorder=6
+        )
+
+        ax.text(
+            xmax,
+            0,
+            "  X",
+            fontsize=11,
+            fontweight="bold",
+            zorder=6
+        )
+
+        # -------------------------
+        # Y AXIS
+        # -------------------------
+        ax.plot(
+            [0, 0],
+            [ymin, ymax],
+            color="#000000",
+            linewidth=1.4,
+            zorder=5
+        )
+
+        ax.annotate(
+            "",
+            xy=(0, ymax),
+            xytext=(0, ymax - 0.04*(ymax-ymin)),
+            arrowprops=dict(arrowstyle="->", linewidth=1.4),
+            zorder=6
+        )
+
+        ax.text(
+            0,
+            ymax,
+            "  Y",
+            fontsize=11,
+            fontweight="bold",
+            zorder=6
+        )
+
+        # -------------------------
+        # Z axis symbol (out of plane)
+        # -------------------------
+        ax.scatter(
+            [0], [0],
+            s=110,
+            facecolors="none",
+            edgecolors="black",
+            linewidth=1.4,
+            zorder=7
+        )
+
+        ax.scatter(
+            [0], [0],
+            s=25,
+            color="black",
+            zorder=8
+        )
+
+        ax.text(
+            3,
+            3,
+            "Z",
+            fontsize=11,
+            fontweight="bold",
+            zorder=8
+        )
+
+        # -------------------------
+        # border
+        # -------------------------
+        rect = Rectangle(
+            (xmin, ymin),
+            xmax - xmin,
+            ymax - ymin,
+            facecolor="none",
+            edgecolor="#e0e0e0",
+            linewidth=1.6,
+            zorder=9
+        )
+
+        ax.add_patch(rect)
 
     def _get_motion(self, frame_idx, obj_idx, kind="animals"):
         arr = self.frames[frame_idx][kind]

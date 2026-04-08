@@ -21,24 +21,24 @@ def total_distance(x, z):
 
 
 # ============================================================
-# Monitoring reward - INCREASE distance_sigma for smoother drift
+# Monitoring reward
 # ============================================================
 
-def monitor_reward(x, z, preferred_distance=42.0, distance_sigma=80.0): # Increased from 28 to 80
+def monitor_reward(x, z, preferred_distance=42.0, distance_sigma=80.0):
     d = total_distance(x, z)
     return np.exp(-0.5 * ((d - preferred_distance) / distance_sigma) ** 2)
 
 
 # ============================================================
-# Disturbance parts - INCREASE sharpness for softer edges
+# Disturbance parts
 # ============================================================
 
-def radial_disturbance(x, radial_midpoint=85.0, radial_sharpness=60.0): # Increased from 24 to 60
+def radial_disturbance(x, radial_midpoint=85.0, radial_sharpness=60.0):
     r = np.abs(x)
     return sigmoid(r, midpoint=radial_midpoint, sharpness=radial_sharpness, decreasing=True)
 
 
-def altitude_disturbance(z, altitude_midpoint=55.0, altitude_sharpness=40.0): # Increased from 18 to 40
+def altitude_disturbance(z, altitude_midpoint=55.0, altitude_sharpness=40.0):
     return sigmoid(np.abs(z), midpoint=altitude_midpoint, sharpness=altitude_sharpness, decreasing=True)
 
 
@@ -65,23 +65,69 @@ def raw_disturbance_calc(x, z, angle_weight=1.0):
 
 
 # ============================================================
-# Objective
+# Interpolated objective
 # ============================================================
 
-def interpolate_monitor_disturbance(alpha, monitor, raw_disturbance, X, Z, eps=1e-6):
+def interpolate_monitor_disturbance(alpha, monitor, raw_disturbance, x, z, eps=1e-6):
     alpha = float(np.clip(alpha, 0.0, 1.0))
-    
+
     S = np.clip(1.0 - (raw_disturbance / 2.0), eps, 1.0)
     M = np.clip(monitor, eps, 1.0)
 
     combined = alpha * M + (1.0 - alpha) * S
-    
-    # We increase this bias slightly to 'pull' the max more firmly
-    dist = np.sqrt(X**2 + Z**2)
+
+    dist = np.sqrt(x**2 + z**2)
     return combined - (1e-5 * dist)
 
+
 # ============================================================
-# Grid helpers
+# Env adapters
+# ============================================================
+
+def rel_vec_to_xz(rel_vec):
+    """
+    Convert 3D world relative vector into the 2D geometry expected here:
+      x = horizontal/radial distance
+      z = absolute altitude difference
+    """
+    rel_vec = np.asarray(rel_vec, dtype=float)
+    x = np.sqrt(rel_vec[..., 0] ** 2 + rel_vec[..., 1] ** 2)
+    z = np.abs(rel_vec[..., 2])
+    return x, z
+
+
+def disturbance_gain(rel_vec, drone_vel_dir=None, animal_vel_dir=None, config=None):
+    """
+    Env-compatible disturbance interface.
+    """
+    x, z = rel_vec_to_xz(rel_vec)
+    return float(np.clip(raw_disturbance_calc(x, z), 0.0, 1.0))
+
+
+def animal_axis_gain(dist_vec, animal_vel_dir):
+    """
+    Kept only for compatibility with older code paths.
+    """
+    dist_vec = np.asarray(dist_vec, dtype=float)
+    animal_vel_dir = np.asarray(animal_vel_dir, dtype=float)
+
+    rel_xy = dist_vec[:2]
+    vel_xy = animal_vel_dir[:2]
+
+    rel_norm = np.linalg.norm(rel_xy)
+    vel_norm = np.linalg.norm(vel_xy)
+
+    if rel_norm < 1e-8 or vel_norm < 1e-8:
+        return 0.0
+
+    rel_xy = rel_xy / rel_norm
+    vel_xy = vel_xy / vel_norm
+
+    return float(np.abs(np.clip(np.dot(rel_xy, vel_xy), -1.0, 1.0)))
+
+
+# ============================================================
+# Grid helpers for plotting
 # ============================================================
 
 def build_grid(x_min=-500.0, x_max=500.0, z_min=0.0, z_max=400.0, n_x=700, n_z=450):
@@ -120,58 +166,90 @@ def plot_reward_landscape():
     extent = [x_vals.min(), x_vals.max(), z_vals.min(), z_vals.max()]
 
     # TOP ROW
-    axes[0, 0].imshow(radial_map, extent=extent, origin="lower", aspect="auto", vmin=0.0, vmax=1.0, cmap="magma")
+    im_rad = axes[0, 0].imshow(
+        radial_map, extent=extent, origin="lower", aspect="auto",
+        vmin=0.0, vmax=1.0, cmap="magma"
+    )
     axes[0, 0].set_title("Radial disturbance")
-    
-    axes[0, 1].imshow(altitude_map, extent=extent, origin="lower", aspect="auto", vmin=0.0, vmax=1.0, cmap="magma")
+    fig.colorbar(im_rad, ax=axes[0, 0])
+
+    im_alt = axes[0, 1].imshow(
+        altitude_map, extent=extent, origin="lower", aspect="auto",
+        vmin=0.0, vmax=1.0, cmap="magma"
+    )
     axes[0, 1].set_title("Altitude disturbance")
-    
-    im_angle = axes[0, 2].imshow(angle_map, extent=extent, origin="lower", aspect="auto", vmin=0.0, vmax=1.0, cmap="magma")
-    axes[0, 2].set_title("Raw Angle Badness")
+    fig.colorbar(im_alt, ax=axes[0, 1])
+
+    im_angle = axes[0, 2].imshow(
+        angle_map, extent=extent, origin="lower", aspect="auto",
+        vmin=0.0, vmax=1.0, cmap="magma"
+    )
+    axes[0, 2].set_title("Raw angle badness")
     fig.colorbar(im_angle, ax=axes[0, 2])
 
     # BOTTOM ROW
-    im_raw = axes[1, 0].imshow(raw_dist, extent=extent, origin="lower", aspect="auto", cmap="magma")
-    axes[1, 0].set_title("Raw Disturbance (Rad*Alt*(1+Ang))")
+    im_raw = axes[1, 0].imshow(
+        raw_dist, extent=extent, origin="lower", aspect="auto", cmap="magma"
+    )
+    axes[1, 0].set_title("Raw disturbance (Rad*Alt*(1+Ang))")
     fig.colorbar(im_raw, ax=axes[1, 0])
 
-    im_comb = axes[1, 1].imshow(combined, extent=extent, origin="lower", aspect="auto", cmap="cividis")
+    im_comb = axes[1, 1].imshow(
+        combined, extent=extent, origin="lower", aspect="auto", cmap="cividis"
+    )
     axes[1, 1].set_title(f"Combined objective, alpha = {alpha0:.2f}")
-    
-    max_point, = axes[1, 1].plot(x_max, z_max, marker="o", markersize=8, color="red", linestyle="None")
-    max_text = axes[1, 1].text(0.02, 0.98, 
-                                f"max @ (x={x_max:.1f}, z={z_max:.1f})\n"
-                                f"NORM={norm_max:.1f}m\n"
-                                f"value={f_max:.4f}",
-                                transform=axes[1, 1].transAxes, ha="left", va="top", 
-                                bbox=dict(facecolor="white", alpha=0.8))
 
-    im_mon = axes[1, 2].imshow(monitor, extent=extent, origin="lower", aspect="auto", vmin=0.0, vmax=1.0, cmap="viridis")
+    max_point, = axes[1, 1].plot(
+        x_max, z_max, marker="o", markersize=8, color="red", linestyle="None"
+    )
+    max_text = axes[1, 1].text(
+        0.02, 0.98,
+        f"max @ (x={x_max:.1f}, z={z_max:.1f})\n"
+        f"NORM={norm_max:.1f}m\n"
+        f"value={f_max:.4f}",
+        transform=axes[1, 1].transAxes,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", alpha=0.8)
+    )
+
+    im_mon = axes[1, 2].imshow(
+        monitor, extent=extent, origin="lower", aspect="auto",
+        vmin=0.0, vmax=1.0, cmap="viridis"
+    )
     axes[1, 2].set_title("Monitor reward")
     fig.colorbar(im_mon, ax=axes[1, 2])
 
-    # Slider
     slider_ax = fig.add_axes([0.20, 0.04, 0.60, 0.03])
-    alpha_slider = Slider(ax=slider_ax, label="alpha", valmin=0.01, valmax=0.99, valinit=alpha0)
+    alpha_slider = Slider(
+        ax=slider_ax,
+        label="alpha",
+        valmin=0.01,
+        valmax=0.99,
+        valinit=alpha0
+    )
 
     def update(_):
         alpha = alpha_slider.val
         new_combined = interpolate_monitor_disturbance(alpha, monitor, raw_dist, X, Z)
         im_comb.set_data(new_combined)
         im_comb.set_clim(vmin=np.min(new_combined), vmax=np.max(new_combined))
-        
+
         x_star, z_star, f_star = find_grid_max(X, Z, new_combined)
         norm_star = np.sqrt(x_star**2 + z_star**2)
-        
+
         max_point.set_data([x_star], [z_star])
         axes[1, 1].set_title(f"Combined objective, alpha = {alpha:.2f}")
-        max_text.set_text(f"max @ (x={x_star:.1f}, z={z_star:.1f})\n"
-                          f"NORM={norm_star:.1f}m\n"
-                          f"value={f_star:.4f}")
+        max_text.set_text(
+            f"max @ (x={x_star:.1f}, z={z_star:.1f})\n"
+            f"NORM={norm_star:.1f}m\n"
+            f"value={f_star:.4f}"
+        )
         fig.canvas.draw_idle()
 
     alpha_slider.on_changed(update)
     plt.show()
+
 
 if __name__ == "__main__":
     plot_reward_landscape()
