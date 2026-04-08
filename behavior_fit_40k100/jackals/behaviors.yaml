@@ -59,6 +59,6 @@ LPOI_CFG:
   learning_rate: 0.3
   disturbance_penalty: 1.0
 REPLAY_CFG:
-  manifest_path: ./track_segments/jackals/manifest.parquet
+  manifest_path: ./track_segments/jackals/episodes/all/manifest.parquet
   selection: random
   zero_centered: false

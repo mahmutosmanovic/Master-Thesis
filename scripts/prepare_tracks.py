@@ -254,6 +254,139 @@ def plot_speed_binned(df, plot_dir):
     plt.savefig(plot_dir / "speed_histogram.png", dpi=200)
     plt.close()
 
+def rolling_median_xy(
+        df,
+        x_col="x",
+        y_col="y",
+        segment_col="segment",
+        id_col="tag-local-identifier",
+        window=3,
+    ):
+        out = df.copy()
+        group_cols = [segment_col] if id_col is None else [id_col, segment_col]
+
+        out[x_col] = (
+            out.groupby(group_cols, sort=False)[x_col]
+            .transform(lambda s: s.rolling(window, center=True, min_periods=1).median())
+        )
+        out[y_col] = (
+            out.groupby(group_cols, sort=False)[y_col]
+            .transform(lambda s: s.rolling(window, center=True, min_periods=1).median())
+        )
+        return out
+
+def kalman_filter_xy_segment(
+        g,
+        x_col="x",
+        y_col="y",
+        dt_col="dt_seconds",
+        meas_var=25.0,
+        accel_var=4.0,
+    ):
+        g = g.copy()
+
+        xs = g[x_col].to_numpy(dtype=float)
+        ys = g[y_col].to_numpy(dtype=float)
+        dts = g[dt_col].fillna(0.0).to_numpy(dtype=float)
+
+        n = len(g)
+        if n == 0:
+            return g
+
+        # state = [x, y, vx, vy]
+        state = np.array([xs[0], ys[0], 0.0, 0.0], dtype=float)
+        P = np.diag([meas_var, meas_var, 25.0, 25.0]).astype(float)
+
+        H = np.array([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ], dtype=float)
+
+        R = np.diag([meas_var, meas_var]).astype(float)
+
+        xf = np.zeros(n, dtype=float)
+        yf = np.zeros(n, dtype=float)
+
+        xf[0] = xs[0]
+        yf[0] = ys[0]
+
+        for i in range(1, n):
+            dt = float(dts[i])
+            if not np.isfinite(dt) or dt <= 0:
+                dt = 1.0
+
+            F = np.array([
+                [1.0, 0.0, dt,  0.0],
+                [0.0, 1.0, 0.0, dt ],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ], dtype=float)
+
+            q = accel_var
+            dt2 = dt * dt
+            dt3 = dt2 * dt
+            dt4 = dt2 * dt2
+
+            Q1 = np.array([
+                [dt4 / 4.0, dt3 / 2.0],
+                [dt3 / 2.0, dt2],
+            ], dtype=float) * q
+
+            Q = np.array([
+                [Q1[0, 0], 0.0,      Q1[0, 1], 0.0     ],
+                [0.0,      Q1[0, 0], 0.0,      Q1[0, 1]],
+                [Q1[1, 0], 0.0,      Q1[1, 1], 0.0     ],
+                [0.0,      Q1[1, 0], 0.0,      Q1[1, 1]],
+            ], dtype=float)
+
+            # predict
+            state = F @ state
+            P = F @ P @ F.T + Q
+
+            # update
+            z = np.array([xs[i], ys[i]], dtype=float)
+            y = z - H @ state
+            S = H @ P @ H.T + R
+            K = P @ H.T @ np.linalg.inv(S)
+
+            state = state + K @ y
+            P = (np.eye(4) - K @ H) @ P
+
+            xf[i] = state[0]
+            yf[i] = state[1]
+
+        g[x_col] = xf
+        g[y_col] = yf
+        return g
+
+def kalman_filter_xy(
+        df,
+        x_col="x",
+        y_col="y",
+        dt_col="dt_seconds",
+        segment_col="segment",
+        id_col="tag-local-identifier",
+        meas_var=25.0,
+        accel_var=4.0,
+    ):
+        out = df.copy()
+        group_cols = [segment_col] if id_col is None else [id_col, segment_col]
+
+        parts = []
+        for _, g in out.groupby(group_cols, sort=False):
+            parts.append(
+                kalman_filter_xy_segment(
+                    g,
+                    x_col=x_col,
+                    y_col=y_col,
+                    dt_col=dt_col,
+                    meas_var=meas_var,
+                    accel_var=accel_var,
+                )
+            )
+
+        return pd.concat(parts, axis=0).sort_index()
+
 def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_segments/jackals"):
     print("--- Preparing gps tracks for jackals ---")
 
@@ -268,6 +401,9 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_se
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
     df = segments_from_dt(df, max_gap=20, id_col="TAG")
+
+    df = rolling_median_xy(df, x_col="x", y_col="y", segment_col="segment", id_col="TAG", window=3)
+    df = kalman_filter_xy(df, x_col="x", y_col="y", dt_col="dt_seconds", segment_col="segment", id_col="TAG", meas_var=50.0, accel_var=3.0)
 
     df = add_step_metrics(df, group_cols=["TAG", "segment"])
     df = split_segments_on_motion(df, id_col="TAG", segment_col="segment", max_speed=20)
@@ -298,7 +434,10 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = transform_df_to_utm(df)
     df = dt_from_datetime(df)
     df = segments_from_dt(df, max_gap=20)
-    
+
+    df = rolling_median_xy(df, window=3)
+    df = kalman_filter_xy(df, dt_col="dt_seconds", meas_var=50.0, accel_var=8.0)
+
     df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
     df = split_segments_on_motion(df, id_col="tag-local-identifier", segment_col="segment", max_speed=100)
 

@@ -1,7 +1,7 @@
 # Environment
 dt: 0.1
 max_episode_steps: 2048
-behavior_cfg: config
+behavior_cfg: behavior_fit_40k100/pigeons
 
 # Model
 model:
@@ -54,7 +54,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 12
-    behavior: POI_CFG
+    behavior: LPOI_CFG
     movement_dim: TWO_D
     max_spawn_radius: 400
 

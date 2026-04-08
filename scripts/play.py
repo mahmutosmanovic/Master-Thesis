@@ -16,8 +16,9 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from environment import Env
 from model import PPOAgent, MAPPOAgent, SACAgent
+from .centroid import CentroidStandoff
+from config import load_config
 from .run_utils import load_run
-
 
 def _normalize(v):
     v = np.asarray(v, dtype=float)
@@ -117,7 +118,6 @@ def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
 
     return segs
 
-
 class PaperViewer:
     def __init__(self, config, run_name="run", seed=99):
         self.config = config
@@ -207,10 +207,11 @@ class PaperViewer:
 
         if fov is not None and len(animals) > 0:
             try:
-                animal_obs = fov[:, 4:].reshape(
+                drone_feat_dim = int(self.config.model.space.drone_features)
+                animal_obs = fov[:, drone_feat_dim:].reshape(
                     len(drones),
                     len(animals),
-                    self.config.model.space.animal_features
+                    self.config.model.space.animal_features,
                 )
                 visible = np.any(animal_obs[:, :, 0] == 1.0, axis=0)
             except Exception:
@@ -646,9 +647,6 @@ class PaperViewer:
         p3 = pos + d2 * size
         p4 = pos - d2 * size
 
-        angle_deg = _heading_angle_deg(f)
-
-        # drone shadow on ground, like the 2D version
         shadow_pts = self._ellipse_points_3d(
             np.array([pos[0] + 6.0, pos[1] - 6.0, 0.0], dtype=float),
             f,
@@ -950,7 +948,6 @@ class PaperViewer:
         self.recording = False
         self.frames = []
 
-
 def init_agent(config, run_dir, weight_type="best"):
     agent_type = config.agent_type
 
@@ -992,7 +989,7 @@ def init_agent(config, run_dir, weight_type="best"):
     return agent, agent_type
 
 
-def choose_action(agent, obs, agent_type):
+def choose_action_agent(agent, obs, agent_type):
     if agent_type == "ppo":
         actions = []
         for drone_obs in obs:
@@ -1000,43 +997,32 @@ def choose_action(agent, obs, agent_type):
             actions.append(action)
         return np.array(actions, dtype=np.float32)
 
-    elif agent_type == "mappo":
+    if agent_type == "mappo":
         with torch.no_grad():
             actions, _, _ = agent.choose_actions(obs, deterministic=True)
         return np.asarray(actions, dtype=np.float32)
 
-    elif agent_type == "sac":
+    if agent_type == "sac":
         obs_arr = np.asarray(obs, dtype=np.float32)
         joint_obs = obs_arr.reshape(-1)
         joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
         env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
         return env_action
 
-    else:
-        raise ValueError(agent_type)
+    raise ValueError(agent_type)
 
-
-def main(config, run_dir, seed, model_type="best"):
-    config = Box(config)
-
-    env = Env(config, render_mode="human", seed=seed)
-    obs, info = env.reset()
-
-    run_name = Path(run_dir).name
-    paper_viewer = PaperViewer(config, run_name=run_name, seed=seed)
-
+def _make_output_dir(tag, seed):
     repo_root = Path(__file__).resolve().parent.parent
     recordings_dir = repo_root / "recordings"
     recordings_dir.mkdir(exist_ok=True)
 
     stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-    out_dir = recordings_dir / f"{run_name}_seed{seed}_{stamp}"
-    paper_viewer.set_output_dir(out_dir)
+    out_dir = recordings_dir / f"{tag}_seed{seed}_{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
-    env.viewer = paper_viewer
-
-    agent, agent_type = init_agent(config, run_dir, model_type)
-    print(f"Loaded agent type: {agent_type}")
+def rollout(env, action_fn):
+    obs, info = env.reset()
 
     terminated = False
     truncated = False
@@ -1045,7 +1031,7 @@ def main(config, run_dir, seed, model_type="best"):
 
     while not (terminated or truncated):
         with torch.no_grad():
-            action = choose_action(agent, obs, agent_type)
+            action = action_fn(obs)
 
         obs, reward, terminated, truncated, info = env.step(action)
 
@@ -1053,7 +1039,26 @@ def main(config, run_dir, seed, model_type="best"):
         episode_reward += float(reward)
         env.viewer.log_step_metrics(reward, info)
 
-    norm_reward = episode_reward / config.max_episode_steps
+    norm_reward = episode_reward / env.config.max_episode_steps
+    return norm_reward, step_count
+
+def main_agent(config, run_dir, seed, model_type="best"):
+    config = Box(config)
+
+    env = Env(config, render_mode="human", seed=seed)
+    run_name = Path(run_dir).name
+    paper_viewer = PaperViewer(config, run_name=run_name, seed=seed)
+    out_dir = _make_output_dir(run_name, seed)
+    paper_viewer.set_output_dir(out_dir)
+    env.viewer = paper_viewer
+
+    agent, agent_type = init_agent(config, run_dir, model_type)
+    print(f"Loaded agent type: {agent_type}")
+
+    norm_reward, step_count = rollout(
+        env,
+        action_fn=lambda obs: choose_action_agent(agent, obs, agent_type),
+    )
 
     print(f"Episode finished in {step_count} steps")
     print(f"Normalized Reward: {norm_reward:.4f}")
@@ -1061,15 +1066,55 @@ def main(config, run_dir, seed, model_type="best"):
 
     env.viewer.close()
 
+def main_centroid(config_name, seed):
+    cfg = load_config(config_name)
+    config = Box(cfg)
+    config.model.space.action_type = "rel"
+
+    env = Env(config, render_mode="human", seed=seed)
+    tag = f"centroid_{config_name}"
+    paper_viewer = PaperViewer(config, run_name=tag, seed=seed)
+    out_dir = _make_output_dir(tag, seed)
+    paper_viewer.set_output_dir(out_dir)
+    env.viewer = paper_viewer
+
+    policy = CentroidStandoff(config)
+    print("Loaded policy type: centroid_standoff_rel")
+
+    norm_reward, step_count = rollout(
+        env,
+        action_fn=lambda obs: policy.act(obs),
+    )
+
+    print(f"Episode finished in {step_count} steps")
+    print(f"Normalized Reward: {norm_reward:.4f}")
+    print(f"Artifacts saved in: {out_dir}")
+
+    env.viewer.close()
 
 def _init_argparse():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        "--mode",
+        type=str,
+        default="agent",
+        choices=["agent", "centroid"],
+        help="agent = load a trained run, centroid = run the centroid baseline directly",
+    )
+
+    parser.add_argument(
         "--run",
         type=str,
-        required=True,
-        help="Run folder name or 'latest'",
+        default=None,
+        help="Run folder name or 'latest' (agent mode only)",
+    )
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="train",
+        help="Config name inside config/ folder (centroid mode only)",
     )
 
     parser.add_argument(
@@ -1083,13 +1128,22 @@ def _init_argparse():
         "--weights",
         type=str,
         default="best",
-        help="best or latest weights",
+        help="best or latest weights (agent mode only)",
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.mode == "agent" and not args.run:
+        parser.error("--run is required when --mode agent")
+
+    return args
 
 
 if __name__ == "__main__":
     args = _init_argparse()
-    cfg, run_dir = load_run(args.run)
-    main(cfg, run_dir, seed=args.seed, model_type=args.weights)
+
+    if args.mode == "agent":
+        cfg, run_dir = load_run(args.run)
+        main_agent(cfg, run_dir, seed=args.seed, model_type=args.weights)
+    else:
+        main_centroid(args.config, seed=args.seed)

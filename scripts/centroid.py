@@ -6,11 +6,9 @@ from box import Box
 from environment import Env
 from config import load_config
 
-
 def build_drone_specs(config_box):
     specs = []
 
-    # Must match Env ordering exactly
     for drone_type in config_box.drone:
         drone_config = config_box.drone[drone_type]
         count = int(drone_config.count)
@@ -25,83 +23,34 @@ def build_drone_specs(config_box):
 
     return specs
 
-
 class CentroidStandoff:
     def __init__(
         self,
         config,
-        target_range_ratio=0.3,
-        target_altitude_ratio=0.5,
-        xy_gain=1.6,
-        z_gain=0.5,
-        theta_gain=0.4,
+        target_range_ratio=0.5,
+        target_altitude_ratio=0.3,
+        forward_gain=1.6,
+        up_gain=1.1,
+        theta_gain=0.6,
         search_theta=0.25,
-        xy_deadband=0.01,
-        z_deadband=0.01,
-        theta_deadband=0.05,
+        search_forward=0.0,
         max_speed_norm=1.0,
-        search_turn_only=True,
     ):
         self.config = config
 
         self.target_range_ratio = target_range_ratio
         self.target_altitude_ratio = target_altitude_ratio
 
-        self.xy_gain = xy_gain
-        self.z_gain = z_gain
+        self.forward_gain = forward_gain
+        self.up_gain = up_gain
         self.theta_gain = theta_gain
         self.search_theta = search_theta
-
-        self.xy_deadband = xy_deadband
-        self.z_deadband = z_deadband
-        self.theta_deadband = theta_deadband
+        self.search_forward = search_forward
 
         self.max_speed_norm = max_speed_norm
-        self.search_turn_only = search_turn_only
 
         self.drone_specs = build_drone_specs(self.config)
         self.drone_count = len(self.drone_specs)
-
-    def _unit(self, v, eps=1e-8):
-        v = np.asarray(v, dtype=np.float32)
-        n = np.linalg.norm(v)
-        if n < eps:
-            return np.zeros_like(v, dtype=np.float32)
-        return (v / n).astype(np.float32)
-
-    def _camera_basis_from_view_dir(self, view_dir):
-        world_z = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-
-        x = self._unit(view_dir)
-        if np.linalg.norm(x) < 1e-6:
-            x = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-
-        y = np.cross(world_z, x)
-        if np.linalg.norm(y) < 1e-6:
-            # view_dir nearly parallel to world_z
-            fallback = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-            if abs(np.dot(x, fallback)) > 0.95:
-                fallback = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-            y = np.cross(fallback, x)
-
-        y = self._unit(y)
-        z = self._unit(np.cross(x, y))
-
-        return x, y, z
-
-    def _cam_vector_from_angles(self, h_angle, v_angle):
-        th = np.tan(h_angle)
-        tv = np.tan(v_angle)
-
-        cx = 1.0 / np.sqrt(1.0 + th * th + tv * tv)
-        cy = th * cx
-        cz = tv * cx
-        return np.array([cx, cy, cz], dtype=np.float32)
-
-    def _p_control(self, error_norm, gain, deadband):
-        if abs(error_norm) < deadband:
-            return 0.0
-        return float(np.clip(gain * error_norm, -1.0, 1.0))
 
     def _make_motion_command(self, move_vec):
         move_vec = np.asarray(move_vec, dtype=np.float32)
@@ -109,22 +58,27 @@ class CentroidStandoff:
 
         if move_mag < 1e-6:
             move_dir = np.zeros(3, dtype=np.float32)
-            norm_speed = 0.0
+            norm_speed = -1.0
         else:
-            move_dir = (move_vec / move_mag).astype(np.float32)
-            norm_speed = float(np.clip(move_mag, 0.0, self.max_speed_norm))
+            move_dir = (move_vec / (move_mag + 1e-8)).astype(np.float32)
 
-        return move_dir, norm_speed
+            speed_frac = float(np.clip(move_mag, 0.0, self.max_speed_norm))
+            speed_frac = speed_frac / max(self.max_speed_norm, 1e-8)   # 0..1
+            norm_speed = 2.0 * speed_frac - 1.0                        # -> -1..1
 
-    def _safe_xy_direction(self, vec_xy, fallback_xy):
-        vec_xy = np.asarray(vec_xy, dtype=np.float32)
-        n = np.linalg.norm(vec_xy)
-        if n < 1e-6:
-            fb = self._unit(fallback_xy)
-            if np.linalg.norm(fb) < 1e-6:
-                fb = np.array([1.0, 0.0], dtype=np.float32)
-            return fb
-        return (vec_xy / n).astype(np.float32)
+        return move_dir, float(np.clip(norm_speed, -1.0, 1.0))
+
+    def _soft_zone(self, x, width):
+        x = float(x)
+        width = max(float(width), 1e-8)
+
+        # Smoothly suppress tiny errors, preserve larger ones.
+        scale = 1.0 - np.exp(- (abs(x) / width) ** 2)
+        return float(x * scale)
+    
+    def _p_control(self, error, gain, soft_zone=0.0):
+        e = self._soft_zone(error, soft_zone) if soft_zone > 0.0 else float(error)
+        return float(np.clip(gain * e, -1.0, 1.0))
 
     def act(self, observations):
         n_actions = self.config.model.space.n_actions
@@ -138,8 +92,6 @@ class CentroidStandoff:
             drone = self.drone_specs[d]
             max_altitude = float(drone["max_altitude"])
             view_range = float(drone["view_range"])
-            ver_angle = float(drone["ver_angle"])
-            hor_angle = float(drone["hor_angle"])
 
             obs_d = observations[d]
 
@@ -147,7 +99,6 @@ class CentroidStandoff:
             drone_features = obs_d[:d_feats]
             animal_obs = obs_d[d_feats:d_feats + n_a * a_feats].reshape(n_a, a_feats)
 
-            view_dir = np.asarray(drone_features[:3], dtype=np.float32)
             altitude_norm = float(drone_features[3])
             current_altitude = altitude_norm * (max_altitude + 1e-8)
 
@@ -155,23 +106,20 @@ class CentroidStandoff:
             is_target = animal_obs[:, 7] > 0.5
             visible_idx = np.where(in_view & is_target)[0]
 
-            x, y, z = self._camera_basis_from_view_dir(view_dir)
-
-            # --- altitude hold ---
-            target_altitude = self.target_altitude_ratio * max_altitude
-            z_error_norm = (target_altitude - current_altitude) / max(max_altitude, 1e-6)
-            z_cmd = self._p_control(z_error_norm, self.z_gain, self.z_deadband)
-
             # ------------------------------------------------------------------
             # SEARCH MODE: no visible target
-            # Rotate in place. Only move vertically if altitude needs correction.
+            # Keep search simple: optional forward drift + altitude hold + yaw scan.
             # ------------------------------------------------------------------
             if len(visible_idx) == 0:
-                if self.search_turn_only:
-                    move_vec = np.array([0.0, 0.0, z_cmd], dtype=np.float32)
-                else:
-                    # Optional: slow forward search if you ever want it
-                    move_vec = np.array([0.15, 0.0, z_cmd], dtype=np.float32)
+                target_altitude = self.target_altitude_ratio * max_altitude
+                altitude_error_norm = (target_altitude - current_altitude) / max(max_altitude, 1e-6)
+                up_cmd = self._p_control(altitude_error_norm, self.up_gain)
+
+                move_vec = np.array([
+                    self.search_forward,
+                    0.0,
+                    up_cmd,
+                ], dtype=np.float32)
 
                 move_dir, norm_speed = self._make_motion_command(move_vec)
 
@@ -186,64 +134,31 @@ class CentroidStandoff:
 
             # ------------------------------------------------------------------
             # TRACKING MODE
+            # Minimal rel policy:
+            # - distance controls forward
+            # - h controls right + yaw
+            # - v controls up
             # ------------------------------------------------------------------
-            rel_vecs = []
-            h_norms = []
+            rows = animal_obs[visible_idx]
 
-            v_max = np.deg2rad(ver_angle / 2.0)
-            h_max = np.deg2rad(hor_angle / 2.0)
+            dist_center = float(np.mean(rows[:, 1]))
+            v_center = float(np.mean(rows[:, 2]))
+            h_center = float(np.mean(rows[:, 3]))
 
-            for a in visible_idx:
-                row = animal_obs[a]
+            target_dist_norm = float(np.clip(self.target_range_ratio, 0.0, 1.0))
+            forward_error = dist_center - target_dist_norm
 
-                dist_norm = float(row[1])
-                v_norm = float(row[2])
-                h_norm = float(row[3])
+            forward_cmd = self._p_control(forward_error, self.forward_gain, 0.01)
+            up_cmd = self._p_control(v_center, self.up_gain, 0.01)
+            theta_cmd = self._p_control(h_center, self.theta_gain, 0.01)
 
-                distance = dist_norm * view_range
-                v_angle = v_norm * v_max
-                h_angle = h_norm * h_max
-
-                cam_vector = self._cam_vector_from_angles(h_angle, v_angle)
-                world_vec = cam_vector[0] * x + cam_vector[1] * y + cam_vector[2] * z
-                world_vec = self._unit(world_vec)
-
-                rel_vec = distance * world_vec
-                rel_vecs.append(rel_vec)
-                h_norms.append(h_norm)
-
-            if len(rel_vecs) == 0:
-                # Defensive fallback: hover + no yaw
-                actions[d] = np.zeros(n_actions, dtype=np.float32)
-                continue
-
-            rel_vecs = np.asarray(rel_vecs, dtype=np.float32)
-            rel_centroid = rel_vecs.mean(axis=0)
-
-            centroid_xy = rel_centroid[:2]
-            centroid_xy_norm = float(np.linalg.norm(centroid_xy))
-
-            # Desired horizontal standoff
-            target_range = self.target_range_ratio * view_range
-            xy_error_norm = (centroid_xy_norm - target_range) / max(view_range, 1e-6)
-            xy_cmd = self._p_control(xy_error_norm, self.xy_gain, self.xy_deadband)
-
-            # If centroid_xy is almost zero, pick a stable fallback horizontal direction
-            forward_xy = x[:2]
-            dir_to_centroid_xy = self._safe_xy_direction(centroid_xy, fallback_xy=forward_xy)
-
-            # Translation vector in world frame
             move_vec = np.array([
-                xy_cmd * dir_to_centroid_xy[0],
-                xy_cmd * dir_to_centroid_xy[1],
-                z_cmd,
+                forward_cmd,
+                0.0,
+                up_cmd,
             ], dtype=np.float32)
 
             move_dir, norm_speed = self._make_motion_command(move_vec)
-
-            # Yaw control from image horizontal offset
-            h_center = float(np.mean(h_norms)) if len(h_norms) > 0 else 0.0
-            theta_cmd = self._p_control(h_center, self.theta_gain, self.theta_deadband)
 
             actions[d] = np.array([
                 move_dir[0],
@@ -254,7 +169,6 @@ class CentroidStandoff:
             ], dtype=np.float32)
 
         return actions
-
 
 def run_episode(env, policy, seed):
     obs, info = env.reset(seed)
@@ -276,19 +190,15 @@ def run_episode(env, policy, seed):
     stats = env.get_behavior_stats()
     return norm_reward, step_count, stats
 
-
 GRID = {
-    "target_range_ratio":    [0.2, 0.3, 0.4, 0.5, 0.6],
-    "target_altitude_ratio": [0.2, 0.3, 0.4, 0.5, 0.6],
-    "xy_gain":               [0.8, 1.2, 1.6],
-    "z_gain":                [0.5, 0.8, 1.1],
-    "theta_gain":            [0.4],
+    "target_range_ratio":    [0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+    "target_altitude_ratio": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+    "forward_gain":          [1.6],
+    "up_gain":               [1.1],
+    "theta_gain":            [0.6],
     "search_theta":          [0.25],
-    "xy_deadband":           [0.02],
-    "z_deadband":            [0.02],
-    "theta_deadband":        [0.03],
+    "search_forward":        [0.0],
 }
-
 
 def evaluate_params(env, params, seeds):
     rewards = []
@@ -300,7 +210,6 @@ def evaluate_params(env, params, seeds):
 
     rewards = np.asarray(rewards, dtype=np.float32)
     return np.mean(rewards), np.std(rewards), rewards.tolist()
-
 
 def grid_search(config_box, args):
     env = Env(config_box, render_mode=None)
@@ -360,7 +269,6 @@ def grid_search(config_box, args):
         except Exception:
             pass
 
-
 def run_single(config_box, seed):
     env = Env(config_box, render_mode="human")
 
@@ -373,11 +281,6 @@ def run_single(config_box, seed):
 
     if hasattr(env, "viewer") and env.viewer is not None:
         env.viewer.close()
-
-
-# -------------------------
-# CLI
-# -------------------------
 
 def _init_argparse():
     parser = argparse.ArgumentParser()
@@ -425,7 +328,7 @@ if __name__ == "__main__":
 
     cfg = load_config(args.config)
     config_box = Box(cfg)
-    config_box.model.space.action_type = "abs"
+    config_box.model.space.action_type = "rel"
 
     if args.mode == "run":
         run_single(config_box, seed=args.seed)

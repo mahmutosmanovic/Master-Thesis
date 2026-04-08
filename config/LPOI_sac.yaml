@@ -27,7 +27,7 @@ model:
     entropy_end_coef: 0.001
 
   sampling:
-    total_timesteps: 1_000_000
+    total_timesteps: 800_000
     rollout_steps: 8192
     mini_batch_size: 256
     n_epochs: 4
@@ -62,7 +62,7 @@ animal:
 XY_scale: 80
 Z_scale: 60
 w_angle: 1.0
-w_axis: 1.0
+w_axis: 0.2
 w_heading: 1.0
 
 D_R_scale: 0.55 # Disturbance reward tradeoff

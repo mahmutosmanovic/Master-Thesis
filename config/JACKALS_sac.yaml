@@ -1,7 +1,7 @@
 # Environment
 dt: 0.1
 max_episode_steps: 2048
-behavior_cfg: config
+behavior_cfg: behavior_fit_40k100/jackals
 
 # Model
 model:
@@ -27,7 +27,7 @@ model:
     entropy_end_coef: 0.001
 
   sampling:
-    total_timesteps: 2_000_000
+    total_timesteps: 800_000
     rollout_steps: 8192
     mini_batch_size: 256
     n_epochs: 4
@@ -54,7 +54,7 @@ animal:
   init:
     min_speed: 0
     max_speed: 12
-    behavior: POI_CFG
+    behavior: CRW_CFG
     movement_dim: TWO_D
     max_spawn_radius: 400
 

@@ -501,7 +501,7 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
 
             temp_action_type = env.config.model.space.action_type
             try:
-                env.config.model.space.action_type = "abs"
+                env.config.model.space.action_type = "rel"
 
                 for seed in seeds:
                     base_r = run_episode(
