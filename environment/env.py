@@ -768,6 +768,8 @@ class Env:
 
         r_bucket = self._bucket_balance_score()
 
+        smoothness_penalty = 3*p_vel + 2*p_theta + 1*p_dir_change
+
         frac_visible = visible_target.sum() / self.drone_count
         
         # bonus scaling by number of drones that lost their target
@@ -775,7 +777,7 @@ class Env:
 
         monitor_reward = (
             0.85 * r_dist +
-            0.85 * r_align +
+            # 0.85 * r_align +
             0.65 * r_cover +
             visible_bonus
         )
@@ -783,9 +785,7 @@ class Env:
         final_reward = (
             monitor_reward
             - disturbance_penalty
-            - p_vel
-            - p_theta
-            - p_dir_change
+            - smoothness_penalty
         )
 
         # penalty scaling by number of drones that lost their target
@@ -798,7 +798,7 @@ class Env:
         self.reward_stats["r_align"] += r_align
         self.reward_stats["r_bucket"] += r_bucket
 
-        n_div = 2.40
+        n_div = 1.55
         if self.enable_step_logging:
             behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
             for animal in self.animals:
