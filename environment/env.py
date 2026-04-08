@@ -1066,13 +1066,13 @@ class Env:
                 speed_frac = drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)
                 hover_r = self._hover_bonus(center_r, margin_r, speed_frac)
 
-                bonus = np.clip(
-                    smart["margin_reward_scale"] * margin_r
-                    + smart["center_reward_scale"] * center_r
-                    + smart["hover_bonus_scale"] * hover_r,
-                    0.0,
-                    1.0,
-                )
+                # bonus = np.clip(
+                #     smart["margin_reward_scale"] * margin_r
+                #     + smart["center_reward_scale"] * center_r
+                #     + smart["hover_bonus_scale"] * hover_r,
+                #     0.0,
+                #     1.0,
+                # )
 
                 penalty = np.clip(
                     smart["closing_penalty_scale"] * closing_p
@@ -1083,8 +1083,8 @@ class Env:
                     1.0,
                 )
 
-                shaped = interp + (1.0 - interp) * bonus - interp * penalty
-                shaped = float(np.clip(shaped, 0.0, 1.0))
+                shaped = interp * (1.0 - penalty)
+                shaped = float(np.clip(shaped, 0.0, 1.0)) 
 
                 pure_monitor_terms.append(mon)
                 interpolated_terms.append(shaped)
