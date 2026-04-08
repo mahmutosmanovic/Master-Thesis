@@ -10,11 +10,17 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from matplotlib.lines import Line2D
-from environment import horizontal_gain, altitude_gain, angle_gain, truncate_colormap
+from environment import raw_disturbance_calc
 
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap
+
+def truncate_colormap(cmap_name="jet", minval=0.15, maxval=1.0, n=256):
+    cmap = plt.get_cmap(cmap_name)
+    new_cmap = LinearSegmentedColormap.from_list(
+        f"trunc_{cmap_name}",
+        cmap(np.linspace(minval, maxval, n))
+    )
+    return new_cmap
 
 def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cmap="Greys", title="Unspecified"):
     csv_path = Path(csv_path)
@@ -36,13 +42,9 @@ def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cma
 
     for i in range(R.shape[0]):
         for j in range(R.shape[1]):
-            dist_vec = (R[i, j], 0.0, Z[i, j])
-
-            g_h = horizontal_gain(dist_vec)
-            g_v = altitude_gain(dist_vec)
-            g_a = angle_gain(dist_vec)
-
-            G[i, j] = (g_h * g_v + g_a) / 2.0
+            x = float(R[i, j])
+            z = float(Z[i, j])
+            G[i, j] = raw_disturbance_calc(x, z)
 
     # normalize disturbance
     G = (G - G.min()) / (G.max() - G.min() + 1e-8)
