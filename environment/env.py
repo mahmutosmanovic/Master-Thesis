@@ -780,12 +780,15 @@ class Env:
             visible_bonus
         )
 
+        a = self.config.alpha
+        task_reward = (1-a)*
+
         final_reward = (
             monitor_reward
             - disturbance_penalty
-            - p_vel
-            - p_theta
-            - p_dir_change
+            # - p_vel
+            # - p_theta
+            # - p_dir_change
         )
 
         # penalty scaling by number of drones that lost their target
