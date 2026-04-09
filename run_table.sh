@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# configs=("CRW" "EE" "POI" "LPOI")
-configs=("JACKALS" "JACKALS_SIM")
-agents=("sac")
+configs=("CRW" "EE" "POI" "LPOI")
+# configs=("JACKALS" "JACKALS_SIM")
+agents=("sac" "ppo")
 max_jobs=2
 
 mkdir -p table
