@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # configs=("CRW" "EE" "POI" "LPOI")
-configs=("JACKALS" "PIGEONS" "SPUR")
+configs=("JACKALS" "JACKALS_SIM")
 agents=("sac")
 max_jobs=2
 

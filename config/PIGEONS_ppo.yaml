@@ -1,7 +1,7 @@
 # Environment
 dt: 0.1
 max_episode_steps: 2048
-behavior_cfg: behavior_fit_40k100/pigeons
+behavior_cfg: behaviors_t4/pigeons_km_sm
 
 # Model
 model:
@@ -41,7 +41,7 @@ drone:
     view_range: 200
     max_cam_rot: 90
     min_speed: 0
-    max_speed: 25
+    max_speed: 45
     max_altitude: 150
     spawn_dist: [70, 90]
     view_dir: [1, 0, -0.7]

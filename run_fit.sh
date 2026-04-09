@@ -13,7 +13,7 @@ poi_inferences=(
 
 for animal in "${manifests[@]}"; do
   for poi_inf in "${poi_inferences[@]}"; do
-    outdir="./behaviors_t3/${animal}_${poi_inf}"
+    outdir="./behaviors_t4/${animal}_${poi_inf}"
 
     case "$animal" in
       pigeons)
@@ -40,7 +40,7 @@ for animal in "${manifests[@]}"; do
     echo "Running: animal=$animal poi_inference=$poi_inf outdir=$outdir"
 
     python -m scripts.gps_fit \
-      --manifest "./track_segments/${animal}/manifest.parquet" \
+      --manifest "./track_segments/${animal}/full/manifest.parquet" \
       --outdir "$outdir" \
       --poi_inference "$poi_inf" \
       --n_steps 20000 \

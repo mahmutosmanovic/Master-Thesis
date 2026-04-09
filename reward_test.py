@@ -93,7 +93,7 @@ def low_disturbance_utility_grid(X,Z,animal_vel_dir,R,Z_scale,w_angle,w_axis):
 
     # Axis pushes preferred stand-off outward
     s = (
-        (radial_distance / max(R, 1e-9)) * (1.0 + w_axis * axis_eff) +
+        (radial_distance / max(R, 1e-9)) +
         z_distance / max(Z_scale, 1e-9)
     )
 

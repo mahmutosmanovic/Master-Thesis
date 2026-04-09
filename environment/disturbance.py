@@ -34,7 +34,7 @@ def disturbance_gain(dist_vec, drone_vel_dir, animal_vel_dir, config):
 
     # Axis pushes preferred stand-off outward
     s = (
-        (radial_distance / max(config.XY_scale, 1e-9)) * (1.0 + config.w_axis * axis_eff) +
+        (radial_distance / max(config.XY_scale, 1e-9)) +
         z_abs / max(config.Z_scale, 1e-9)
     )
     utility_base = 1.0 - np.exp(-s)
