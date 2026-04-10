@@ -57,7 +57,7 @@ animal:
     max_speed: 12
     behavior: EE_CFG
     movement_dim: TWO_D
-    max_spawn_radius: 400S
+    max_spawn_radius: 400
 
 # Disturbance/reward modelS
 XY_scale: 80

@@ -59,6 +59,6 @@ LPOI_CFG:
   learning_rate: 0.3
   disturbance_penalty: 1.0
 REPLAY_CFG:
-  manifest_path: ./track_segments/pigeons/episodes/train/manifest.parquet
+  manifest_path: ./track_segments/pigeons/episodes/test/manifest.parquet
   selection: random
   zero_centered: false

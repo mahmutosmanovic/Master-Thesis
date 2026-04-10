@@ -70,6 +70,6 @@ LPOI_CFG:
     bias_gain: 0.0
 
 REPLAY_CFG:
-  manifest_path: track_segments/jackals/manifest.parquet
+  manifest_path: track_segments/jackals/episodes/all/manifest.parquet
   selection: random
   zero_centered: True

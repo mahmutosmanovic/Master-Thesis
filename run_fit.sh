@@ -43,7 +43,7 @@ for animal in "${manifests[@]}"; do
       --manifest "./track_segments/${animal}/full/manifest.parquet" \
       --outdir "$outdir" \
       --poi_inference "$poi_inf" \
-      --n_steps 20000 \
+      --n_steps 50000 \
       --n_seeds 20 \
       --poi_arrive_dist "$arrive_dist" \
       --poi_bias_gain "$bias_gain" \

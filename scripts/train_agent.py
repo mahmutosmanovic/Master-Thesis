@@ -7,8 +7,9 @@ from environment import Env
 
 # model
 from model import PPOAgent
-from model import MAPPOAgent
 from model import SACAgent
+from model import DQNAgent
+from model import MAPPOAgent
 
 # standard modules
 import os
@@ -20,9 +21,10 @@ import wandb as wb
 from box import Box
 from tqdm import tqdm
 from pathlib import Path
+from collections import deque
 from datetime import datetime
 from dotenv import load_dotenv
-from collections import deque
+
 load_dotenv()
 
 project_root = Path(__file__).resolve().parents[1]
@@ -75,6 +77,8 @@ def _init_agent(config, agent_type, device):
         return MAPPOAgent(config, device)
     elif agent_type == "sac":
         return SACAgent(config, device)
+    elif agent_type == "dqn":
+        return DQNAgent(config, device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -97,7 +101,6 @@ def _get_train_csv_path(config):
 # =========================
 # CSV LOGGING
 # =========================
-
 def append_csv_row(csv_path, row):
     csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +132,7 @@ def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save
 
 
 def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, spawn_radius):
-    wb.log({
+    payload = {
         "episode/reward_norm": episode_reward_norm,
         "episode/progress": r_stats["episode_progress"],
         "episode/step": step,
@@ -147,7 +150,8 @@ def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, sp
         "reward/bucket": r_stats["r_bucket"],
 
         "checkpoint/save_count": save_count,
-    }, step=step)
+    }
+    wb.log(payload, step=step)
 
 
 # ====================
@@ -206,6 +210,22 @@ def agent_env_step(agent, env, obs, agent_type):
 
         agent.remember(joint_obs, joint_action_flat, reward, joint_next_obs, done)
 
+    elif agent_type == "dqn":
+        if obs.shape[0] != 1:
+            raise ValueError("Current DQN path expects exactly 1 drone.")
+
+        single_obs = np.asarray(obs[0], dtype=np.float32)
+
+        action_vec, action_idx, _ = agent.choose_action(single_obs, deterministic=False)
+        env_action = action_vec.reshape(1, -1).astype(np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(env_action)
+        done = terminated or truncated
+
+        next_single_obs = np.asarray(next_obs[0], dtype=np.float32)
+
+        agent.remember(single_obs, action_idx, reward, next_single_obs, done)
+
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -213,7 +233,7 @@ def agent_env_step(agent, env, obs, agent_type):
 
 
 def _should_train(agent_type, step_in_rollout, rollout_steps):
-    if agent_type == "sac":
+    if agent_type in ("sac", "dqn"):
         return True
     return step_in_rollout == rollout_steps - 1
 
@@ -222,7 +242,7 @@ def _train_step(agent, agent_type, obs, done):
     if agent_type in ("ppo", "mappo"):
         last_value = agent.get_last_value(obs, done)
         return agent.learn(last_value)
-    elif agent_type == "sac":
+    elif agent_type in ("sac", "dqn"):
         return agent.learn()
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -233,13 +253,14 @@ def _has_train_metrics(train_metrics):
         return False
     return any(v is not None for v in train_metrics.values())
 
+
 class spawn_radius_schedule:
     def __init__(self, cooldown, min_radius, step_size):
         self.cooldown = cooldown
         self.min_radius = min_radius
         self.step_size = step_size
         self.counter = 0
-    
+
     def check_cooldown(self):
         if self.counter <= 0:
             return True
@@ -254,6 +275,7 @@ class spawn_radius_schedule:
         else:
             return self.min_radius
 
+
 def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     if use_wandb:
         _ = init_wandb(config, agent_type)
@@ -262,8 +284,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 
     if args.schedule_spawn:
         srs = spawn_radius_schedule(50, 200, 100)
-
-    rewards = deque(maxlen=20)
+    rewards = deque(maxlen=50)
 
     env = Env(config)
     agent = _init_agent(config, agent_type, device)
@@ -282,7 +303,6 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
     save_models_frac = 0.5
     total_steps = config.model.sampling.total_timesteps
 
-    # milestone checkpoints: save only once when threshold is first reached
     milestone_thresholds = []
     milestone_saved = {thr: False for thr in milestone_thresholds}
 
@@ -320,10 +340,18 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                             episode_reward_norm,
                             stats,
                             r_stats,
-                            save_count
+                            save_count,
                         )
+
                         if use_wandb:
-                            _log_episode_wandb(curr_steps, episode_reward_norm, stats, r_stats, save_count, env.spawn_radius)
+                            _log_episode_wandb(
+                                curr_steps,
+                                episode_reward_norm,
+                                stats,
+                                r_stats,
+                                save_count,
+                                env.spawn_radius,
+                            )
 
                         pbar.set_postfix({
                             "rew_100": f"{episode_reward_norm:.2f}",
@@ -392,7 +420,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
 def _init_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
-    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac"], help="RL agent type")
+    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac", "dqn"], help="RL agent type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
