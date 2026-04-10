@@ -281,7 +281,6 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unsp
 
     plt.xlabel("Drone x relative to animal", size=16)
     plt.ylabel("Drone y relative to animal", size=16)
-    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Visit Count")
@@ -326,7 +325,6 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet", title="Unspecifi
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
-    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Visit Count")
@@ -464,7 +462,6 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
-    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Disturbance")
@@ -582,7 +579,6 @@ def plot_reward_heatmap_from_csv(csv_path, bins=80, cmap="YlGn", vmin=0.0, vmax=
 
     plt.xlabel(xlabel, size=16)
     plt.ylabel(ylabel, size=16)
-    plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Step Reward")
