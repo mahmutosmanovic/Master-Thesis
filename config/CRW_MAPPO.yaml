@@ -72,6 +72,10 @@ w_heading: 1.0
 
 D_R_scale: 0.55 # Disturbance reward tradeoff
 
+p_orbit_tangent_scale: 0.10
+p_orbit_persistence_scale: 0.05
+orbit_sign_deadzone: 0.03
+
 # Reward
 disturbance_penalty_scale: 0.3
 p_vel_scale: 0.01
