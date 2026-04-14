@@ -11,7 +11,7 @@ model:
 
   space:
     n_actions: 5
-    drone_features: 5
+    drone_features: 7
     other_drone_features: 4
     animal_features: 8
     action_type: rel   # [rel, abs]
@@ -34,7 +34,7 @@ model:
 
 drone:
   large:
-    count: 2
+    count: 3
     disturbance_mult: 1.0
     hor_angle: 140
     ver_angle: 90
@@ -95,6 +95,14 @@ reset_safety_margin: 20.0
 max_reset_tries: 100
 min_view_sep_distance: 5.0
 require_target_visible_for_sep: false
+
+standoff_trigger_count: 3
+standoff_keep_n_closest: 2
+standoff_distance: 100.0
+p_standoff_inside_scale: 2.5
+p_standoff_inside_exp: 2.5
+p_standoff_ring_scale: 0.20
+r_standoff_visible_scale: 0.20
 
 # Termination / visibility recovery
 track_loss_grace: 50

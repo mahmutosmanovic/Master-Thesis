@@ -16,6 +16,168 @@ from environment import horizontal_gain, altitude_gain, angle_gain, truncate_col
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
+def make_closest_animal_visitation_output_path(csv_path):
+    csv_path = Path(csv_path)
+    return csv_path.with_name(f"{csv_path.stem}_closest_animal_visitation_by_drone.png")
+
+
+def load_closest_animal_positions_by_drone(csv_path, square_axes=False):
+    csv_path = Path(csv_path)
+    df = pd.read_csv(csv_path)
+
+    required_cols = ["episode", "step", "entity_type", "id", "x", "y", "z"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns in {csv_path}: {missing}")
+
+    df = df.copy()
+    for col in ["episode", "step", "id", "x", "y", "z"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["episode", "step", "id", "x", "y", "z"]).copy()
+    df["episode"] = df["episode"].astype(int)
+    df["step"] = df["step"].astype(int)
+    df["id"] = df["id"].astype(int)
+
+    animal_df = df[df["entity_type"] == "animal"].copy()
+    drone_df = df[df["entity_type"] != "animal"].copy()
+
+    if len(drone_df) == 0:
+        raise ValueError(f"No drone rows found in {csv_path}")
+    if len(animal_df) == 0:
+        raise ValueError(f"No animal rows found in {csv_path}")
+
+    per_drone = {}
+
+    grouped_animals = {
+        key: group[["x", "y", "z"]].to_numpy(dtype=float)
+        for key, group in animal_df.groupby(["episode", "step"])
+    }
+
+    for drone_id, drone_group in drone_df.groupby("id"):
+        r_vals = []
+        z_vals = []
+
+        for _, row in drone_group.iterrows():
+            key = (int(row["episode"]), int(row["step"]))
+            if key not in grouped_animals:
+                continue
+
+            animal_positions = grouped_animals[key]
+            dpos = np.array([row["x"], row["y"], row["z"]], dtype=float)
+
+            diffs = animal_positions - dpos
+            dists = np.linalg.norm(diffs, axis=1)
+            closest_idx = int(np.argmin(dists))
+            apos = animal_positions[closest_idx]
+
+            dx = float(dpos[0] - apos[0])
+            dy = float(dpos[1] - apos[1])
+            z = float(dpos[2])
+
+            r = np.sqrt(dx**2 + dy**2)
+
+            if square_axes:
+                r = r**2
+                z = z**2
+
+            r_vals.append(r)
+            z_vals.append(z)
+
+        per_drone[int(drone_id)] = {
+            "r": np.asarray(r_vals, dtype=float),
+            "z": np.asarray(z_vals, dtype=float),
+        }
+
+    return per_drone
+
+
+def plot_closest_animal_visitation_by_drone_from_csv(
+    csv_path,
+    bins=80,
+    cmap="turbo",
+    title="Unspecified",
+    square_axes=False,
+):
+    csv_path = Path(csv_path)
+    per_drone = load_closest_animal_positions_by_drone(csv_path, square_axes=square_axes)
+    out_path = make_closest_animal_visitation_output_path(csv_path)
+
+    drone_ids = sorted(per_drone.keys())
+    if len(drone_ids) == 0:
+        raise ValueError(f"No usable drone data found in {csv_path}")
+
+    all_r = np.concatenate([per_drone[d]["r"] for d in drone_ids if len(per_drone[d]["r"]) > 0])
+    all_z = np.concatenate([per_drone[d]["z"] for d in drone_ids if len(per_drone[d]["z"]) > 0])
+
+    if len(all_r) == 0 or len(all_z) == 0:
+        raise ValueError(f"No valid closest-animal visitation samples found in {csv_path}")
+
+    r_max = max(float(np.max(all_r)), 1.0)
+    z_max = max(float(np.max(all_z)), 1.0)
+
+    n = len(drone_ids)
+    fig, axes = plt.subplots(
+        nrows=n,
+        ncols=1,
+        figsize=(8, 3.2 * n),
+        squeeze=False,
+    )
+
+    axes = axes.flatten()
+    cmap_obj = truncate_colormap(cmap, 0.05, 1.0)
+
+    vmax_global = 1.0
+    histograms = {}
+    for drone_id in drone_ids:
+        r_vals = per_drone[drone_id]["r"]
+        z_vals = per_drone[drone_id]["z"]
+
+        H, _, _ = np.histogram2d(
+            r_vals,
+            z_vals,
+            bins=bins,
+            range=[[0, r_max], [0, z_max]],
+        )
+        histograms[drone_id] = H
+        vmax_global = max(vmax_global, float(np.max(H)))
+
+    idx = 0
+    for ax, drone_id in zip(axes, drone_ids):
+        H = histograms[drone_id]
+
+        im = ax.imshow(
+            H.T,
+            origin="lower",
+            aspect="auto",
+            extent=[0, r_max, 0, z_max],
+            cmap=cmap_obj,
+            vmin=0.0,
+            vmax=vmax_global,
+        )
+
+        ax.set_title(f"Drone {idx}", fontsize=16)
+        idx += 1
+
+        if square_axes:
+            ax.set_xlabel("Radial Distance²", size=13)
+            ax.set_ylabel("Altitude²", size=13)
+        else:
+            ax.set_xlabel("Radial Distance (√(x²+y²))", size=13)
+            ax.set_ylabel("Altitude (z)", size=13)
+
+    fig.suptitle(title, fontsize=20)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+    cbar = fig.colorbar(im, ax=axes.tolist(), shrink=0.98)
+    cbar.set_label("Visit Count", fontsize=14)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+    return out_path
+
 def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cmap="Greys", title="Unspecified"):
     csv_path = Path(csv_path)
     r_vals, z_vals = load_positions_from_csv(csv_path)
