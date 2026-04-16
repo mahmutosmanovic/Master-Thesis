@@ -20,6 +20,7 @@ from .centroid import CentroidStandoff
 from config import load_config
 from .run_utils import load_run
 
+
 def _normalize(v):
     v = np.asarray(v, dtype=float)
     return v / (np.linalg.norm(v) + 1e-8)
@@ -118,6 +119,7 @@ def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
 
     return segs
 
+
 class PaperViewer:
     def __init__(self, config, run_name="run", seed=99):
         self.config = config
@@ -145,12 +147,12 @@ class PaperViewer:
         self.animal_trail_color = "tab:pink"
 
         self.drone_trail_style = dict(
-            lw=1.0,
-            alpha=0.60,
+            lw=1.6,
+            alpha=0.30,
             linestyle="-",
         )
         self.animal_trail_style = dict(
-            lw=1.0,
+            lw=1.6,
             alpha=0.60,
             linestyle="--",
         )
@@ -161,6 +163,8 @@ class PaperViewer:
         self.video_camera_elev = 32
         self.video_camera_azim = -58
         self.video_z_margin = 20.0
+
+        self.max_fade_positions = 300
 
     def set_output_dir(self, path):
         self.output_dir = Path(path)
@@ -762,6 +766,92 @@ class PaperViewer:
             motion = np.array([1.0, 0.0, 0.0], dtype=float)
         return motion
 
+    def _draw_fading_trail_2d(self, ax, pts, color, base_style, zorder, max_positions=None):
+        pts = np.asarray(pts, dtype=float)
+        if len(pts) < 2:
+            return
+
+        if max_positions is None:
+            max_positions = self.max_fade_positions
+
+        pts = pts[-max_positions:]
+        nseg = len(pts) - 1
+        if nseg <= 0:
+            return
+
+        base_lw = float(base_style.get("lw", 1.0))
+        base_alpha = float(base_style.get("alpha", 0.60))
+        base_ls = base_style.get("linestyle", "-")
+
+        # Larger manual dash pattern for better readability
+        dash_on = 10
+        dash_off = 10
+        dash_period = dash_on + dash_off
+
+        for k in range(nseg):
+            if base_ls == "--":
+                phase = k % dash_period
+                if phase >= dash_on:
+                    continue
+
+            t = (k + 1) / nseg
+            alpha = base_alpha * (0.10 + 0.90 * t)
+
+            seg = pts[k:k + 2]
+            ax.plot(
+                seg[:, 0],
+                seg[:, 1],
+                color=color,
+                lw=base_lw,
+                alpha=alpha,
+                linestyle="-",
+                zorder=zorder,
+                solid_capstyle="round",
+            )
+
+    def _draw_fading_trail_3d(self, ax, pts, color, base_style, max_positions=None):
+        pts = np.asarray(pts, dtype=float)
+        if len(pts) < 2:
+            return
+
+        if max_positions is None:
+            max_positions = self.max_fade_positions
+
+        pts = pts[-max_positions:]
+        nseg = len(pts) - 1
+        if nseg <= 0:
+            return
+
+        base_lw = float(base_style.get("lw", 1.0))
+        base_alpha = float(base_style.get("alpha", 0.60))
+        base_ls = base_style.get("linestyle", "-")
+
+        # Larger manual dash pattern for better readability
+        dash_on = 10
+        dash_off = 10
+        dash_period = dash_on + dash_off
+
+        for k in range(nseg):
+            if base_ls == "--":
+                phase = k % dash_period
+                if phase >= dash_on:
+                    continue
+
+            t = (k + 1) / nseg
+            alpha = base_alpha * (0.10 + 0.90 * t)
+
+            seg = pts[k:k + 2]
+            ax.plot(
+                seg[:, 0],
+                seg[:, 1],
+                seg[:, 2],
+                color=color,
+                lw=base_lw,
+                alpha=alpha,
+                linestyle="-",
+                solid_capstyle="round",
+            )
+
     def _save_snapshot(self, frame_idx, filename):
         fig, ax = plt.subplots(figsize=(7.2, 7.2), dpi=220)
         self._setup_axes(ax)
@@ -774,22 +864,22 @@ class PaperViewer:
 
         for j in range(len(d)):
             pts = np.array([f["drones"][j][:2] for f in self.frames[: frame_idx + 1]])
-            ax.plot(
-                pts[:, 0],
-                pts[:, 1],
+            self._draw_fading_trail_2d(
+                ax,
+                pts,
                 color=self.drone_trail_color,
+                base_style=self.drone_trail_style,
                 zorder=3,
-                **self.drone_trail_style,
             )
 
         for j in range(len(a)):
             pts = np.array([f["animals"][j][:2] for f in self.frames[: frame_idx + 1]])
-            ax.plot(
-                pts[:, 0],
-                pts[:, 1],
+            self._draw_fading_trail_2d(
+                ax,
+                pts,
                 color=self.animal_trail_color,
+                base_style=self.animal_trail_style,
                 zorder=2.8,
-                **self.animal_trail_style,
             )
 
         for j in range(len(a)):
@@ -811,22 +901,22 @@ class PaperViewer:
 
         for j in range(n_drones):
             pts = np.array([f["drones"][j][:2] for f in self.frames])
-            ax.plot(
-                pts[:, 0],
-                pts[:, 1],
+            self._draw_fading_trail_2d(
+                ax,
+                pts,
                 color=self.drone_trail_color,
+                base_style=self.drone_trail_style,
                 zorder=3,
-                **self.drone_trail_style,
             )
 
         for j in range(n_animals):
             pts = np.array([f["animals"][j][:2] for f in self.frames])
-            ax.plot(
-                pts[:, 0],
-                pts[:, 1],
+            self._draw_fading_trail_2d(
+                ax,
+                pts,
                 color=self.animal_trail_color,
+                base_style=self.animal_trail_style,
                 zorder=2.8,
-                **self.animal_trail_style,
             )
 
         fig.savefig(self.output_dir / "trajectories.png", bbox_inches="tight", pad_inches=0.02)
@@ -877,22 +967,20 @@ class PaperViewer:
 
             for j in range(len(d)):
                 pts = np.array([f["drones"][j] for f in self.frames[: i + 1]])
-                ax.plot(
-                    pts[:, 0],
-                    pts[:, 1],
-                    pts[:, 2],
+                self._draw_fading_trail_3d(
+                    ax,
+                    pts,
                     color=self.drone_trail_color,
-                    **self.drone_trail_style,
+                    base_style=self.drone_trail_style,
                 )
 
             for j in range(len(a)):
                 pts = np.array([f["animals"][j] for f in self.frames[: i + 1]])
-                ax.plot(
-                    pts[:, 0],
-                    pts[:, 1],
-                    pts[:, 2],
+                self._draw_fading_trail_3d(
+                    ax,
+                    pts,
                     color=self.animal_trail_color,
-                    **self.animal_trail_style,
+                    base_style=self.animal_trail_style,
                 )
 
             for j in range(len(a)):
@@ -947,6 +1035,7 @@ class PaperViewer:
         print("[PaperViewer] Done.")
         self.recording = False
         self.frames = []
+
 
 def init_agent(config, run_dir, weight_type="best"):
     agent_type = config.agent_type
@@ -1011,6 +1100,7 @@ def choose_action_agent(agent, obs, agent_type):
 
     raise ValueError(agent_type)
 
+
 def _make_output_dir(tag, seed):
     repo_root = Path(__file__).resolve().parent.parent
     recordings_dir = repo_root / "recordings"
@@ -1020,6 +1110,7 @@ def _make_output_dir(tag, seed):
     out_dir = recordings_dir / f"{tag}_seed{seed}_{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
+
 
 def rollout(env, action_fn):
     obs, info = env.reset()
@@ -1041,6 +1132,7 @@ def rollout(env, action_fn):
 
     norm_reward = episode_reward / env.config.max_episode_steps
     return norm_reward, step_count
+
 
 def main_agent(config, run_dir, seed, model_type="best"):
     config = Box(config)
@@ -1065,6 +1157,7 @@ def main_agent(config, run_dir, seed, model_type="best"):
     print(f"Artifacts saved in: {out_dir}")
 
     env.viewer.close()
+
 
 def main_centroid(config_name, seed):
     cfg = load_config(config_name)
@@ -1091,6 +1184,7 @@ def main_centroid(config_name, seed):
     print(f"Artifacts saved in: {out_dir}")
 
     env.viewer.close()
+
 
 def _init_argparse():
     parser = argparse.ArgumentParser()

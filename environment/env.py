@@ -35,7 +35,6 @@ class Env:
         self._init_safety_config()
         self._init_orbit_config()
         self._init_view_sep_config()
-        self._init_standoff_config()
 
         self.state_counts = {"calm": 0, "avoid": 0, "flee": 0}
         self.reward_stats = self._empty_reward_stats()
@@ -53,25 +52,29 @@ class Env:
         self.enable_step_logging = False
         self.last_step_stats = {}
 
-        self.reward_scale = np.clip(
-            analytic_upper_bound(
-                self.config.XY_scale,
-                self.config.Z_scale,
-                self.config.drone.large.view_range,
-                self.D_R_scale
-            )[0],
-            1e-6,
-            1.0
-        )
+        self.reward_scales = self._compute_reward_scales()
 
         self.last_hard_safety_violation = False
         self.last_min_drone_drone_dist = np.inf
         self.last_min_drone_animal_dist = np.inf
 
-        self.standoff_assignment_mask = np.zeros(self.drone_count, dtype=np.float32)
-        self.last_standoff_target_dists = np.full(self.drone_count, np.nan, dtype=np.float32)
-
         self.set_seed(seed)
+
+    def _compute_reward_scales(self):
+        if len(self.drones) == 0:
+            return np.ones(0, dtype=np.float32)
+
+        reward_scales = []
+        for drone in self.drones:
+            base_max, _, _ = analytic_upper_bound(
+                self.config.XY_scale,
+                self.config.Z_scale,
+                drone.view_range,
+                self.D_R_scale
+            )
+            reward_scales.append(np.clip(base_max, 1e-6, 1.0))
+
+        return np.array(reward_scales, dtype=np.float32)
 
     def _cfg_get(self, *keys, default=None):
         obj = self.config
@@ -96,6 +99,8 @@ class Env:
                 f"Expected other_drone_features to be 0 or 4, got {self.other_drone_feat_dim}"
             )
 
+        # Keep 5 or 7 accepted so old configs do not crash immediately.
+        # If 7 is used, the last two features are filled with zeros.
         if self.drone_feat_dim not in (5, 7):
             raise ValueError(
                 f"Expected drone_features to be 5 or 7, got {self.drone_feat_dim}"
@@ -131,22 +136,6 @@ class Env:
         self.min_view_sep_distance = float(self._cfg_get("min_view_sep_distance", default=5.0))
         self.require_target_visible_for_sep = bool(self._cfg_get("require_target_visible_for_sep", default=False))
 
-    def _init_standoff_config(self):
-        self.standoff_trigger_count = int(self._cfg_get("standoff_trigger_count", default=3))
-        self.standoff_keep_n_closest = int(self._cfg_get("standoff_keep_n_closest", default=2))
-        self.standoff_distance = float(self._cfg_get("standoff_distance", default=100.0))
-
-        self.p_standoff_inside_scale = float(self._cfg_get("p_standoff_inside_scale", default=2.5))
-        self.p_standoff_inside_exp = float(self._cfg_get("p_standoff_inside_exp", default=2.5))
-
-        self.p_standoff_ring_scale = float(self._cfg_get("p_standoff_ring_scale", default=0.20))
-        self.p_standoff_ring_exp = float(self._cfg_get("p_standoff_ring_exp", default=1.5))
-
-        self.r_standoff_visible_scale = float(self._cfg_get("r_standoff_visible_scale", default=0.05))
-        self.require_target_visible_for_standoff_reward = bool(
-            self._cfg_get("require_target_visible_for_standoff_reward", default=True)
-        )
-
     def _empty_reward_stats(self):
         return {
             "r_monitoring": 0.0,
@@ -156,14 +145,11 @@ class Env:
             "r_align": 0.0,
             "r_bucket": 0.0,
             "r_view_sep": 0.0,
-            "r_standoff_visible": 0.0,
             "p_drone_proximity": 0.0,
             "p_animal_proximity": 0.0,
             "p_hard_safety": 0.0,
             "p_orbit_tangent": 0.0,
             "p_orbit_persistence": 0.0,
-            "p_standoff_inside": 0.0,
-            "p_standoff_ring": 0.0,
             "episode_progress": 0.0,
         }
 
@@ -281,9 +267,6 @@ class Env:
         self.last_min_drone_drone_dist = np.inf
         self.last_min_drone_animal_dist = np.inf
 
-        self.standoff_assignment_mask = np.zeros(self.drone_count, dtype=np.float32)
-        self.last_standoff_target_dists = np.full(self.drone_count, np.nan, dtype=np.float32)
-
         if self.enable_step_logging:
             self.last_step_stats = {
                 "reward": 0.0,
@@ -297,14 +280,11 @@ class Env:
                 "r_dist": 0.0,
                 "r_align": 0.0,
                 "r_view_sep": 0.0,
-                "r_standoff_visible": 0.0,
                 "p_drone_proximity": 0.0,
                 "p_animal_proximity": 0.0,
                 "p_hard_safety": 0.0,
                 "p_orbit_tangent": 0.0,
                 "p_orbit_persistence": 0.0,
-                "p_standoff_inside": 0.0,
-                "p_standoff_ring": 0.0,
                 "hard_safety_violation": 0.0,
                 "min_drone_drone_dist": np.inf,
                 "min_drone_animal_dist": np.inf,
@@ -332,16 +312,7 @@ class Env:
         geometry = self._compute_geometry()
         observations = self._build_observations(geometry)
 
-        self.reward_scale = np.clip(
-            analytic_upper_bound(
-                self.config.XY_scale,
-                self.config.Z_scale,
-                self.config.drone.large.view_range,
-                self.D_R_scale
-            )[0],
-            1e-6,
-            1.0
-        )
+        self.reward_scales = self._compute_reward_scales()
 
         return observations, {}
 
@@ -496,14 +467,11 @@ class Env:
             "r_align": self.reward_stats["r_align"] / self._env_steps,
             "r_bucket": self.reward_stats["r_bucket"] / self._env_steps,
             "r_view_sep": self.reward_stats["r_view_sep"] / self._env_steps,
-            "r_standoff_visible": self.reward_stats["r_standoff_visible"] / self._env_steps,
             "p_drone_proximity": self.reward_stats["p_drone_proximity"] / self._env_steps,
             "p_animal_proximity": self.reward_stats["p_animal_proximity"] / self._env_steps,
             "p_hard_safety": self.reward_stats["p_hard_safety"] / self._env_steps,
             "p_orbit_tangent": self.reward_stats["p_orbit_tangent"] / self._env_steps,
             "p_orbit_persistence": self.reward_stats["p_orbit_persistence"] / self._env_steps,
-            "p_standoff_inside": self.reward_stats["p_standoff_inside"] / self._env_steps,
-            "p_standoff_ring": self.reward_stats["p_standoff_ring"] / self._env_steps,
             "episode_progress": self._env_steps / self.config.max_episode_steps,
         }
 
@@ -632,53 +600,9 @@ class Env:
                 self.view_bucket_counts[a, bucket] += 1.0
                 self.view_bucket_totals[a] += 1.0
 
-    def _resolve_standoff_assignments(self):
-        mask = np.zeros(self.drone_count, dtype=np.float32)
-        standoff_target_dists = np.full(self.drone_count, np.nan, dtype=np.float32)
-
-        if self.drone_count == 0 or self.animal_count == 0:
-            self.standoff_assignment_mask = mask
-            self.last_standoff_target_dists = standoff_target_dists
-            return mask, standoff_target_dists
-
-        animal_by_id = {animal.id: animal for animal in self.animals}
-        target_groups = {}
-
-        for d_idx, drone in enumerate(self.drones):
-            target_groups.setdefault(drone.target_id, []).append(d_idx)
-
-        for target_id, drone_indices in target_groups.items():
-            if len(drone_indices) < self.standoff_trigger_count:
-                continue
-
-            target_animal = animal_by_id.get(target_id, None)
-            if target_animal is None:
-                continue
-
-            animal_pos = target_animal.pos.to_numpy().astype(np.float32)
-            distances = []
-
-            for d_idx in drone_indices:
-                drone_pos = self.drones[d_idx].pos.to_numpy().astype(np.float32)
-                dist = float(np.linalg.norm(drone_pos - animal_pos))
-                distances.append((d_idx, dist))
-
-            distances.sort(key=lambda x: x[1])
-            standoff_drones = distances[self.standoff_keep_n_closest:]
-
-            for d_idx, dist in standoff_drones:
-                mask[d_idx] = 1.0
-                standoff_target_dists[d_idx] = dist
-
-        self.standoff_assignment_mask = mask
-        self.last_standoff_target_dists = standoff_target_dists
-        return mask, standoff_target_dists
-
     def _build_observations(self, geometry):
         obs_all = []
         world_z = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-
-        standoff_mask, standoff_target_dists = self._resolve_standoff_assignments()
 
         for d, drone in enumerate(self.drones):
             x = drone.view_dir.to_numpy().astype(np.float32)
@@ -695,14 +619,9 @@ class Env:
 
             drone_features = [x[0], x[1], x[2], altitude_norm, self.D_R_scale]
 
+            # compatibility padding if config still says 7 features
             if self.drone_feat_dim == 7:
-                standoff_flag = float(standoff_mask[d])
-                standoff_dist_norm = (
-                    float(standoff_target_dists[d] / (self.standoff_distance + 1e-8))
-                    if standoff_flag > 0.5 and np.isfinite(standoff_target_dists[d])
-                    else 0.0
-                )
-                drone_features.extend([standoff_flag, standoff_dist_norm])
+                drone_features.extend([0.0, 0.0])
 
             other_drone_features = []
             if self.other_drone_feat_dim > 0:
@@ -1033,53 +952,6 @@ class Env:
 
         return p_drone_proximity, p_animal_proximity, p_hard_safety, hard_violation
 
-    def _compute_standoff_terms(self, observations):
-        standoff_mask = self.standoff_assignment_mask
-        standoff_target_dists = self.last_standoff_target_dists
-        animal_obs_all = self._extract_animal_obs(observations)
-
-        p_standoff_inside = 0.0
-        p_standoff_ring = 0.0
-        r_standoff_visible = 0.0
-        n_standoff = 0
-
-        desired = self.standoff_distance
-        if desired <= 1e-8:
-            return 0.0, 0.0, 0.0
-
-        for d in range(self.drone_count):
-            if standoff_mask[d] <= 0.5:
-                continue
-
-            dist = standoff_target_dists[d]
-            if not np.isfinite(dist):
-                continue
-
-            n_standoff += 1
-
-            if dist < desired:
-                closeness = 1.0 - (dist / desired)
-                closeness = np.clip(closeness, 0.0, 1.0)
-                p_standoff_inside += self.p_standoff_inside_scale * (closeness ** self.p_standoff_inside_exp)
-
-            ring_error = abs(dist - desired) / desired
-            p_standoff_ring += self.p_standoff_ring_scale * (ring_error ** self.p_standoff_ring_exp)
-
-            target_id = self.drones[d].target_id
-            if 0 <= target_id < self.animal_count:
-                target_visible = float(animal_obs_all[d, target_id, 0] > 0.5)
-
-                if (not self.require_target_visible_for_standoff_reward) or (target_visible > 0.5):
-                    ring_quality = np.clip(1.0 - ring_error, 0.0, 1.0)
-                    r_standoff_visible += self.r_standoff_visible_scale * ring_quality * target_visible
-
-        if n_standoff > 0:
-            p_standoff_inside /= n_standoff
-            p_standoff_ring /= n_standoff
-            r_standoff_visible /= n_standoff
-
-        return float(p_standoff_inside), float(p_standoff_ring), float(r_standoff_visible)
-
     def compute_reward(self, observations, actions):
         r_vis = 0.0
         r_dist = 0.0
@@ -1153,24 +1025,40 @@ class Env:
         animal_disturbances = np.array([animal.disturbance for animal in self.animals], dtype=np.float32)
         disturbance_penalty = float(np.mean(animal_disturbances))
 
-        disturbance_reward_tradeoff = np.clip(
-            (
-                self.D_R_scale * (1.0 - disturbance_penalty) +
-                (1.0 - self.D_R_scale) * r_dist
-            ) / self.reward_scale,
-            0.0,
-            1.0
-        )
+        per_drone_tradeoffs = []
+
+        for d in range(self.drone_count):
+            animal_obs = animal_obs_all[d]
+            dist = animal_obs[:, 1]
+            target = animal_obs[:, 7]
+            is_target = target > 0.5
+
+            if np.any(is_target):
+                r_dist_d = float(np.mean(-dist[is_target]))
+            else:
+                r_dist_d = -1.0
+
+            scale_d = float(self.reward_scales[d]) if d < len(self.reward_scales) else 1.0
+
+            tradeoff_d = np.clip(
+                (
+                    self.D_R_scale * (1.0 - disturbance_penalty) +
+                    (1.0 - self.D_R_scale) * r_dist_d
+                ) / (scale_d + 1e-8),
+                0.0,
+                1.0
+            )
+            per_drone_tradeoffs.append(tradeoff_d)
+
+        disturbance_reward_tradeoff = float(np.mean(per_drone_tradeoffs)) if per_drone_tradeoffs else 0.0
 
         r_bucket = self._bucket_balance_score()
         r_view_sep = self._view_separation_score(observations)
-        p_standoff_inside, p_standoff_ring, r_standoff_visible = self._compute_standoff_terms(observations)
 
-        base_monitor_reward = 0.9 * disturbance_reward_tradeoff + 0.1 * r_align
+        base_monitor_reward = 0.7 * disturbance_reward_tradeoff + 0.3 * r_align
         monitor_reward = (
             (1.0 - self.view_sep_weight) * base_monitor_reward
             + self.view_sep_weight * r_view_sep
-            + r_standoff_visible
         )
 
         p_drone_proximity, p_animal_proximity, p_hard_safety, hard_violation = self._compute_proximity_terms()
@@ -1185,8 +1073,6 @@ class Env:
             - p_drone_proximity
             - p_animal_proximity
             - p_hard_safety
-            - p_standoff_inside
-            - p_standoff_ring
         )
 
         self.reward_stats["r_monitoring"] += monitor_reward
@@ -1196,14 +1082,11 @@ class Env:
         self.reward_stats["r_align"] += r_align
         self.reward_stats["r_bucket"] += r_bucket
         self.reward_stats["r_view_sep"] += r_view_sep
-        self.reward_stats["r_standoff_visible"] += r_standoff_visible
         self.reward_stats["p_drone_proximity"] += p_drone_proximity
         self.reward_stats["p_animal_proximity"] += p_animal_proximity
         self.reward_stats["p_hard_safety"] += p_hard_safety
         self.reward_stats["p_orbit_tangent"] += p_orbit_tangent
         self.reward_stats["p_orbit_persistence"] += p_orbit_persistence
-        self.reward_stats["p_standoff_inside"] += p_standoff_inside
-        self.reward_stats["p_standoff_ring"] += p_standoff_ring
 
         if self.enable_step_logging:
             behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
@@ -1223,14 +1106,11 @@ class Env:
                 "r_dist": float(r_dist),
                 "r_align": float(r_align),
                 "r_view_sep": float(r_view_sep),
-                "r_standoff_visible": float(r_standoff_visible),
                 "p_drone_proximity": float(p_drone_proximity),
                 "p_animal_proximity": float(p_animal_proximity),
                 "p_hard_safety": float(p_hard_safety),
                 "p_orbit_tangent": float(p_orbit_tangent),
                 "p_orbit_persistence": float(p_orbit_persistence),
-                "p_standoff_inside": float(p_standoff_inside),
-                "p_standoff_ring": float(p_standoff_ring),
                 "hard_safety_violation": float(hard_violation),
                 "min_drone_drone_dist": float(self.last_min_drone_drone_dist),
                 "min_drone_animal_dist": float(self.last_min_drone_animal_dist),
@@ -1270,7 +1150,6 @@ class Env:
         segment_complete = self._step_animal()
 
         geometry = self._compute_geometry()
-        self._resolve_standoff_assignments()
         observations = self._build_observations(geometry)
         self._update_view_buckets(observations)
 
@@ -1297,8 +1176,6 @@ class Env:
             "hard_safety_violation": bool(hard_safety_violation),
             "min_drone_drone_dist": float(self.last_min_drone_drone_dist),
             "min_drone_animal_dist": float(self.last_min_drone_animal_dist),
-            "standoff_assignment_mask": self.standoff_assignment_mask.copy(),
-            "standoff_target_distances": self.last_standoff_target_dists.copy(),
             "closest_animal_distances": closest_animal_dists.copy(),
         }
 
@@ -1366,11 +1243,8 @@ class Env:
                 "bucket_left": "",
                 "bucket_back": "",
                 "bucket_right": "",
-                "is_standoff": float(self.standoff_assignment_mask[i]),
-                "standoff_target_distance": (
-                    float(self.last_standoff_target_dists[i])
-                    if np.isfinite(self.last_standoff_target_dists[i]) else ""
-                ),
+                "is_standoff": "",
+                "standoff_target_distance": "",
                 "closest_animal_distance": float(closest_animal_dists[i]),
                 "min_drone_drone_dist": float(self.last_min_drone_drone_dist),
                 "min_drone_animal_dist": float(self.last_min_drone_animal_dist),
