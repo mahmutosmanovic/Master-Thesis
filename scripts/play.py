@@ -110,7 +110,7 @@ def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
     t = np.linspace(0.0, 2.0 * np.pi, n_circle_pts)
     circle = np.stack(
         [rotor_radius * np.cos(t), rotor_radius * np.sin(t)],
-        axis=1
+        axis=1,
     )
 
     centers = [p1[:2], p2[:2], p3[:2], p4[:2]]
@@ -143,8 +143,8 @@ class PaperViewer:
         self.output_dir = None
         self.floor_size = 500.0
 
-        self.drone_trail_color = "tab:cyan"
         self.animal_trail_color = "tab:pink"
+        self.drone_type_colors = self._build_drone_type_colors()
 
         self.drone_trail_style = dict(
             lw=1.6,
@@ -165,6 +165,28 @@ class PaperViewer:
         self.video_z_margin = 20.0
 
         self.max_fade_positions = 300
+
+    def _build_drone_type_colors(self):
+        drone_types = list(self.drone_cfg.keys())
+        palette = [
+            "tab:blue",
+            "tab:orange",
+            "tab:green",
+            "tab:red",
+            "tab:purple",
+            "tab:brown",
+            "tab:olive",
+            "tab:cyan",
+            "tab:pink",
+            "tab:gray",
+        ]
+        return {
+            drone_type: palette[i % len(palette)]
+            for i, drone_type in enumerate(drone_types)
+        }
+
+    def _get_drone_trail_color(self, drone_type):
+        return self.drone_type_colors.get(drone_type, "tab:cyan")
 
     def set_output_dir(self, path):
         self.output_dir = Path(path)
@@ -771,43 +793,26 @@ class PaperViewer:
         if len(pts) < 2:
             return
 
-        if max_positions is None:
-            max_positions = self.max_fade_positions
-
-        pts = pts[-max_positions:]
-        nseg = len(pts) - 1
-        if nseg <= 0:
-            return
+        # For 2D static plots/snapshots:
+        # - max_positions=None  -> draw ALL points
+        # - max_positions=int   -> only keep the last int points
+        if max_positions is not None:
+            pts = pts[-max_positions:]
 
         base_lw = float(base_style.get("lw", 1.0))
         base_alpha = float(base_style.get("alpha", 0.60))
         base_ls = base_style.get("linestyle", "-")
 
-        # Larger manual dash pattern for better readability
-        dash_on = 10
-        dash_off = 10
-        dash_period = dash_on + dash_off
-
-        for k in range(nseg):
-            if base_ls == "--":
-                phase = k % dash_period
-                if phase >= dash_on:
-                    continue
-
-            t = (k + 1) / nseg
-            alpha = base_alpha * (0.10 + 0.90 * t)
-
-            seg = pts[k:k + 2]
-            ax.plot(
-                seg[:, 0],
-                seg[:, 1],
-                color=color,
-                lw=base_lw,
-                alpha=alpha,
-                linestyle="-",
-                zorder=zorder,
-                solid_capstyle="round",
-            )
+        ax.plot(
+            pts[:, 0],
+            pts[:, 1],
+            color=color,
+            lw=base_lw,
+            alpha=base_alpha,
+            linestyle=base_ls,
+            zorder=zorder,
+            solid_capstyle="round",
+        )
 
     def _draw_fading_trail_3d(self, ax, pts, color, base_style, max_positions=None):
         pts = np.asarray(pts, dtype=float)
@@ -826,7 +831,6 @@ class PaperViewer:
         base_alpha = float(base_style.get("alpha", 0.60))
         base_ls = base_style.get("linestyle", "-")
 
-        # Larger manual dash pattern for better readability
         dash_on = 10
         dash_off = 10
         dash_period = dash_on + dash_off
@@ -863,13 +867,15 @@ class PaperViewer:
         visible = frame["visible"]
 
         for j in range(len(d)):
+            drone_type = frame["drone_types"][j]
             pts = np.array([f["drones"][j][:2] for f in self.frames[: frame_idx + 1]])
             self._draw_fading_trail_2d(
                 ax,
                 pts,
-                color=self.drone_trail_color,
+                color=self._get_drone_trail_color(drone_type),
                 base_style=self.drone_trail_style,
                 zorder=3,
+                max_positions=None,   # draw all points up to this snapshot frame
             )
 
         for j in range(len(a)):
@@ -880,6 +886,7 @@ class PaperViewer:
                 color=self.animal_trail_color,
                 base_style=self.animal_trail_style,
                 zorder=2.8,
+                max_positions=None,   # draw all points up to this snapshot frame
             )
 
         for j in range(len(a)):
@@ -898,15 +905,18 @@ class PaperViewer:
 
         n_drones = len(self.frames[0]["drones"])
         n_animals = len(self.frames[0]["animals"])
+        drone_types = self.frames[0]["drone_types"]
 
         for j in range(n_drones):
+            drone_type = drone_types[j]
             pts = np.array([f["drones"][j][:2] for f in self.frames])
             self._draw_fading_trail_2d(
                 ax,
                 pts,
-                color=self.drone_trail_color,
+                color=self._get_drone_trail_color(drone_type),
                 base_style=self.drone_trail_style,
                 zorder=3,
+                max_positions=None,   # draw full trajectory
             )
 
         for j in range(n_animals):
@@ -917,12 +927,34 @@ class PaperViewer:
                 color=self.animal_trail_color,
                 base_style=self.animal_trail_style,
                 zorder=2.8,
+                max_positions=None,   # draw full trajectory
             )
 
         fig.savefig(self.output_dir / "trajectories.png", bbox_inches="tight", pad_inches=0.02)
         plt.close(fig)
+        
+    def _rolling_stats(self, y, window=100):
+        y = np.asarray(y, dtype=float)
+        n = len(y)
 
-    def _save_reward_plot(self):
+        if n == 0:
+            return y, y, y
+
+        means = np.empty(n, dtype=float)
+        stds = np.empty(n, dtype=float)
+
+        for i in range(n):
+            start = max(0, i - window + 1)
+            chunk = y[start:i + 1]
+            means[i] = np.mean(chunk)
+            stds[i] = np.std(chunk)
+
+        lower = means - stds
+        upper = means + stds
+        return means, lower, upper
+
+
+    def _save_reward_plot(self, window=100, show_band=True, band_type="std"):
         fig, axes = plt.subplots(1, 3, figsize=(12.0, 3.2), dpi=220)
 
         x = np.arange(len(self.reward_hist))
@@ -934,8 +966,30 @@ class PaperViewer:
 
         for ax, (y, title) in zip(axes, series):
             y = np.asarray(y, dtype=float)
-            ax.plot(x, y, lw=0.3, alpha=0.9, color="black")
-            ax.set_title(title, fontsize=10)
+
+            mean, lower, upper = self._rolling_stats(y, window=window)
+
+            if show_band and len(y) > 0:
+                if band_type == "sem":
+                    sem = np.empty(len(y), dtype=float)
+                    for i in range(len(y)):
+                        start = max(0, i - window + 1)
+                        chunk = y[start:i + 1]
+                        sem[i] = np.std(chunk) / np.sqrt(max(len(chunk), 1))
+                    lower = mean - 1.96 * sem
+                    upper = mean + 1.96 * sem
+
+                ax.fill_between(
+                    x,
+                    lower,
+                    upper,
+                    color="black",
+                    alpha=0.15,
+                    linewidth=0.0,
+                )
+
+            ax.plot(x, mean, lw=1.2, alpha=0.95, color="black")
+            ax.set_title(f"{title} (rolling {window})", fontsize=10)
             ax.grid(alpha=0.10)
             ax.set_xlabel("Step", fontsize=9)
             ax.tick_params(labelsize=8)
@@ -966,11 +1020,12 @@ class PaperViewer:
             visible = frame["visible"]
 
             for j in range(len(d)):
+                drone_type = frame["drone_types"][j]
                 pts = np.array([f["drones"][j] for f in self.frames[: i + 1]])
                 self._draw_fading_trail_3d(
                     ax,
                     pts,
-                    color=self.drone_trail_color,
+                    color=self._get_drone_trail_color(drone_type),
                     base_style=self.drone_trail_style,
                 )
 

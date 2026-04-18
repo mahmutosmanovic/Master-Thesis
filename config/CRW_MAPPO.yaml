@@ -27,13 +27,13 @@ model:
     entropy_end_coef: 0.002
 
   sampling:
-    total_timesteps: 2_000_000
+    total_timesteps: 3_000_000
     rollout_steps: 2048
     mini_batch_size: 256
     n_epochs: 10
 
 drone:
-  m1:
+  M1:
     count: 1
     disturbance_mult: 1.0
     hor_angle: 100
@@ -45,7 +45,7 @@ drone:
     max_altitude: 150
     spawn_dist: [70, 90]
     view_dir: [1, 0, -0.7]
-  m2:
+  M2:
     count: 1
     disturbance_mult: 1.0
     hor_angle: 140
@@ -55,9 +55,9 @@ drone:
     min_speed: 0
     max_speed: 25
     max_altitude: 150
-    spawn_dist: [70, 90]
+    spawn_dist: [90, 110]
     view_dir: [1, 0, -0.7]
-  m3:
+  M3:
     count: 1
     disturbance_mult: 1.0
     hor_angle: 170
@@ -67,7 +67,7 @@ drone:
     min_speed: 0
     max_speed: 25
     max_altitude: 150
-    spawn_dist: [70, 90]
+    spawn_dist: [110, 130]
     view_dir: [1, 0, -0.7]
 
 # Animal configuration
@@ -94,7 +94,7 @@ w_angle: 1.0
 w_axis: 0.2
 w_heading: 1.0
 
-D_R_scale: 0.55 # Disturbance reward tradeoff
+alpha: 0.55 # Disturbance reward tradeoff
 
 p_orbit_tangent_scale: 0.10
 p_orbit_persistence_scale: 0.05

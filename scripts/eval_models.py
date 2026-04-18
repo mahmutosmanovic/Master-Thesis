@@ -954,7 +954,7 @@ def main():
             "RL closest-animal distance heatmap",
             plot_closest_animal_visitation_by_drone_from_csv,
             rl_csv,
-            title=f"{behavior_name} - closest animal distance",
+            title=f"",
         )
 
         if baseline is not None:

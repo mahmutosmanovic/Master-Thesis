@@ -393,7 +393,7 @@ def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
                                 env.spawn_radius = srs.step(env.spawn_radius)
                         
                         if args.randomize_dr_scale:
-                            env.D_R_scale = env.env_rng.uniform(0.22, 1)
+                            env.alpha = env.env_rng.uniform(0.22, 1)
 
                         episode_reward = 0.0
                         obs, info = env.reset()
