@@ -86,6 +86,74 @@ SUMMARY_APPEND_FIELDS = [
 ]
 
 
+def _resolve_morphology_sequence(env):
+    """
+    Returns morphology names in the same order as env.drones.
+    Falls back to M1, M2, ... if morphology names are unavailable.
+    """
+    names = []
+    drones = getattr(env, "drones", [])
+
+    for i, drone in enumerate(drones):
+        morphology_name = None
+
+        for attr in ("morphology_name", "morphology", "type", "name", "model_name"):
+            if hasattr(drone, attr):
+                value = getattr(drone, attr)
+                if value is not None and str(value).strip():
+                    morphology_name = str(value).strip()
+                    break
+
+        if morphology_name is None and hasattr(drone, "config"):
+            cfg = getattr(drone, "config")
+            for attr in ("morphology_name", "morphology", "type", "name", "model_name"):
+                if hasattr(cfg, attr):
+                    value = getattr(cfg, attr)
+                    if value is not None and str(value).strip():
+                        morphology_name = str(value).strip()
+                        break
+
+        if morphology_name is None:
+            morphology_name = f"M{i + 1}"
+
+        names.append(morphology_name)
+
+    if not names:
+        names = ["M1", "M2", "M3"]
+
+    return names
+
+def write_drone_norm_stats_from_rl_step_csv(env, rl_csv, out_csv):
+
+    rl_csv = Path(rl_csv)
+    out_csv = Path(out_csv)
+
+    df = pd.read_csv(rl_csv)
+
+    df = df[
+        (df["entity_type"] != "animal")
+        & df["closest_animal_distance"].notna()
+    ].copy()
+
+    df["closest_animal_distance"] = pd.to_numeric(
+        df["closest_animal_distance"], errors="coerce"
+    )
+
+    df = df.dropna(subset=["closest_animal_distance"])
+
+    df["morphology_name"] = df["entity_type"]
+
+    stats_df = (
+        df.groupby("morphology_name", as_index=False)["closest_animal_distance"]
+        .agg(mean_dist="mean", std_dist="std")
+        .sort_values("morphology_name")
+    )
+
+    stats_df.to_csv(out_csv, index=False)
+
+    return out_csv
+
+
 def run_episode_summary(
     env,
     config,
@@ -410,8 +478,10 @@ def run_episode(
 
         obs, reward, terminated, truncated, info = env.step(action)
 
+        step_rows = env.step_log()
+
         if step_writer is not None:
-            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+            write_log_rows(step_writer, step_rows, STEP_LOG_FIELDS)
 
         ep_reward += float(reward)
 
@@ -954,7 +1024,7 @@ def main():
             "RL closest-animal distance heatmap",
             plot_closest_animal_visitation_by_drone_from_csv,
             rl_csv,
-            title=f"",
+            title="",
         )
 
         if baseline is not None:
@@ -1015,10 +1085,23 @@ def main():
                 title=f"{behavior_name} - closest animal distance",
             )
 
-    if args.plot_rewards and baseline is not None:
-        baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv"
+    if args.plot_rewards:
+        baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv" if baseline is not None else None
         rl_ep_csv = eval_dir / f"{agent_type}_ep.csv"
-        _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
+
+        if baseline is not None:
+            _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
+
+        rl_step_csv = eval_dir / f"{agent_type}.csv"
+        drone_norm_stats_csv = eval_dir / "drone_norm_stats.csv"
+
+        write_drone_norm_stats_from_rl_step_csv(
+            env=env,
+            rl_csv=rl_step_csv,
+            out_csv=drone_norm_stats_csv,
+        )
+
+        print(f">>> Drone norm stats CSV: {drone_norm_stats_csv}")
 
     print(f"EVAL_DIR::{eval_dir.name}")
 
