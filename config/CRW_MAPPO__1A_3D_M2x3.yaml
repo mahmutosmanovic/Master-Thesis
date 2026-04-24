@@ -1,0 +1,112 @@
+# Environment
+dt: 0.1
+max_episode_steps: 2048
+behavior_cfg: config
+
+# Model
+model:
+  path: checkpoints
+  mode: train
+  actor_type: standard
+
+  space:
+    n_actions: 5
+    drone_features: 5
+    other_drone_features: 4
+    animal_features: 8
+    action_type: rel   # [rel, abs]
+
+  optimization:
+    gamma: 0.99
+    actor_lr: 0.0003
+    critic_lr: 0.0003
+    gae_lambda: 0.95
+    policy_clip: 0.2
+    val_loss_coef: 0.5
+    entropy_start_coef: 0.02
+    entropy_end_coef: 0.002
+
+  sampling:
+    total_timesteps: 3_000_000
+    rollout_steps: 2048
+    mini_batch_size: 256
+    n_epochs: 10
+
+drone:
+  M2:
+    count: 3
+    disturbance_mult: 1.0
+    hor_angle: 140
+    ver_angle: 90
+    view_range: 200
+    max_cam_rot: 90
+    min_speed: 0
+    max_speed: 25
+    max_altitude: 150
+    spawn_dist: [90, 110]
+    view_dir: [1, 0, -0.7]
+
+# Animal configuration
+animal:
+  env:
+    count: 1
+
+  init:
+    min_speed: 0
+    max_speed: 12
+    behavior: CRW_CFG
+    movement_dim: TWO_D
+    max_spawn_radius: 200
+
+# Disturbance model
+max_angle_activation: 0.2
+max_heading_activation: 0.2
+max_axis_activation: 0.2
+
+# Disturbance/reward model
+XY_scale: 80
+Z_scale: 60
+w_angle: 1.0
+w_axis: 0.2
+w_heading: 1.0
+
+alpha: 0.55 # Disturbance reward tradeoff
+
+p_orbit_tangent_scale: 0.10
+p_orbit_persistence_scale: 0.05
+orbit_sign_deadzone: 0.03
+
+# Reward
+disturbance_penalty_scale: 0.3
+p_vel_scale: 0.01
+p_theta_scale: 0.01
+p_dir_change_scale: 0.02
+
+drone_proximity_range: 60.0
+drone_proximity_scale: 0.75
+drone_proximity_exp: 1.0
+
+animal_proximity_range: 15.0
+animal_proximity_scale: 0.30
+animal_proximity_exp: 1.5
+
+view_sep_weight: 0.10
+reset_safety_margin: 10.0
+max_reset_tries: 50
+min_view_sep_distance: 5.0
+require_target_visible_for_sep: false
+
+# Termination / visibility recovery
+track_loss_grace: 50
+not_visible_penalty: 0.1
+hard_safety_radius: 5.0
+hard_safety_penalty: 1.5
+
+# Resource model
+resource:
+  p_wavelenght: 200
+  p_reduction: 0.2
+  p_scale: 0.4
+  sample_res: 5
+  kernel_size: 250
+  min_poi_p: 1.0e-2
