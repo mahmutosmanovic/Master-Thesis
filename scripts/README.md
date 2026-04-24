@@ -104,7 +104,7 @@ This will:
 
 `weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
 
-    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --plot-rewards --plot-heatmaps --weights last
+    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 100 --start-seed 99 --plot-rewards --plot-heatmaps --weights last
 
     python -m scripts.eval_models \
     --run "CRW_seed42_2026-03-23_20-39-50" \

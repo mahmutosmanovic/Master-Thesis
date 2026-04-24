@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-configs=("CRW_MAPPO__2A_2D_M2x2")
+configs=("CRW_MAPPO__1A_3D_M2x2_M3x1" "CRW_MAPPO__1A_3D_M3x2_M1x1" "CRW_MAPPO__1A_3D_M3x2_M2x1")
 max_jobs=1
 
 for cfg in "${configs[@]}"

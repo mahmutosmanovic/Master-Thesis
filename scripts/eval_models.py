@@ -57,6 +57,13 @@ STEP_LOG_FIELDS = [
     "r_dist",
     "r_align",
     "closest_animal_distance",
+    "nearest_drone_distance",
+    "mean_drone_distance",
+    "nearest_drone_to_animal_dist_ratio",
+    "mean_drone_to_animal_dist_ratio",
+    "nearest_drone_minus_closest_animal_distance",
+    "closest_animal_id",
+    "angular_separation_score",
 ]
 
 EPISODE_LOG_FIELDS = [
@@ -123,8 +130,212 @@ def _resolve_morphology_sequence(env):
 
     return names
 
-def write_drone_norm_stats_from_rl_step_csv(env, rl_csv, out_csv):
 
+def _safe_float_or_nan(x):
+    try:
+        if x is None or x == "":
+            return np.nan
+        return float(x)
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _safe_int_or_none(x):
+    try:
+        if x is None or x == "":
+            return None
+        return int(float(x))
+    except (TypeError, ValueError):
+        return None
+
+
+def _xy_from_row(row):
+    return np.array(
+        [
+            _safe_float_or_nan(row.get("x")),
+            _safe_float_or_nan(row.get("y")),
+        ],
+        dtype=float,
+    )
+
+
+def _xyz_from_row(row):
+    return np.array(
+        [
+            _safe_float_or_nan(row.get("x")),
+            _safe_float_or_nan(row.get("y")),
+            _safe_float_or_nan(row.get("z")),
+        ],
+        dtype=float,
+    )
+
+
+def _angular_uniformity_score_xy(angles):
+    """
+    Returns a score in [0, 1].
+
+    1.0 = perfectly uniform angular spacing around the animal
+    0.0 = maximally collapsed into one direction
+
+    Construction:
+      - sort circular angles
+      - compute circular gaps
+      - compare to ideal equal gap 2*pi/n
+      - normalize by the theoretical worst-case L1 deviation
+    """
+    angles = np.asarray(angles, dtype=float)
+    angles = angles[np.isfinite(angles)]
+
+    n = len(angles)
+    if n < 2:
+        return np.nan
+
+    angles = np.mod(angles, 2 * np.pi)
+    angles = np.sort(angles)
+
+    gaps = np.diff(np.r_[angles, angles[0] + 2 * np.pi])
+    ideal_gap = 2 * np.pi / n
+
+    deviation = float(np.sum(np.abs(gaps - ideal_gap)))
+
+    # Worst case: all drones at same angle -> gaps [0, 0, ..., 2*pi]
+    max_deviation = 4 * np.pi * (1 - 1 / n)
+
+    if max_deviation <= 1e-12:
+        return np.nan
+
+    score = 1.0 - deviation / max_deviation
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def augment_step_rows_with_interdrone_metrics(step_rows):
+    """
+    Adds per-drone inter-drone metrics and an angular-separation score.
+
+    New fields added to drone rows:
+      - nearest_drone_distance
+      - mean_drone_distance
+      - nearest_drone_to_animal_dist_ratio
+      - mean_drone_to_animal_dist_ratio
+      - nearest_drone_minus_closest_animal_distance
+      - closest_animal_id
+      - angular_separation_score
+
+    Angular score idea:
+      For each drone row, find its closest animal from the current step's animal rows.
+      Then consider all drones' XY angles around that animal.
+      Score = 1 when angular spacing is perfectly uniform, 0 when angles collapse.
+    """
+    if not step_rows:
+        return step_rows
+
+    animal_rows = [
+        row for row in step_rows
+        if str(row.get("entity_type", "")).lower() == "animal"
+    ]
+    drone_rows = [
+        row for row in step_rows
+        if str(row.get("entity_type", "")).lower() != "animal"
+    ]
+
+    if not drone_rows:
+        return step_rows
+
+    drone_positions_xyz = [_xyz_from_row(row) for row in drone_rows]
+
+    for i, row in enumerate(drone_rows):
+        current_drone_xyz = drone_positions_xyz[i]
+
+        # -------- Inter-drone distance metrics --------
+        if len(drone_rows) <= 1:
+            nearest_drone_distance = np.nan
+            mean_drone_distance = np.nan
+        else:
+            dists = []
+            for j, other_xyz in enumerate(drone_positions_xyz):
+                if i == j:
+                    continue
+                if not np.all(np.isfinite(current_drone_xyz)) or not np.all(np.isfinite(other_xyz)):
+                    continue
+                dists.append(float(np.linalg.norm(current_drone_xyz - other_xyz)))
+
+            nearest_drone_distance = float(np.min(dists)) if dists else np.nan
+            mean_drone_distance = float(np.mean(dists)) if dists else np.nan
+
+        closest_animal_distance = _safe_float_or_nan(row.get("closest_animal_distance"))
+
+        if np.isfinite(closest_animal_distance) and closest_animal_distance > 1e-8:
+            nearest_ratio = (
+                nearest_drone_distance / closest_animal_distance
+                if np.isfinite(nearest_drone_distance)
+                else np.nan
+            )
+            mean_ratio = (
+                mean_drone_distance / closest_animal_distance
+                if np.isfinite(mean_drone_distance)
+                else np.nan
+            )
+            nearest_minus_animal = (
+                nearest_drone_distance - closest_animal_distance
+                if np.isfinite(nearest_drone_distance)
+                else np.nan
+            )
+        else:
+            nearest_ratio = np.nan
+            mean_ratio = np.nan
+            nearest_minus_animal = np.nan
+
+        # -------- Closest animal and angular-separation score --------
+        closest_animal_id = None
+        angular_separation_score = np.nan
+
+        if animal_rows:
+            current_drone_xy = _xy_from_row(row)
+
+            best_animal_row = None
+            best_dist = np.inf
+
+            for animal_row in animal_rows:
+                animal_xy = _xy_from_row(animal_row)
+                if not np.all(np.isfinite(current_drone_xy)) or not np.all(np.isfinite(animal_xy)):
+                    continue
+
+                d = float(np.linalg.norm(current_drone_xy - animal_xy))
+                if d < best_dist:
+                    best_dist = d
+                    best_animal_row = animal_row
+
+            if best_animal_row is not None:
+                closest_animal_id = _safe_int_or_none(best_animal_row.get("id"))
+                animal_xy = _xy_from_row(best_animal_row)
+
+                angles = []
+                for drone_row in drone_rows:
+                    drone_xy = _xy_from_row(drone_row)
+                    rel = drone_xy - animal_xy
+                    if not np.all(np.isfinite(rel)):
+                        continue
+
+                    norm_xy = np.linalg.norm(rel)
+                    if norm_xy <= 1e-10:
+                        continue
+
+                    angles.append(np.arctan2(rel[1], rel[0]))
+
+                angular_separation_score = _angular_uniformity_score_xy(angles)
+
+        row["nearest_drone_distance"] = nearest_drone_distance
+        row["mean_drone_distance"] = mean_drone_distance
+        row["nearest_drone_to_animal_dist_ratio"] = nearest_ratio
+        row["mean_drone_to_animal_dist_ratio"] = mean_ratio
+        row["nearest_drone_minus_closest_animal_distance"] = nearest_minus_animal
+        row["closest_animal_id"] = closest_animal_id if closest_animal_id is not None else ""
+        row["angular_separation_score"] = angular_separation_score
+
+    return step_rows
+
+
+def write_drone_norm_stats_from_rl_step_csv(env, rl_csv, out_csv):
     rl_csv = Path(rl_csv)
     out_csv = Path(out_csv)
 
@@ -149,6 +360,53 @@ def write_drone_norm_stats_from_rl_step_csv(env, rl_csv, out_csv):
         .sort_values("morphology_name")
     )
 
+    stats_df.to_csv(out_csv, index=False)
+
+    return out_csv
+
+
+def write_angular_separation_stats_from_step_csv(step_csv, out_csv):
+    """
+    Writes one new CSV containing the angular-separation metric summary.
+
+    Columns:
+      morphology_name
+      mean_angular_separation
+      std_angular_separation
+
+    Interpretation:
+      1 = drones are evenly spread around the relevant animal in angle
+      0 = drones collapse into the same direction around the animal
+    """
+    step_csv = Path(step_csv)
+    out_csv = Path(out_csv)
+
+    df = pd.read_csv(step_csv)
+
+    if "angular_separation_score" not in df.columns:
+        raise KeyError(
+            f"'angular_separation_score' not found in {step_csv}. "
+            "Make sure step rows were augmented before writing."
+        )
+
+    df = df[df["entity_type"] != "animal"].copy()
+    df["angular_separation_score"] = pd.to_numeric(
+        df["angular_separation_score"], errors="coerce"
+    )
+    df = df.dropna(subset=["angular_separation_score"])
+
+    df["morphology_name"] = df["entity_type"]
+
+    stats_df = (
+        df.groupby("morphology_name", as_index=False)["angular_separation_score"]
+        .agg(
+            mean_angular_separation="mean",
+            std_angular_separation="std",
+        )
+        .sort_values("morphology_name")
+    )
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
     stats_df.to_csv(out_csv, index=False)
 
     return out_csv
@@ -183,7 +441,9 @@ def run_episode_summary(
         obs, reward, terminated, truncated, info = env.step(action)
 
         if step_writer is not None:
-            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+            step_rows = env.step_log()
+            step_rows = augment_step_rows_with_interdrone_metrics(step_rows)
+            write_log_rows(step_writer, step_rows, STEP_LOG_FIELDS)
 
         ep_reward += float(reward)
 
@@ -479,6 +739,7 @@ def run_episode(
         obs, reward, terminated, truncated, info = env.step(action)
 
         step_rows = env.step_log()
+        step_rows = augment_step_rows_with_interdrone_metrics(step_rows)
 
         if step_writer is not None:
             write_log_rows(step_writer, step_rows, STEP_LOG_FIELDS)
@@ -969,18 +1230,42 @@ def main():
             f"n={report['baseline']['n']}"
         )
 
-    if args.plot_heatmaps:
-        rl_csv = eval_dir / f"{agent_type}.csv"
-        print(f"\nGenerating heatmaps from: {rl_csv}")
+    # Always write the new angular-separation summary CSV for RL step logs
+    rl_step_csv = eval_dir / f"{agent_type}.csv"
+    angular_stats_csv = eval_dir / "angular_separation_stats.csv"
 
-        df = pd.read_csv(rl_csv)
+    try:
+        write_angular_separation_stats_from_step_csv(
+            step_csv=rl_step_csv,
+            out_csv=angular_stats_csv,
+        )
+        print(f">>> Angular separation stats CSV: {angular_stats_csv}")
+    except Exception as e:
+        print(f"[failed] angular separation stats CSV: {e}")
+
+    if baseline is not None:
+        baseline_step_csv = eval_dir / f"{type(baseline).__name__}.csv"
+        baseline_angular_stats_csv = eval_dir / "angular_separation_stats_baseline.csv"
+        try:
+            write_angular_separation_stats_from_step_csv(
+                step_csv=baseline_step_csv,
+                out_csv=baseline_angular_stats_csv,
+            )
+            print(f">>> Baseline angular separation stats CSV: {baseline_angular_stats_csv}")
+        except Exception as e:
+            print(f"[failed] baseline angular separation stats CSV: {e}")
+
+    if args.plot_heatmaps:
+        print(f"\nGenerating heatmaps from: {rl_step_csv}")
+
+        df = pd.read_csv(rl_step_csv)
         reward_min = pd.to_numeric(df["reward"], errors="coerce").min()
         reward_max = pd.to_numeric(df["reward"], errors="coerce").max()
 
         _safe_make_plot(
             "RL policy heatmap",
             plot_policy_heatmap_from_csv,
-            rl_csv,
+            rl_step_csv,
             bins=100,
             cmap="turbo",
             title=behavior_name,
@@ -988,7 +1273,7 @@ def main():
         _safe_make_plot(
             "RL disturbance heatmap",
             plot_disturbance_heatmap_from_csv,
-            rl_csv,
+            rl_step_csv,
             bins=100,
             cmap="turbo",
             title=behavior_name,
@@ -996,7 +1281,7 @@ def main():
         _safe_make_plot(
             "RL XY heatmap",
             plot_xy_policy_heatmap_from_csv,
-            rl_csv,
+            rl_step_csv,
             bins=100,
             cmap="turbo",
             title=behavior_name,
@@ -1004,7 +1289,7 @@ def main():
         _safe_make_plot(
             "RL reward heatmap",
             plot_reward_heatmap_from_csv,
-            rl_csv,
+            rl_step_csv,
             bins=100,
             cmap="turbo",
             vmin=float(reward_min),
@@ -1015,7 +1300,7 @@ def main():
         _safe_make_plot(
             "RL visitation-on-disturbance heatmap",
             plot_visitation_on_disturbance_background,
-            csv_path=rl_csv,
+            csv_path=rl_step_csv,
             bins=100,
             disturbance_cmap="bone_r",
             title=behavior_name,
@@ -1023,7 +1308,7 @@ def main():
         _safe_make_plot(
             "RL closest-animal distance heatmap",
             plot_closest_animal_visitation_by_drone_from_csv,
-            rl_csv,
+            rl_step_csv,
             title="",
         )
 
@@ -1092,7 +1377,6 @@ def main():
         if baseline is not None:
             _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
 
-        rl_step_csv = eval_dir / f"{agent_type}.csv"
         drone_norm_stats_csv = eval_dir / "drone_norm_stats.csv"
 
         write_drone_norm_stats_from_rl_step_csv(

@@ -1199,6 +1199,52 @@ class PaperViewer:
 
         plt.close(fig)
 
+    def _save_snapshot_3d(self, frame_idx, filename):
+        fig = plt.figure(figsize=(7.2, 7.2), dpi=220)
+        fig.patch.set_facecolor("#e9eaec")
+        fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_position([0.0, 0.0, 1.0, 1.0])
+
+        self._setup_axes_3d(ax)
+        ax.set_axis_off()
+
+        frame = self.frames[frame_idx]
+        d = frame["drones"]
+        a = frame["animals"]
+        v = frame["views"]
+        visible = frame["visible"]
+
+        for j in range(len(d)):
+            drone_type = frame["drone_types"][j]
+            pts = np.array([f["drones"][j] for f in self.frames[: frame_idx + 1]])
+            self._draw_fading_trail_3d(
+                ax,
+                pts,
+                color=self._get_drone_trail_color(drone_type),
+                base_style=self.drone_trail_style,
+            )
+
+        for j in range(len(a)):
+            pts = np.array([f["animals"][j] for f in self.frames[: frame_idx + 1]])
+            self._draw_fading_trail_3d(
+                ax,
+                pts,
+                color=self.animal_trail_color,
+                base_style=self.animal_trail_style,
+            )
+
+        for j in range(len(a)):
+            motion = self._get_motion(self.frames, frame_idx, j, kind="animals")
+            self._draw_animal_3d(ax, a[j], motion, bool(visible[j]))
+
+        for j in range(len(d)):
+            self._draw_drone_3d(ax, d[j], v[j], frame["drone_types"][j], self.drone_size)
+
+        fig.savefig(self.output_dir / filename, bbox_inches="tight", pad_inches=0.02)
+        plt.close(fig)
+
     def close(self):
         if not self.frames:
             return
@@ -1211,15 +1257,17 @@ class PaperViewer:
 
         n = len(self.frames)
         progress_points = [
-            (0.20, "snapshot_20.png"),
-            (0.40, "snapshot_40.png"),
-            (0.60, "snapshot_60.png"),
-            (0.80, "snapshot_80.png"),
-            (1.00, "snapshot_100.png"),
+            (0.20, "snapshot_20.png", "snapshot_3d_20.png"),
+            (0.40, "snapshot_40.png", "snapshot_3d_40.png"),
+            (0.60, "snapshot_60.png", "snapshot_3d_60.png"),
+            (0.80, "snapshot_80.png", "snapshot_3d_80.png"),
+            (1.00, "snapshot_100.png", "snapshot_3d_100.png"),
         ]
-        for frac, name in progress_points:
+
+        for frac, name_2d, name_3d in progress_points:
             idx = min(n - 1, max(0, int(np.ceil(frac * n)) - 1))
-            self._save_snapshot(idx, name)
+            self._save_snapshot(idx, name_2d)
+            self._save_snapshot_3d(idx, name_3d)
 
         self._save_trajectories()
         self._save_reward_plot()
@@ -1227,7 +1275,6 @@ class PaperViewer:
         print("[PaperViewer] Done.")
         self.recording = False
         self.frames = []
-
 
 def init_agent(config, run_dir, weight_type="best"):
     agent_type = config.agent_type
