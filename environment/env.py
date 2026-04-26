@@ -16,7 +16,6 @@ class Env:
 
         self.viewer = Viewer(config)
         self.resource_map = None
-        self.lost_track_counter = 0
         self.out_of_view_steps = 0
 
         self.spawn_radius = self.config["animal"]["init"]["max_spawn_radius"]
@@ -34,7 +33,6 @@ class Env:
 
         self._init_space_config()
         self._init_safety_config()
-        self._init_orbit_config()
         self._init_view_sep_config()
         self._init_monitoring_config()
 
@@ -49,7 +47,6 @@ class Env:
         self.view_bucket_totals = np.zeros(self.animal_count, dtype=np.float32)
 
         self.prev_vel_dirs = None
-        self.prev_orbit_signs = np.zeros(self.drone_count, dtype=np.float32)
 
         self.enable_step_logging = False
         self.last_step_stats = {}
@@ -62,6 +59,19 @@ class Env:
 
         self.last_max_single_disturbance = 0.0
         self.last_target_visible_fraction = 0.0
+
+        self.track_loss_grace = int(self._cfg_get("track_loss_grace", default=50))
+        self.lost_track_counter = 0
+        self.lost_track_counters = np.zeros(self.drone_count, dtype=np.int32)
+
+        # Realistic camera-memory state.
+        # These are not true hidden positions. They are only the last visual measurement
+        # each drone had for each animal, plus normalized time since that measurement.
+        self.last_seen_dist = None
+        self.last_seen_v_angle = None
+        self.last_seen_h_angle = None
+        self.time_since_seen = None
+        self._reset_last_seen_memory()
 
         self.set_seed(seed)
 
@@ -97,7 +107,26 @@ class Env:
     def _init_space_config(self):
         self.drone_feat_dim = int(self._cfg_get("model", "space", "drone_features", default=8))
         self.other_drone_feat_dim = int(self._cfg_get("model", "space", "other_drone_features", default=4))
-        self.animal_feat_dim = int(self._cfg_get("model", "space", "animal_features", default=8))
+
+        # New animal layout has 12 features:
+        # 0  in_view
+        # 1  current visible distance, else 1
+        # 2  current visible vertical angle, else 0
+        # 3  current visible horizontal angle, else 0
+        # 4  current visible animal velocity camera-x, else 0
+        # 5  current visible animal velocity camera-y, else 0
+        # 6  current visible animal velocity camera-z, else 0
+        # 7  last seen distance
+        # 8  last seen vertical angle
+        # 9  last seen horizontal angle
+        # 10 normalized time since seen
+        # 11 target flag
+        self.animal_feat_dim = int(self._cfg_get("model", "space", "animal_features", default=12))
+        if self.animal_feat_dim != 12:
+            raise ValueError(
+                "Last-seen memory observation requires model.space.animal_features = 12. "
+                f"Got {self.animal_feat_dim}."
+            )
 
     def _init_safety_config(self):
         self.drone_proximity_range = float(self._cfg_get("drone_proximity_range", default=50.0))
@@ -114,11 +143,6 @@ class Env:
         self.reset_safety_margin = float(self._cfg_get("reset_safety_margin", default=20.0))
         self.max_reset_tries = int(self._cfg_get("max_reset_tries", default=100))
 
-    def _init_orbit_config(self):
-        self.p_orbit_tangent_scale = float(self._cfg_get("p_orbit_tangent_scale", default=0.10))
-        self.p_orbit_persistence_scale = float(self._cfg_get("p_orbit_persistence_scale", default=0.05))
-        self.orbit_sign_deadzone = float(self._cfg_get("orbit_sign_deadzone", default=0.03))
-
     def _init_view_sep_config(self):
         self.view_sep_weight = float(self._cfg_get("view_sep_weight", default=0.10))
         self.min_view_sep_distance = float(self._cfg_get("min_view_sep_distance", default=5.0))
@@ -130,6 +154,13 @@ class Env:
         self.not_visible_penalty = float(self._cfg_get("not_visible_penalty", default=1.25))
         self.not_visible_penalty_power = float(self._cfg_get("not_visible_penalty_power", default=2.0))
         self.all_view_bonus = float(self._cfg_get("all_view_bonus", default=0.10))
+
+    def _reset_last_seen_memory(self):
+        shape = (self.drone_count, self.animal_count)
+        self.last_seen_dist = np.ones(shape, dtype=np.float32)
+        self.last_seen_v_angle = np.zeros(shape, dtype=np.float32)
+        self.last_seen_h_angle = np.zeros(shape, dtype=np.float32)
+        self.time_since_seen = np.ones(shape, dtype=np.float32)
 
     def _empty_reward_stats(self):
         return {
@@ -145,8 +176,6 @@ class Env:
             "p_drone_proximity": 0.0,
             "p_animal_proximity": 0.0,
             "p_hard_safety": 0.0,
-            "p_orbit_tangent": 0.0,
-            "p_orbit_persistence": 0.0,
             "episode_progress": 0.0,
         }
 
@@ -248,9 +277,12 @@ class Env:
 
     def reset(self, seed=None):
         self._env_steps = 0
-        self.lost_track_counter = 0
         self.out_of_view_steps = 0
         self.episode += 1
+
+        self.lost_track_counter = 0
+        self.lost_track_counters = np.zeros(self.drone_count, dtype=np.int32)
+        self._reset_last_seen_memory()
 
         self.state_counts = {"calm": 0, "avoid": 0, "flee": 0}
         self.reward_stats = self._empty_reward_stats()
@@ -258,8 +290,6 @@ class Env:
 
         self.view_bucket_counts = np.zeros((self.animal_count, 4), dtype=np.float32)
         self.view_bucket_totals = np.zeros(self.animal_count, dtype=np.float32)
-
-        self.prev_orbit_signs = np.zeros(self.drone_count, dtype=np.float32)
 
         self.last_hard_safety_violation = False
         self.last_min_drone_drone_dist = np.inf
@@ -287,8 +317,6 @@ class Env:
                 "p_drone_proximity": 0.0,
                 "p_animal_proximity": 0.0,
                 "p_hard_safety": 0.0,
-                "p_orbit_tangent": 0.0,
-                "p_orbit_persistence": 0.0,
                 "hard_safety_violation": 0.0,
                 "min_drone_drone_dist": np.inf,
                 "min_drone_animal_dist": np.inf,
@@ -477,8 +505,6 @@ class Env:
             "p_drone_proximity": self.reward_stats["p_drone_proximity"] / self._env_steps,
             "p_animal_proximity": self.reward_stats["p_animal_proximity"] / self._env_steps,
             "p_hard_safety": self.reward_stats["p_hard_safety"] / self._env_steps,
-            "p_orbit_tangent": self.reward_stats["p_orbit_tangent"] / self._env_steps,
-            "p_orbit_persistence": self.reward_stats["p_orbit_persistence"] / self._env_steps,
             "episode_progress": self._env_steps / self.config.max_episode_steps,
         }
 
@@ -679,32 +705,55 @@ class Env:
                     animal.vel_speed / (animal.max_speed + 1e-8)
                 )
 
-                v_cam_x = np.dot(animal_vel, x)
-                v_cam_y = np.dot(animal_vel, y)
-                v_cam_z = np.dot(animal_vel, z)
+                v_cam_x = float(np.dot(animal_vel, x))
+                v_cam_y = float(np.dot(animal_vel, y))
+                v_cam_z = float(np.dot(animal_vel, z))
+
+                dist_norm = float(np.clip(distance / (drone.view_range + 1e-8), 0.0, 1.0))
+                v_norm = float(np.clip(v_angle / (v_max + 1e-8), -1.0, 1.0))
+                h_norm = float(np.clip(h_angle / (h_max + 1e-8), -1.0, 1.0))
 
                 if in_view:
-                    animal_features.extend([
-                        1.0,
-                        distance / (drone.view_range + 1e-8),
-                        v_angle / (v_max + 1e-8),
-                        h_angle / (h_max + 1e-8),
-                        v_cam_x,
-                        v_cam_y,
-                        v_cam_z,
-                        float(animal.id == drone.target_id),
-                    ])
+                    self.last_seen_dist[d, a] = dist_norm
+                    self.last_seen_v_angle[d, a] = v_norm
+                    self.last_seen_h_angle[d, a] = h_norm
+                    self.time_since_seen[d, a] = 0.0
+
+                    curr_in_view = 1.0
+                    curr_dist = dist_norm
+                    curr_v_angle = v_norm
+                    curr_h_angle = h_norm
+                    curr_vx = v_cam_x
+                    curr_vy = v_cam_y
+                    curr_vz = v_cam_z
                 else:
-                    animal_features.extend([
-                        0.0,
+                    self.time_since_seen[d, a] = min(
+                        self.time_since_seen[d, a] + 1.0 / max(float(self.track_loss_grace), 1.0),
                         1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        float(animal.id == drone.target_id),
-                    ])
+                    )
+
+                    curr_in_view = 0.0
+                    curr_dist = 1.0
+                    curr_v_angle = 0.0
+                    curr_h_angle = 0.0
+                    curr_vx = 0.0
+                    curr_vy = 0.0
+                    curr_vz = 0.0
+
+                animal_features.extend([
+                    curr_in_view,
+                    curr_dist,
+                    curr_v_angle,
+                    curr_h_angle,
+                    curr_vx,
+                    curr_vy,
+                    curr_vz,
+                    float(self.last_seen_dist[d, a]),
+                    float(self.last_seen_v_angle[d, a]),
+                    float(self.last_seen_h_angle[d, a]),
+                    float(self.time_since_seen[d, a]),
+                    float(animal.id == drone.target_id),
+                ])
 
             obs = np.array(
                 drone_features + other_drone_features + animal_features,
@@ -848,60 +897,6 @@ class Env:
 
         return reversal_penalty * speed_frac * self.config.p_dir_change_scale
 
-    def _orbit_penalty(self, drone_idx, drone_action):
-        if self.animal_count == 0:
-            return 0.0, 0.0
-
-        drone = self.drones[drone_idx]
-
-        target_animal = None
-        for animal in self.animals:
-            if animal.id == drone.target_id:
-                target_animal = animal
-                break
-
-        if target_animal is None:
-            return 0.0, 0.0
-
-        drone_pos = drone.pos.to_numpy().astype(np.float32)
-        animal_pos = target_animal.pos.to_numpy().astype(np.float32)
-
-        rel = drone_pos - animal_pos
-        rel[2] = 0.0
-
-        rel_norm = np.linalg.norm(rel[:2])
-        if rel_norm < 1e-6:
-            return 0.0, 0.0
-
-        r_hat = rel[:2] / rel_norm
-
-        vel = drone_action["vel_dir"].to_numpy().astype(np.float32)
-        vel_norm = np.linalg.norm(vel)
-        if vel_norm < 1e-8:
-            return 0.0, 0.0
-        vel = vel / vel_norm
-
-        vel_xy = vel[:2]
-        radial = np.dot(vel_xy, r_hat) * r_hat
-        tangential = vel_xy - radial
-        tangential_mag = float(np.linalg.norm(tangential))
-
-        signed_orbit = float(r_hat[0] * vel_xy[1] - r_hat[1] * vel_xy[0])
-
-        if abs(signed_orbit) < self.orbit_sign_deadzone:
-            curr_sign = 0.0
-        else:
-            curr_sign = float(np.sign(signed_orbit))
-
-        prev_sign = self.prev_orbit_signs[drone_idx]
-        persistence_penalty = 0.0
-        if prev_sign != 0.0 and curr_sign != 0.0 and prev_sign == curr_sign:
-            persistence_penalty = abs(signed_orbit)
-
-        self.prev_orbit_signs[drone_idx] = curr_sign
-
-        return tangential_mag, persistence_penalty
-
     def _closeness_penalty(self, distance, radius, scale, exponent):
         if radius <= 1e-8 or distance >= radius:
             return 0.0
@@ -978,22 +973,16 @@ class Env:
 
         avoid_count = 0
         flee_count = 0
-        calm_count = 0
 
         for animal in self.animals:
             if animal.state == "flee":
                 flee_count += 1
             elif animal.state == "avoid":
                 avoid_count += 1
-            else:
-                calm_count += 1
 
         avoid_frac = avoid_count / self.animal_count
         flee_frac = flee_count / self.animal_count
-
-        penalty = (
-            1*avoid_frac + 1*flee_frac
-        )
+        penalty = avoid_frac + flee_frac
 
         return float(penalty), float(avoid_frac), float(flee_frac)
 
@@ -1013,7 +1002,6 @@ class Env:
         p_dir_change = 0.0
 
         animal_obs_all = self._extract_animal_obs(observations)
-
         visible_target = np.zeros(self.drone_count, dtype=np.float32)
 
         for d in range(self.drone_count):
@@ -1024,7 +1012,7 @@ class Env:
             dist = animal_obs[:, 1]
             v = np.abs(animal_obs[:, 2])
             h = np.abs(animal_obs[:, 3])
-            target = animal_obs[:, 7]
+            target = animal_obs[:, 11]
 
             is_target = target > 0.5
             target_in_view = bool(np.any(in_view[is_target] > 0.5)) if np.any(is_target) else False
@@ -1033,7 +1021,6 @@ class Env:
 
             if target_in_view:
                 visible_target[d] = 1.0
-
                 dist_term = -dist[is_target]
                 r_dist += float(np.mean(dist_term))
 
@@ -1042,110 +1029,66 @@ class Env:
 
                 align_term = 1.0 - 0.5 * (v_vis + h_vis)
                 align_term = np.clip(align_term, 0.0, 1.0)
-
                 r_align += float(np.mean(align_term ** ALIGN_EXP))
             else:
                 r_dist += -1.0
 
-            p_vel += (
-                (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8))
-                * self.config.p_vel_scale
-            ) ** P_VEL_EXP
-
-            p_theta += (
-                (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8))
-                * self.config.p_theta_scale
-            ) ** P_THETA_EXP
-
+            p_vel += ((drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)) * self.config.p_vel_scale) ** P_VEL_EXP
+            p_theta += ((abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8)) * self.config.p_theta_scale) ** P_THETA_EXP
             p_dir_change += self._direction_change_penalty(d, drone_action) ** P_DIR_CHANGE_EXP
 
-        r_vis /= max(self.drone_count, 1)
-        r_dist /= max(self.drone_count, 1)
-        r_align /= max(self.drone_count, 1)
-        p_vel /= max(self.drone_count, 1)
-        p_theta /= max(self.drone_count, 1)
-        p_dir_change /= max(self.drone_count, 1)
+        n_d = max(self.drone_count, 1)
+        r_vis /= n_d
+        r_dist /= n_d
+        r_align /= n_d
+        p_vel /= n_d
+        p_theta /= n_d
+        p_dir_change /= n_d
 
-        animal_disturbances = np.array(
-            [animal.disturbance for animal in self.animals],
-            dtype=np.float32
-        )
+        if np.sum(visible_target) < self.drone_count:
+            self.lost_track_counter += 1
+        else:
+            self.lost_track_counter = 0
+
+        track_loss_penalty = float(self.lost_track_counter) * 0.01
+
+        animal_disturbances = np.array([a.disturbance for a in self.animals], dtype=np.float32)
         disturbance_penalty = float(np.mean(animal_disturbances)) if len(animal_disturbances) > 0 else 0.0
 
-        target_visible_fraction = float(np.mean(visible_target)) if len(visible_target) > 0 else 0.0
+        target_visible_fraction = float(np.mean(visible_target))
         self.last_target_visible_fraction = target_visible_fraction
 
-        disturbance_reward_tradeoff = np.clip(
-            (
-                self.alpha * (1.0 - disturbance_penalty)
-                + (1.0 - self.alpha) * r_dist
-            ) / (float(self.reward_scales[0]) + 1e-8),
+        tradeoff = np.clip(
+            (self.alpha * (1.0 - disturbance_penalty) + (1.0 - self.alpha) * r_dist) / (float(self.reward_scales[0]) + 1e-8),
             0.0,
             1.0,
         )
 
-        r_bucket = self._bucket_balance_score()
-
-        monitor_reward = (
-            0.9 * disturbance_reward_tradeoff +
-            0.1 * r_align
-        )
-
-        final_reward = (
-            monitor_reward
-            - p_vel
-            - p_theta
-            - p_dir_change
-        )
+        monitor_reward = 0.9 * tradeoff + 0.1 * r_align
+        final_reward = monitor_reward - p_vel - p_theta - p_dir_change - track_loss_penalty
 
         self.reward_stats["r_monitoring"] += monitor_reward
         self.reward_stats["p_disturbance"] += disturbance_penalty
+        self.reward_stats["p_not_visible"] += track_loss_penalty
         self.reward_stats["r_vis"] += r_vis
         self.reward_stats["r_dist"] += r_dist
         self.reward_stats["r_align"] += r_align
-        self.reward_stats["r_bucket"] += r_bucket
-        self.reward_stats["r_view_sep"] += 0.0
-        self.reward_stats["r_all_view"] += 0.0
-        self.reward_stats["p_not_visible"] += 0.0
-        self.reward_stats["p_drone_proximity"] += 0.0
-        self.reward_stats["p_animal_proximity"] += 0.0
-        self.reward_stats["p_hard_safety"] += 0.0
-        self.reward_stats["p_orbit_tangent"] += 0.0
-        self.reward_stats["p_orbit_persistence"] += 0.0
+        self.reward_stats["r_bucket"] += self._bucket_balance_score()
 
-        hard_violation = False
+        hard_violation = self.lost_track_counter >= self.track_loss_grace
 
         if self.enable_step_logging:
-            behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
-            for animal in self.animals:
-                behavior_counts[animal.state] += 1
-
-            n = max(self.animal_count, 1)
-            self.last_step_stats = {
+            self.last_step_stats.update({
                 "reward": float(final_reward),
                 "monitor_reward": float(monitor_reward),
-                "disturbance_penalty": float(disturbance_penalty),
-                "max_single_disturbance": float(self.last_max_single_disturbance),
-                "target_visible_fraction": float(target_visible_fraction),
-                "calm_frac": behavior_counts["calm"] / n,
-                "avoid_frac": behavior_counts["avoid"] / n,
-                "flee_frac": behavior_counts["flee"] / n,
-                "mean_disturbance": float(np.mean([a.disturbance for a in self.animals])) if self.animals else 0.0,
+                "p_not_visible": float(track_loss_penalty),
+                "target_visible_fraction": target_visible_fraction,
+                "mean_disturbance": disturbance_penalty,
+                "hard_safety_violation": 1.0 if hard_violation else 0.0,
                 "r_vis": float(r_vis),
                 "r_dist": float(r_dist),
                 "r_align": float(r_align),
-                "r_view_sep": 0.0,
-                "r_all_view": 0.0,
-                "p_not_visible": 0.0,
-                "p_drone_proximity": 0.0,
-                "p_animal_proximity": 0.0,
-                "p_hard_safety": 0.0,
-                "p_orbit_tangent": 0.0,
-                "p_orbit_persistence": 0.0,
-                "hard_safety_violation": 0.0,
-                "min_drone_drone_dist": float(self.last_min_drone_drone_dist),
-                "min_drone_animal_dist": float(self.last_min_drone_animal_dist),
-            }
+            })
 
         return float(final_reward), float(monitor_reward), float(disturbance_penalty), bool(hard_violation)
 
@@ -1163,8 +1106,6 @@ class Env:
         p_vel = 0.0
         p_theta = 0.0
         p_dir_change = 0.0
-        p_orbit_tangent = 0.0
-        p_orbit_persistence = 0.0
 
         animal_obs_all = self._extract_animal_obs(observations)
         visible_target = np.zeros(self.drone_count, dtype=np.float32)
@@ -1177,7 +1118,7 @@ class Env:
             dist = animal_obs[:, 1]
             v = np.abs(animal_obs[:, 2])
             h = np.abs(animal_obs[:, 3])
-            target = animal_obs[:, 7]
+            target = animal_obs[:, 11]
 
             is_target = target > 0.5
             target_in_view = bool(np.any(in_view[is_target] > 0.5)) if np.any(is_target) else False
@@ -1186,150 +1127,113 @@ class Env:
 
             if target_in_view:
                 visible_target[d] = 1.0
-
-                # Same as single-drone: distance is negative normalized distance.
                 dist_term = -dist[is_target]
                 r_dist += float(np.mean(dist_term))
 
                 v_vis = np.maximum(0.0, v[is_target] - ALIGN_DEADZONE)
                 h_vis = np.maximum(0.0, h[is_target] - ALIGN_DEADZONE)
-
-                align_term = 1.0 - 0.5 * (v_vis + h_vis)
-                align_term = np.clip(align_term, 0.0, 1.0)
-
+                align_term = np.clip(1.0 - 0.5 * (v_vis + h_vis), 0.0, 1.0)
                 r_align += float(np.mean(align_term ** ALIGN_EXP))
             else:
                 r_dist += -1.0
 
-            p_vel += (
-                (drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8))
-                * self.config.p_vel_scale
-            ) ** P_VEL_EXP
-
-            p_theta += (
-                (abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8))
-                * self.config.p_theta_scale
-            ) ** P_THETA_EXP
-
+            p_vel += ((drone_action["vel_speed"] / (self.drones[d].max_speed + 1e-8)) * self.config.p_vel_scale) ** P_VEL_EXP
+            p_theta += ((abs(drone_action["theta"]) / (self.drones[d].max_cam_rot + 1e-8)) * self.config.p_theta_scale) ** P_THETA_EXP
             p_dir_change += self._direction_change_penalty(d, drone_action) ** P_DIR_CHANGE_EXP
 
-            orbit_tangent_penalty, orbit_persistence_penalty = self._orbit_penalty(d, drone_action)
-            p_orbit_tangent += orbit_tangent_penalty * self.p_orbit_tangent_scale
-            p_orbit_persistence += orbit_persistence_penalty * self.p_orbit_persistence_scale
+        n_d = max(self.drone_count, 1)
+        r_vis /= n_d
+        r_dist /= n_d
+        r_align /= n_d
+        p_vel /= n_d
+        p_theta /= n_d
+        p_dir_change /= n_d
 
-        r_vis /= max(self.drone_count, 1)
-        r_dist /= max(self.drone_count, 1)
-        r_align /= max(self.drone_count, 1)
+        track_loss_penalty = 0.0
+        any_grace_exceeded = False
 
-        p_vel /= max(self.drone_count, 1)
-        p_theta /= max(self.drone_count, 1)
-        p_dir_change /= max(self.drone_count, 1)
-        p_orbit_tangent /= max(self.drone_count, 1)
-        p_orbit_persistence /= max(self.drone_count, 1)
+        for d in range(self.drone_count):
+            if visible_target[d] > 0.5:
+                self.lost_track_counters[d] = 0
+            else:
+                self.lost_track_counters[d] += 1
 
-        animal_disturbances = np.array(
-            [animal.disturbance for animal in self.animals],
-            dtype=np.float32
-        )
+            counter = int(self.lost_track_counters[d])
+            track_loss_penalty += counter * 0.01
+
+            if counter >= self.track_loss_grace:
+                any_grace_exceeded = True
+
+        track_loss_penalty /= n_d
+        forced_reset = any_grace_exceeded
+
+        animal_disturbances = np.array([a.disturbance for a in self.animals], dtype=np.float32)
         disturbance_penalty = float(np.mean(animal_disturbances)) if len(animal_disturbances) > 0 else 0.0
-
-        target_visible_fraction = float(np.mean(visible_target)) if len(visible_target) > 0 else 0.0
+        target_visible_fraction = float(np.mean(visible_target))
         self.last_target_visible_fraction = target_visible_fraction
 
-        # Same formulation as single-drone.
         reward_scale = float(np.mean(self.reward_scales)) if len(self.reward_scales) > 0 else 1.0
-
-        disturbance_reward_tradeoff = np.clip(
-            (
-                self.alpha * (1.0 - disturbance_penalty)
-                + (1.0 - self.alpha) * r_dist
-            ) / (reward_scale + 1e-8),
+        tradeoff = np.clip(
+            (self.alpha * (1.0 - disturbance_penalty) + (1.0 - self.alpha) * r_dist) / (reward_scale + 1e-8),
             0.0,
             1.0,
         )
 
-        base_monitor_reward = (
-            0.8 * disturbance_reward_tradeoff
-            + 0.2 * r_align
-        )
-
-        # Multi-drone additions only.
-        missing_fraction = 1.0 - target_visible_fraction
-        p_not_visible = self.not_visible_penalty * (missing_fraction ** self.not_visible_penalty_power)
-
         r_all_view = self.all_view_bonus if target_visible_fraction >= 0.999 else 0.0
-        r_bucket = self._bucket_balance_score()
         r_view_sep = self._view_separation_score(observations)
+        r_bucket = self._bucket_balance_score()
 
-        monitor_reward = (
-            base_monitor_reward
-            + self.view_sep_weight * r_view_sep
-            + r_all_view
-        )
+        monitor_reward = (0.7 * tradeoff + 0.3 * r_align) + (self.view_sep_weight * r_view_sep) + r_all_view
 
-        p_drone_proximity, p_animal_proximity, p_hard_safety, hard_violation = self._compute_proximity_terms()
+        p_drone_proximity, p_animal_proximity, p_hard_safety, prox_hard_violation = self._compute_proximity_terms()
         p_state, avoid_frac, flee_frac = self._animal_state_penalty()
+
+        hard_violation = forced_reset or prox_hard_violation
 
         final_reward = (
             monitor_reward
             - p_state
-            - p_not_visible
+            - track_loss_penalty
             - p_vel
             - p_theta
             - p_dir_change
-            - p_orbit_tangent
-            - p_orbit_persistence
             - p_drone_proximity
             - p_animal_proximity
             - p_hard_safety
         )
 
-        self.reward_stats["r_monitoring"] += monitor_reward
-        self.reward_stats["p_disturbance"] += disturbance_penalty
-        self.reward_stats["r_vis"] += r_vis
-        self.reward_stats["r_dist"] += r_dist
-        self.reward_stats["r_align"] += r_align
-        self.reward_stats["r_bucket"] += r_bucket
-        self.reward_stats["r_view_sep"] += r_view_sep
-        self.reward_stats["r_all_view"] += r_all_view
-        self.reward_stats["p_not_visible"] += p_not_visible
-        self.reward_stats["p_drone_proximity"] += p_drone_proximity
-        self.reward_stats["p_animal_proximity"] += p_animal_proximity
-        self.reward_stats["p_hard_safety"] += p_hard_safety
-        self.reward_stats["p_orbit_tangent"] += p_orbit_tangent
-        self.reward_stats["p_orbit_persistence"] += p_orbit_persistence
+        self.reward_stats.update({
+            "r_monitoring": self.reward_stats["r_monitoring"] + monitor_reward,
+            "p_disturbance": self.reward_stats["p_disturbance"] + disturbance_penalty,
+            "p_not_visible": self.reward_stats["p_not_visible"] + track_loss_penalty,
+            "r_vis": self.reward_stats["r_vis"] + r_vis,
+            "r_dist": self.reward_stats["r_dist"] + r_dist,
+            "r_align": self.reward_stats["r_align"] + r_align,
+            "r_bucket": self.reward_stats["r_bucket"] + r_bucket,
+            "r_view_sep": self.reward_stats["r_view_sep"] + r_view_sep,
+            "r_all_view": self.reward_stats["r_all_view"] + r_all_view,
+            "p_drone_proximity": self.reward_stats["p_drone_proximity"] + p_drone_proximity,
+            "p_animal_proximity": self.reward_stats["p_animal_proximity"] + p_animal_proximity,
+            "p_hard_safety": self.reward_stats["p_hard_safety"] + p_hard_safety,
+        })
 
         if self.enable_step_logging:
-            behavior_counts = {"calm": 0, "avoid": 0, "flee": 0}
-            for animal in self.animals:
-                behavior_counts[animal.state] += 1
-
-            n = max(self.animal_count, 1)
-            self.last_step_stats = {
+            self.last_step_stats.update({
                 "reward": float(final_reward),
                 "monitor_reward": float(monitor_reward),
-                "disturbance_penalty": float(disturbance_penalty),
-                "max_single_disturbance": float(self.last_max_single_disturbance),
-                "target_visible_fraction": float(target_visible_fraction),
-                "calm_frac": behavior_counts["calm"] / n,
-                "avoid_frac": behavior_counts["avoid"] / n,
-                "flee_frac": behavior_counts["flee"] / n,
-                "mean_disturbance": float(np.mean([a.disturbance for a in self.animals])) if self.animals else 0.0,
+                "p_not_visible": float(track_loss_penalty),
+                "target_visible_fraction": target_visible_fraction,
+                "hard_safety_violation": 1.0 if hard_violation else 0.0,
                 "r_vis": float(r_vis),
                 "r_dist": float(r_dist),
                 "r_align": float(r_align),
                 "r_view_sep": float(r_view_sep),
                 "r_all_view": float(r_all_view),
-                "p_not_visible": float(p_not_visible),
                 "p_drone_proximity": float(p_drone_proximity),
                 "p_animal_proximity": float(p_animal_proximity),
                 "p_hard_safety": float(p_hard_safety),
-                "p_orbit_tangent": float(p_orbit_tangent),
-                "p_orbit_persistence": float(p_orbit_persistence),
-                "hard_safety_violation": float(hard_violation),
-                "min_drone_drone_dist": float(self.last_min_drone_drone_dist),
-                "min_drone_animal_dist": float(self.last_min_drone_animal_dist),
-            }
+                "mean_disturbance": disturbance_penalty,
+            })
 
         return float(final_reward), float(monitor_reward), float(disturbance_penalty), bool(hard_violation)
 
@@ -1345,17 +1249,12 @@ class Env:
         if self._env_steps >= self.config["max_episode_steps"]:
             return True
 
-        animal_obs = self._extract_animal_obs(observations)
-        visible = animal_obs[:, :, 0] > 0.5
-        target_visible = np.any(visible, axis=0)
-        target_visible_count = np.sum(target_visible)
-
-        if target_visible_count <= int(self.animal_count * 0.5):
-            self.lost_track_counter += 1
-            if self.lost_track_counter >= self.config.track_loss_grace:
+        if self.drone_count == 1:
+            if self.lost_track_counter >= self.track_loss_grace:
                 return True
         else:
-            self.lost_track_counter = 0
+            if np.any(self.lost_track_counters >= self.track_loss_grace):
+                return True
 
         return False
 
