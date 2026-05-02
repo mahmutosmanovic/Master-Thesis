@@ -64,9 +64,14 @@ class Env:
         self.lost_track_counter = 0
         self.lost_track_counters = np.zeros(self.drone_count, dtype=np.int32)
 
-        # Realistic camera-memory state.
-        # These are not true hidden positions. They are only the last visual measurement
-        # each drone had for each animal, plus normalized time since that measurement.
+        self.wind_cfg = self._cfg_get("wind", default={
+            "type": "none",
+            "strength": 0.0,
+            "direction": [1.0, 0.0, 0.0],
+            "gust_std": 0.0,
+        })
+        self.current_wind = np.zeros(3, dtype=np.float32)
+
         self.last_seen_dist = None
         self.last_seen_v_angle = None
         self.last_seen_h_angle = None
@@ -108,7 +113,7 @@ class Env:
         self.drone_feat_dim = int(self._cfg_get("model", "space", "drone_features", default=8))
         self.other_drone_feat_dim = int(self._cfg_get("model", "space", "other_drone_features", default=4))
 
-        # New animal layout has 12 features:
+        # Animal layout has 12 features:
         # 0  in_view
         # 1  current visible distance, else 1
         # 2  current visible vertical angle, else 0
@@ -296,6 +301,7 @@ class Env:
         self.last_min_drone_animal_dist = np.inf
         self.last_max_single_disturbance = 0.0
         self.last_target_visible_fraction = 0.0
+        self.current_wind = np.zeros(3, dtype=np.float32)
 
         if self.enable_step_logging:
             self.last_step_stats = {
@@ -407,14 +413,17 @@ class Env:
     def _step_drone(self, drones, actions):
         cam_interp_alpha = 0.25
 
+        wind = self._compute_wind()
         for drone, action in zip(drones, actions):
             drone.vel_dir.setter(action["vel_dir"])
             drone.vel_dir.unit()
-
             drone.vel_speed = action["vel_speed"]
             drone.enforce_speed()
 
-            drone.update_pos()
+            commanded_vel = drone.vel_dir.to_numpy() * drone.vel_speed
+            actual_vel = commanded_vel + wind
+
+            drone.pos.add(Vector(*actual_vel).scale(self.config.dt), in_place=True)
             drone.enforce_position()
 
             prev_view = drone.view_dir.to_numpy().astype(np.float32)
@@ -985,6 +994,40 @@ class Env:
         penalty = avoid_frac + flee_frac
 
         return float(penalty), float(avoid_frac), float(flee_frac)
+    
+    def _compute_wind(self):
+        w_type = self.wind_cfg.get("type", "none")
+
+        if w_type == "none":
+            self.current_wind = np.zeros(3, dtype=np.float32)
+            return self.current_wind
+
+        direction = np.array(self.wind_cfg.get("direction", [1, 0, 0]), dtype=np.float32)
+        direction = direction / (np.linalg.norm(direction) + 1e-8)
+
+        strength = float(self.wind_cfg.get("strength", 0.0))
+        base = direction * strength
+
+        if w_type == "constant":
+            self.current_wind = base.astype(np.float32)
+            return self.current_wind
+
+        elif w_type == "gusty":
+            gust_std = float(self.wind_cfg.get("gust_std", 0.1))
+            gust_alpha = float(self.wind_cfg.get("gust_alpha", 0.9))
+
+            noise = self.env_rng.normal(0.0, gust_std, size=3).astype(np.float32)
+
+            self.current_wind = (
+                gust_alpha * self.current_wind
+                + (1.0 - gust_alpha) * base
+                + noise
+            ).astype(np.float32)
+
+            return self.current_wind
+
+        else:
+            raise ValueError(f"Unknown wind type: {w_type}")
 
     def _compute_single_drone_reward(self, observations, actions):
         r_vis = 0.0

@@ -13,7 +13,7 @@ configs=(
     "CRW_MAPPO__1A_3D_M2x3"
     "CRW_MAPPO__1A_3D_M3x2_M1x1"
     "CRW_MAPPO__1A_3D_M3x2_M2x1"
-    "CRW_MAPPO__1A_3D_M3x3"
+    "CRW_MAPPO__2A_2D_M2x2"
     "CRW_MAPPO__3A_3D_M2x3"
 )
 
