@@ -585,7 +585,7 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_se
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
     df = segments_from_dt(df, max_gap=20, id_col="TAG")
 
-    df = rolling_median_xy(df, x_col="x", y_col="y", segment_col="segment", id_col="TAG", window=3)
+    # df = rolling_median_xy(df, x_col="x", y_col="y", segment_col="segment", id_col="TAG", window=3)
     df = kalman_filter_xy(df, x_col="x", y_col="y", dt_col="dt_seconds", segment_col="segment", id_col="TAG", meas_var=50.0, accel_var=5.0)
 
     df = add_step_metrics(df, group_cols=["TAG", "segment"])
@@ -626,7 +626,7 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = dt_from_datetime(df)
     df = segments_from_dt(df, max_gap=20)
 
-    df = rolling_median_xy(df, window=3)
+    # df = rolling_median_xy(df, window=3)
     df = kalman_filter_xy(df, dt_col="dt_seconds", meas_var=50.0, accel_var=5.0)
 
     df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])

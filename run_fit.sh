@@ -13,7 +13,7 @@ poi_inferences=(
 
 for animal in "${manifests[@]}"; do
   for poi_inf in "${poi_inferences[@]}"; do
-    outdir="./behaviors_t4/${animal}_${poi_inf}"
+    outdir="./behaviors_t5/${animal}_${poi_inf}"
 
     case "$animal" in
       pigeons)

@@ -604,13 +604,16 @@ def fit_EE(df: pd.DataFrame, random_state = 0, dt_sim = 0.1):
 
     return ee_cfg, ttl_trigger, df
 
-def infer_pois_from_exploit(df: pd.DataFrame, eps = 25.0, min_samples = 20):
+def infer_pois_from_exploit(df: pd.DataFrame, eps = 25.0, min_samples = 20, max_samples=200_000):
     pts = df[df["state"] == "exploit"][["x", "y"]].dropna().copy()
     if len(pts) == 0:
         return np.empty((0, 2), dtype=float)
+    
+    if max_samples and len(pts) > max_samples:
+        pts = pts.sample(max_samples)
 
     X = pts.to_numpy()
-    labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(X)
+    labels = DBSCAN(eps=eps, min_samples=min_samples, algorithm="ball_tree").fit_predict(X)
     pts["poi_cluster"] = labels
 
     centers = (

@@ -16,6 +16,8 @@ from environment import horizontal_gain, altitude_gain, angle_gain, truncate_col
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
+from matplotlib.patches import Polygon
+
 def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cmap="Greys", title="Unspecified"):
     csv_path = Path(csv_path)
     r_vals, z_vals = load_positions_from_csv(csv_path)
@@ -24,8 +26,8 @@ def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cma
     r_vals = np.asarray(r_vals)
     z_vals = np.asarray(z_vals)
 
-    r_max = max(np.max(r_vals), 1.0)
-    z_max = max(np.max(z_vals), 1.0)
+    r_max = 100
+    z_max = 100
 
     # disturbance grid
     r_grid = np.linspace(0, r_max, bins)
@@ -150,9 +152,14 @@ def plot_visitation_on_disturbance_background(csv_path, bins=50, disturbance_cma
     # cbar = fig.colorbar(sm, ax=ax)
     # cbar.set_label("Visit count", fontsize=14)
 
-    ax.set_xlabel("Radial Distance (√(x²+y²))", size=16)
-    ax.set_ylabel("Altitude (z)", size=16)
-    ax.set_title(title, size=18)
+    ax.set_xlabel("Radial Distance (m)", size=16, fontweight="bold")
+    ax.set_ylabel("Altitude (m)", size=16, fontweight="bold")
+    # ax.set_title(title, size=18)
+
+    # --- 11 tick marks (10 intervals) ---
+    ticks = np.linspace(0, r_max, 11)
+    plt.xticks(ticks)
+    plt.yticks(ticks)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
@@ -253,7 +260,7 @@ def load_xy_positions_from_csv(csv_path):
 
 def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
-    lim = max(np.max(np.abs(dx_vals)), np.max(np.abs(dy_vals)))
+    lim = 100
     if lim <= 0:
         lim = 1.0
 
@@ -267,9 +274,9 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unsp
     vmin = np.min(H)
     vmax = np.max(H)
 
-    plt.figure(figsize=(7, 6))
+    fig, ax = plt.subplots(figsize=(7, 6))
 
-    plt.imshow(
+    im = ax.imshow(
         H.T,
         origin="lower",
         aspect="equal",
@@ -279,12 +286,36 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unsp
         vmax=vmax,
     )
 
-    plt.xlabel("Drone x relative to animal", size=16)
-    plt.ylabel("Drone y relative to animal", size=16)
-    plt.title(title, size=18)
+    # --- Add nav-style triangle at (0, 0) ---
+    size = lim * 0.03  # scale relative to plot
 
-    cbar = plt.colorbar()
-    cbar.set_label("Visit Count")
+    triangle_coords = np.array([
+        [0, size],                 # tip (pointing +y)
+        [-size * 0.6, -size],      # bottom left
+        [-size * 0.1, -size * 0.6],# inner left notch
+        [size * 0.1, -size * 0.6], # inner right notch
+        [size * 0.6, -size],       # bottom right
+    ])
+
+    triangle = Polygon(
+        triangle_coords,
+        closed=True,
+        facecolor="black",
+        edgecolor="black",
+        linewidth=1.5,
+        zorder=5,
+    )
+
+    ax.add_patch(triangle)
+
+    # --- Bold axis labels ---
+    ax.set_xlabel("Relative x (m)", fontsize=16, fontweight="bold")
+    ax.set_ylabel("Relative y (m)", fontsize=16, fontweight="bold")
+
+    # --- 11 tick marks (10 intervals) ---
+    ticks = np.linspace(-lim, lim, 11)
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,8 +325,8 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unsp
 
 def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet", title="Unspecified"):
     cmap = truncate_colormap(cmap, 0.05, 1.0)
-    r_max = np.max(r_vals)
-    z_max = np.max(z_vals)
+    r_max = 100
+    z_max = 100
 
     if r_max <= 0:
         r_max = 1.0
@@ -326,7 +357,7 @@ def plot_heatmap(r_vals, z_vals, out_path, bins=80, cmap="jet", title="Unspecifi
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
-    plt.title(title, size=18)
+    # plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Visit Count")
@@ -464,7 +495,7 @@ def plot_disturbance_heatmap(r_vals, z_vals, disturbance_vals, out_path, bins=80
 
     plt.xlabel("Radial Distance (√(x²+y²))", size=16)
     plt.ylabel("Altitude (z)", size=16)
-    plt.title(title, size=18)
+    # plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Disturbance")
@@ -582,7 +613,7 @@ def plot_reward_heatmap_from_csv(csv_path, bins=80, cmap="YlGn", vmin=0.0, vmax=
 
     plt.xlabel(xlabel, size=16)
     plt.ylabel(ylabel, size=16)
-    plt.title(title, size=18)
+    # plt.title(title, size=18)
 
     cbar = plt.colorbar()
     cbar.set_label("Mean Step Reward")
@@ -608,7 +639,7 @@ def _init_argparse():
     parser.add_argument(
         "--bins",
         type=int,
-        default=80,
+        default=50,
         help="Number of histogram bins",
     )
 
@@ -618,14 +649,19 @@ def _init_argparse():
 def main():
     args = _init_argparse()
 
+    cmap = "Blues"
+
     out_path_rz = make_output_path(args.csv)
     r_vals, z_vals = load_positions_from_csv(args.csv)
-    plot_heatmap(r_vals, z_vals, out_path_rz, bins=args.bins)
+    plot_heatmap(r_vals, z_vals, out_path_rz, bins=args.bins, cmap=cmap)
 
-    out_path_xy = plot_xy_policy_heatmap_from_csv(args.csv, bins=args.bins)
+    out_path_xy = plot_xy_policy_heatmap_from_csv(args.csv, bins=args.bins, cmap=cmap)
+    _ = plot_disturbance_heatmap_from_csv(args.csv, bins=args.bins, cmap=cmap)
+    out_path_rz_d = plot_visitation_on_disturbance_background(args.csv, bins=args.bins, disturbance_cmap="bone_r")
 
     print(f"Saved heatmap to {out_path_rz}")
     print(f"Saved XY heatmap to {out_path_xy}")
+    print(f"Saved rz_d heatmap tp {out_path_rz_d}")
 
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ SUMMARY_APPEND_FIELDS = [
 
 def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
     if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
 
     terminated = False
@@ -387,7 +387,7 @@ def choose_action(agent, obs, agent_type):
 
 def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
     if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
 
     terminated = False
@@ -417,7 +417,7 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, 
     Returns one summary row per executed step.
     """
     if randomize_dr_scale:
-        env.D_R_scale = env.env_rng.uniform(0.22, 1)
+        env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
 
     terminated = False

@@ -11,7 +11,7 @@ max_jobs="${MAX_JOBS:-2}"
 runs_dir="${RUNS_DIR:-runs}"
 evals_dir="${EVALS_DIR:-evals}"
 
-animals=("behaviors_t4/jackals_km_sm" "behaviors_t4/pigeons_km_sm" "behaviors_t4/spur_winged_lapwings_km_sm")
+animals=("behaviors_t5/spur_winged_lapwings_km_sm" "behaviors_t5/pigeons_km_sm" "behaviors_t5/jackals_km_sm")
 
 mkdir -p table
 out_manifest="table/eval_animals_manifest_$(date +%Y%m%d_%H%M%S).csv"

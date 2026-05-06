@@ -1,7 +1,7 @@
 # Environment
 dt: 0.1
 max_episode_steps: 2048
-behavior_cfg: behaviors_t4/pigeons_km_sm
+behavior_cfg: behaviors_t5/pigeons_km_sm
 
 # Model
 model:

@@ -1,11 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-configs=("CRW" "EE" "POI" "LPOI" "JACKALS" "PIGEONS" "SPUR")
 # configs=("JACKALS" "JACKALS_GPS" "PIGEONS" "PIGEONS_GPS" "SPUR" "SPUR_GPS")
-# agents=("sac" "ppo")
-agents=("dqn")
-max_jobs=2
+# agents=("sac")
+# configs=("CRW" "EE" "POI" "LPOI")
+# configs=("JACKALS" "PIGEONS" "SPUR")
+# agents=("dqn" "sac" "ppo")
+
+configs=("LPOI")
+agents=("sac")
+
+max_jobs=1
 
 mkdir -p table
 manifest="table/runs_manifest_$(date +%Y%m%d_%H%M%S).csv"
@@ -39,11 +44,6 @@ do
         --plot-rewards \
         --plot-heatmaps \
         --start-seed 42 | tee /dev/tty | grep "EVAL_DIR::" | cut -d':' -f3)
-
-    echo "Rendering run $run_name"
-
-    python -m scripts.play \
-        --run "$run_name" 
 
     echo "Finished config: $full_cfg"
     echo ""

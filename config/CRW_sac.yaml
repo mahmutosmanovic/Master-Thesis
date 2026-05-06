@@ -27,7 +27,7 @@ model:
     entropy_end_coef: 0.001
 
   sampling:
-    total_timesteps: 500_000
+    total_timesteps: 800_000
     rollout_steps: 8192
     mini_batch_size: 256
     n_epochs: 4
@@ -41,7 +41,7 @@ drone:
     view_range: 200
     max_cam_rot: 90
     min_speed: 0
-    max_speed: 25
+    max_speed: 45
     max_altitude: 150
     spawn_dist: [70, 90]
     view_dir: [1, 0, -0.7]
