@@ -286,7 +286,6 @@ def plot_xy_heatmap(dx_vals, dy_vals, out_path, bins=80, cmap="jet", title="Unsp
         vmax=vmax,
     )
 
-    # --- Add nav-style triangle at (0, 0) ---
     size = lim * 0.03  # scale relative to plot
 
     triangle_coords = np.array([

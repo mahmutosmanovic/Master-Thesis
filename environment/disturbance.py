@@ -310,133 +310,7 @@ def angle_distance_plot():
     plt.savefig("./figures/angle_distance.png", dpi=300)
     plt.show()
 
-def component_plots():
-    # top-row grids
-    x_top = np.linspace(-350, 350, 400)
-    z_top = np.linspace(-120, 120, 400)
-    X_top, Z_top = np.meshgrid(x_top, z_top)
 
-    G_h = np.zeros_like(X_top, dtype=float)
-    G_v = np.zeros_like(X_top, dtype=float)
-
-    for i in range(X_top.shape[0]):
-        for j in range(X_top.shape[1]):
-            dist_vec = (X_top[i, j], 0.0, Z_top[i, j])
-            G_h[i, j] = horizontal_gain(dist_vec)
-            G_v[i, j] = altitude_gain(dist_vec)
-
-    # bottom-row grid: exactly your angle_distance_plot setup
-    x_bot = np.linspace(-350, 350, 400)
-    z_bot = np.linspace(-50, 150, 400)
-    X_bot, Z_bot = np.meshgrid(x_bot, z_bot)
-
-    G_ad = np.zeros_like(X_bot, dtype=float)
-
-    for i in range(X_bot.shape[0]):
-        for j in range(X_bot.shape[1]):
-            dist_vec = (X_bot[i, j], 0.0, Z_bot[i, j])
-
-            g_h = horizontal_gain(dist_vec)
-            g_v = altitude_gain(dist_vec)
-            g_a = angle_gain(dist_vec)
-
-            comps = [g_a]
-            base = g_h * g_v
-            G_ad[i, j] = (base + sum(comps)) / (len(comps) + 1)
-
-    # angle data for polar plot
-    angles = np.linspace(0, 360, 720)
-    gains = []
-    for a in angles:
-        rad = np.radians(a)
-        dist_vec = (np.cos(rad), 0.0, np.sin(rad))
-        gains.append(angle_gain(dist_vec))
-
-    gains = np.array(gains)
-    angles_rad = np.radians(angles)
-
-    r = np.linspace(0, 1, 2)
-    theta, R = np.meshgrid(angles_rad, r)
-    Z_angle = np.tile(gains, (2, 1))
-
-    cmap = truncate_colormap(cmap_name="jet", minval=0.0, maxval=1.0)
-
-    # 2 rows x 4 cols, last col reserved for one tall colorbar
-    fig = plt.figure(figsize=(18, 10))
-    gs = fig.add_gridspec(
-        2, 4,
-        width_ratios=[1, 1, 1, 0.05],
-        height_ratios=[1, 1],
-        wspace=0.25,
-        hspace=0.3
-    )
-
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[0, 1], sharex=ax1, sharey=ax1)
-    ax3 = fig.add_subplot(gs[0, 2], projection="polar")
-    ax4 = fig.add_subplot(gs[1, 0:3])   # span row 2, cols 1..3
-    cax = fig.add_subplot(gs[:, 3])     # colorbar spanning both rows
-
-    im1 = ax1.imshow(
-        G_h,
-        extent=[x_top.min(), x_top.max(), z_top.min(), z_top.max()],
-        origin="lower",
-        cmap=cmap,
-        vmin=0,
-        vmax=1,
-        aspect="auto"
-    )
-    ax1.set_title("Horizontal Gain", size=18)
-    ax1.set_xlabel("Horizontal Distance", size=16)
-    ax1.set_ylabel("Vertical Distance", size=16)
-    ax1.grid(alpha=0.2)
-
-    im2 = ax2.imshow(
-        G_v,
-        extent=[x_top.min(), x_top.max(), z_top.min(), z_top.max()],
-        origin="lower",
-        cmap=cmap,
-        vmin=0,
-        vmax=1,
-        aspect="auto"
-    )
-    ax2.set_title("Altitude Gain", size=18)
-    ax2.set_xlabel("Horizontal Distance", size=16)
-    ax2.grid(alpha=0.2)
-
-    im3 = ax3.pcolormesh(
-        theta,
-        R,
-        Z_angle,
-        shading="auto",
-        cmap=cmap,
-        vmin=0,
-        vmax=1
-    )
-    ax3.set_title("Angle Gain", size=18)
-    ax3.set_yticks([])
-    ax3.set_xticks([0, np.pi/4, (np.pi/4)+1*(np.pi/2), (np.pi/4)+2*(np.pi/2), (np.pi/4)+3*(np.pi/2), np.pi, np.pi*3/2])
-
-    im4 = ax4.imshow(
-        G_ad,
-        extent=[x_bot.min(), x_bot.max(), z_bot.min(), z_bot.max()],
-        origin="lower",
-        cmap=cmap,
-        vmin=0,
-        vmax=1,
-        aspect="auto"
-    )
-    
-    ax4.set_title("Combined Angle-Shaped Distance Gain", size=18)
-    ax4.set_xlabel("Horizontal Distance", size=16)
-    ax4.set_ylabel("Vertical Distance", size=16)
-    ax4.grid(alpha=0.2)
-
-    cbar = fig.colorbar(im4, cax=cax)
-    cbar.set_label("Gain")
-
-    plt.savefig("./figures/comps.png", dpi=300, bbox_inches="tight")
-    plt.show()
 
 def sigmoid_disturbance(x, midpoint, sharpness):
     x = np.asarray(x, dtype=float)
@@ -559,10 +433,472 @@ def hor_ver_plot():
     plt.savefig("figures/hor_ver.png", dpi=300)
     plt.show()
 
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+# ------------------------------------------------------------
+# Nature-like styling
+# ------------------------------------------------------------
+def set_nature_style():
+    # Nature guidance favors clean sans-serif text and minimal decoration.
+    plt.rcParams.update({
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "savefig.facecolor": "white",
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "font.size": 7,
+        "axes.titlesize": 8,
+        "axes.labelsize": 7,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
+        "legend.fontsize": 6,
+        "axes.linewidth": 0.8,
+        "lines.linewidth": 1.0,
+        "xtick.major.width": 0.8,
+        "ytick.major.width": 0.8,
+        "xtick.major.size": 3,
+        "ytick.major.size": 3,
+    })
+
+
+def truncate_colormap(cmap_name="viridis", minval=0.08, maxval=0.95, n=256):
+    cmap = plt.get_cmap(cmap_name)
+    return LinearSegmentedColormap.from_list(
+        f"trunc_{cmap_name}",
+        cmap(np.linspace(minval, maxval, n))
+    )
+
+
+# ------------------------------------------------------------
+# Static-only version of disturbance
+# ------------------------------------------------------------
+def disturbance_gain_static(dist_vec, config):
+    """
+    Static disturbance field:
+    - keeps distance + angle geometry
+    - removes heading and animal-axis effects
+
+    Equivalent to evaluating disturbance_gain with:
+      heading_eff = 0
+      axis_eff = 0
+    """
+    dx, dy, dz = dist_vec
+    radial_distance = np.sqrt(dx * dx + dy * dy)
+    z_abs = abs(dz)
+
+    s0 = (
+        radial_distance / max(config.XY_scale, 1e-9) +
+        z_abs / max(config.Z_scale, 1e-9)
+    )
+
+    # Nearby geometry matters most
+    gate = np.exp(-s0)
+
+    angle_bad = angle_gain(dist_vec)
+    angle_eff = angle_bad * gate
+
+    s = (
+        radial_distance / max(config.XY_scale, 1e-9) +
+        z_abs / max(config.Z_scale, 1e-9)
+    )
+    utility_base = 1.0 - np.exp(-s)
+
+    g_an = np.clip(1.0 - config.w_angle * angle_eff, 0.0, 1.0)
+
+    utility = utility_base * g_an
+    disturbance = 1.0 - np.clip(utility, 0.0, 1.0)
+    return float(disturbance)
+
+
+# ------------------------------------------------------------
+# Optional: radial-altitude version (cleaner if you want symmetry)
+# ------------------------------------------------------------
+def plot_static_disturbance_rz(
+    config,
+    rlim=(0, 250),
+    zlim=(0, 180),
+    nr=500,
+    nz=350,
+    savepath="./figures/static_disturbance_rz_nature.png"
+):
+    """
+    Publication-style static disturbance plot with:
+    - black point at (0,0)
+    - larger bold fonts
+    - clearer contour lines
+    - denser colorbar ticks
+    """
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    set_nature_style()
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+
+    r = np.linspace(rlim[0], rlim[1], nr)
+    z = np.linspace(zlim[0], zlim[1], nz)
+    R, Z = np.meshgrid(r, z)
+
+    G = np.zeros_like(R, dtype=float)
+
+    for i in range(nz):
+        for j in range(nr):
+            dist_vec = (R[i, j], 0.0, Z[i, j])
+            G[i, j] = disturbance_gain_static(dist_vec, config)
+
+    cmap = truncate_colormap("magma", 0.08, 0.92)
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.0), constrained_layout=True)
+
+    im = ax.imshow(
+        G,
+        extent=[r.min(), r.max(), z.min(), z.max()],
+        origin="lower",
+        cmap=cmap,
+        vmin=0.0,
+        vmax=1.0,
+        aspect="auto"
+    )
+
+    # slightly clearer contour lines
+    contour_levels = [0.2, 0.4, 0.6, 0.8]
+    cs = ax.contour(
+        R, Z, G,
+        levels=contour_levels,
+        colors="white",
+        linewidths=1.1,
+        alpha=0.95
+    )
+    ax.clabel(cs, fmt="%.1f", inline=True, fontsize=10)
+
+    # black point at origin
+    ax.scatter(
+        [0], [0],
+        s=75,
+        c="white",
+        edgecolors="black",
+        linewidths=0.8,
+        zorder=5
+    )
+
+    # larger, bolder labels/titles
+    ax.set_title("Static disturbance", pad=8, fontsize=16, fontweight="bold")
+    ax.set_xlabel("Radial distance (m)", fontsize=16, fontweight="bold")
+    ax.set_ylabel("Altitude difference (m)", fontsize=16, fontweight="bold")
+
+    # cleaner axes with stronger tick text
+    ax.tick_params(axis="both", labelsize=12, width=1.0)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight("bold")
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(1.0)
+    ax.spines["bottom"].set_linewidth(1.0)
+
+    # denser colorbar ticks
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
+    cbar.set_label("Disturbance", fontsize=14, fontweight="bold")
+    cbar.set_ticks(np.linspace(0.0, 1.0, 11))
+    cbar.ax.tick_params(labelsize=11, width=1.0)
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    cbar.outline.set_linewidth(1.0)
+
+    plt.savefig(savepath, dpi=300, bbox_inches="tight")
+    plt.show()
+
+def component_plots(config, savepath="./figures/comps.png"):
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    set_nature_style()
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+
+    # --------------------------------------------------
+    # disturbance helpers
+    # --------------------------------------------------
+    def base_non_disturbance(d):
+        r = np.sqrt(d[0]**2 + d[1]**2)
+        z = abs(d[2])
+        s = r / max(config.XY_scale, 1e-9) + z / max(config.Z_scale, 1e-9)
+        return 1 - np.exp(-s)
+
+    def combined_non_disturbance(d):
+        r = np.sqrt(d[0]**2 + d[1]**2)
+        z = abs(d[2])
+
+        s = r / max(config.XY_scale, 1e-9) + z / max(config.Z_scale, 1e-9)
+        base = 1 - np.exp(-s)
+        gate = np.exp(-s)
+        angle_eff = angle_gain(d) * gate
+        g_angle = np.clip(1 - config.w_angle * angle_eff, 0, 1)
+
+        return base * g_angle
+
+    # --------------------------------------------------
+    # grid
+    # --------------------------------------------------
+    x = np.linspace(-150, 150, 400)
+    z = np.linspace(-150, 150, 400)
+    X, Z = np.meshgrid(x, z)
+
+    G_base = np.zeros_like(X, dtype=float)
+    G_comb = np.zeros_like(X, dtype=float)
+
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            d = (X[i, j], 0.0, Z[i, j])
+            G_base[i, j] = 1 - base_non_disturbance(d)
+            G_comb[i, j] = 1 - combined_non_disturbance(d)
+
+    # --------------------------------------------------
+    # angle disturbance polar grid
+    # --------------------------------------------------
+    angles = np.linspace(0, 360, 720)
+    vals = []
+
+    for a in angles:
+        ang = np.radians(a)
+        d = (np.cos(ang), 0.0, np.sin(ang))
+        vals.append(angle_gain(d))
+
+    vals = np.array(vals)
+    theta, R = np.meshgrid(np.radians(angles), np.linspace(0, 1, 2))
+    Z_angle = np.tile(vals, (2, 1))
+
+    # --------------------------------------------------
+    # color theme
+    # --------------------------------------------------
+    cmap = truncate_colormap("magma", 0.08, 0.92)
+
+    # --------------------------------------------------
+    # layout
+    # --------------------------------------------------
+    fig = plt.figure(figsize=(16, 10))
+
+    outer = fig.add_gridspec(
+        2, 2,
+        width_ratios=[1, 0.045],
+        height_ratios=[1, 1.15],
+        wspace=0.15,
+        hspace=0.32
+    )
+
+    top = outer[0, 0].subgridspec(1, 2, wspace=0.15)
+    bottom = outer[1, 0].subgridspec(1, 1)
+
+    ax1 = fig.add_subplot(top[0, 0])
+    ax2 = fig.add_subplot(top[0, 1], projection="polar")
+    ax3 = fig.add_subplot(bottom[0, 0])
+    cax = fig.add_subplot(outer[:, 1])
+
+    # --------------------------------------------------
+    # radial + altitude disturbance
+    # --------------------------------------------------
+    im1 = ax1.imshow(
+        G_base,
+        extent=[-150, 150, -150, 150],
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+
+    cs1 = ax1.contour(
+        X, Z, G_base,
+        levels=[0.1, 0.2, 0.4, 0.8],
+        colors="white",
+        linewidths=1.1
+    )
+    ax1.clabel(cs1, fmt="%.1f", fontsize=10)
+
+    ax1.scatter(
+        0, 0,
+        s=75,
+        c="white",
+        edgecolors="black",
+        linewidths=0.8,
+        zorder=5
+    )
+
+    ax1.set_title(
+        "Radial + Altitude disturbance",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax1.set_xlabel(
+        "Radial distance (m)",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax1.set_ylabel(
+        "Altitude (m)",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax1.set_xlim(-150, 150)
+    ax1.set_ylim(-150, 150)
+    ax1.grid(alpha=0.18)
+
+    # --------------------------------------------------
+    # angle disturbance
+    # --------------------------------------------------
+    im2 = ax2.pcolormesh(
+        theta,
+        R,
+        Z_angle,
+        cmap=cmap,
+        shading="auto",
+        vmin=0,
+        vmax=1
+    )
+
+    im2 = ax2.pcolormesh(
+        theta,
+        R,
+        Z_angle,
+        cmap=cmap,
+        shading="auto",
+        vmin=0,
+        vmax=1
+    )
+
+    ax2.set_title(
+        "Angle disturbance",
+        fontsize=16,
+        fontweight="bold",
+        pad=18
+    )
+
+    ax2.set_yticks([])
+    ax2.set_xticks(np.deg2rad([0, 45, 135, 180, 225, 270, 315]))
+
+    ax2.tick_params(
+        axis="x",
+        labelsize=14,
+        width=1.0,
+        pad=14
+    )
+
+    # for t in ax2.get_xticklabels():
+    #     t.set_fontweight("bold")
+
+    ax2.grid(alpha=0.45, linewidth=1.0)
+
+    # --------------------------------------------------
+    # combined disturbance
+    # --------------------------------------------------
+    im3 = ax3.imshow(
+        G_comb,
+        extent=[-150, 150, -150, 150],
+        origin="lower",
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        aspect="auto"
+    )
+
+    cs3 = ax3.contour(
+        X, Z, G_comb,
+        levels=[0.2, 0.4, 0.6, 0.8],
+        colors="white",
+        linewidths=1.1
+    )
+    ax3.clabel(cs3, fmt="%.1f", fontsize=10)
+
+    ax3.scatter(
+        0, 0,
+        s=75,
+        c="white",
+        edgecolors="black",
+        linewidths=0.8,
+        zorder=5
+    )
+
+    ax3.set_title(
+        "Combined disturbance",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax3.set_xlabel(
+        "Radial distance (m)",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax3.set_ylabel(
+        "Altitude (m)",
+        fontsize=16,
+        fontweight="bold"
+    )
+    ax3.set_xlim(-150, 150)
+    ax3.set_ylim(-150, 150)
+    ax3.grid(alpha=0.18)
+
+    # --------------------------------------------------
+    # shared colorbar
+    # --------------------------------------------------
+    cbar = fig.colorbar(im3, cax=cax)
+    cbar.set_label(
+        "Disturbance",
+        fontsize=16,
+        fontweight="bold"
+    )
+    cbar.set_ticks(np.linspace(0, 1, 11))
+    cbar.ax.tick_params(labelsize=12, width=1.0)
+
+    # for t in cbar.ax.get_yticklabels():
+    #     t.set_fontweight("bold")
+
+    cbar.outline.set_linewidth(1.0)
+
+    # --------------------------------------------------
+    # styling
+    # --------------------------------------------------
+    for ax in [ax1, ax3]:
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(1.0)
+        ax.spines["bottom"].set_linewidth(1.0)
+
+        ax.tick_params(labelsize=14, width=1.0)
+
+        # for t in ax.get_xticklabels() + ax.get_yticklabels():
+        #     t.set_fontweight("bold")
+
+    plt.savefig(savepath, dpi=300, bbox_inches="tight")
+    plt.show()
+
+
 if __name__ == "__main__":
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(
+        XY_scale=80,
+        Z_scale=60,
+        w_angle=1.0,
+        w_axis=0.2,
+        w_heading=1.0,
+        D_R_scale=0.55,
+    )
+    plot_static_disturbance_rz(
+        config=cfg,
+        rlim=(0, 220),
+        zlim=(0, 180),
+        savepath="./figures/static_disturbance_rz_nature.png"
+    )
+    component_plots(cfg)
+    
     # angle_plot()
     # distance_plot()
     # angle_distance_plot()
-    component_plots()
+    # component_plots()
     # hor_ver_plot()
+
     ...
