@@ -26,6 +26,8 @@ class Drone(Entity):
         # type
         self.drone_type = d_type
 
+        self.target_id = None
+
         # camera
         self.ver_angle = int(config["drone"][d_type]["ver_angle"])
         self.hor_angle = int(config["drone"][d_type]["hor_angle"])
@@ -79,6 +81,7 @@ class Animal(Entity):
         self.movement_dim = config["animal"]["init"]["movement_dim"]
         
         self.disturbance = 0
+        self.state = "calm"
         self.escape_dir = np.zeros(3)
 
         self.vel_speed = 0

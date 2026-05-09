@@ -1,6 +1,11 @@
 /checkpoints
 /data
 /track_segments
+/evals
+/pareto
+track_segments.7z
+/table
+/papers
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -13,6 +18,7 @@ __pycache__/
 /.neptune
 /logs
 /runs
+/wandb
 
 # C extensions
 *.so

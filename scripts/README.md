@@ -5,9 +5,11 @@ Example:
 
 `seed`: specifies seed to run training run with
 
-`neptune` activates neptune logging
+`wandb` activates wandb logging
 
-    python -m scripts.train_agent --config train --seed 42 --neptune
+`ppo` choices to train with "ppo" or "mappo"
+
+    python -m scripts.train_agent --config CRW --agent ppo --seed 42 --wandb
 
 ## Inference Instructions
 Example:
@@ -16,11 +18,13 @@ Example:
 
 `latest`: runs the latest locally trained model in ./runs folder
 
-    python -m scripts.vid_eval --run train_seed42_2026-02-24_09-19-44
+`weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
+
+    python -m scripts.play --run train_seed42_2026-02-24_09-19-44
 
 OR
 
-    python -m scripts.vid_eval --run latest
+    python -m scripts.play --run latest
 
 ## Baseline Instructions
 
@@ -33,7 +37,7 @@ OR
 
 `seed`: environment seed for reproducibility
 
-    python -m scripts.standoff_baseline --mode run --config train --seed 42
+    python -m scripts.centroid --mode run --config train --seed 42
 
 This will:
 
@@ -58,7 +62,7 @@ This will:
 
 `render-best`: optionally render the best-performing controller after search
 
-    python -m scripts.standoff_baseline --mode grid --config train --seed 42 --render-best
+    python -m scripts.centroid --mode grid --config CRW --eval-seeds 10 --seed 42 --render-best
 
 This will:
 
@@ -94,9 +98,29 @@ This will:
 
 `start_seed`: specifies which the starting seed is, all ran episodes are seeded
 
-`save_plot`: saves a plot with mean and std of just the RL agent or if baseline is included, also includes in plot
+`plot-rewards`: saves a plot with mean and std of the RL agent and baseline if both are present
 
-    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 10 --start-seed 99 --save_plot
+`plot-heatmaps`: Plots radial occupancy of drones for included methods
+
+`weights`: "best" or "last" to select trained model of run with highest obtained reward or last obtained reward
+
+    python -m scripts.eval_models --run latest --baseline centroid --num-episodes 100 --start-seed 99 --plot-rewards --plot-heatmaps --weights last
+
+    python -m scripts.eval_models \
+    --run "CRW_seed42_2026-03-23_20-39-50" \
+    --checkpoint-prefix ppo_ \
+    --checkpoint-episodes \
+    --num-episodes 100 \
+    --start-seed 42 \
+    --append-summary-csv table/all_model_episode_rewards.csv
+
+    python -m scripts.eval_models \
+    --run "CRW_seed42_2026-03-23_20-39-50" \
+    --checkpoint-prefix ppo_ \
+    --checkpoint-episodes \
+    --num-episodes 1 \
+    --start-seed 42 \
+    --append-summary-csv table/all_model_episode_rewards.csv
     
 ## Simulate Real GPS Behavior
 > GPS DATA PRE-PROCESSING
@@ -104,3 +128,5 @@ This will:
 Do not forget to set REPLAY in config
 
     python -m scripts.prepare_tracks
+
+runs/LPOI_seed42_2026-03-23_13-34-52

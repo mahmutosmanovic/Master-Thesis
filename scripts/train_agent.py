@@ -6,143 +6,441 @@ from .run_utils import create_run_dir, save_config_snapshot
 from environment import Env
 
 # model
-from model import Agent
+from model import PPOAgent
+from model import SACAgent
+from model import DQNAgent
+from model import MAPPOAgent
 
 # standard modules
 import os
-import time
-import neptune
+import csv
 import argparse
 import subprocess
-import collections
 import numpy as np
+import wandb as wb
 from box import Box
 from tqdm import tqdm
 from pathlib import Path
-from neptune.utils import stringify_unsupported
+from collections import deque
+from datetime import datetime
 from dotenv import load_dotenv
+
 load_dotenv()
 
-def init_neptune_log(run, config):
-        # parameters upload
-        run["parameters"] = stringify_unsupported(config)
+project_root = Path(__file__).resolve().parents[1]
 
-        # source code upload
-        project_root = Path(__file__).resolve().parents[1]
-        code_dirs = [
-            project_root / "scripts",
-            project_root / "environment",
-            project_root / "model",
-            project_root / "config",
-        ]
-        files_to_upload = []
-        for d in code_dirs:
-            files_to_upload.extend(str(p) for p in d.rglob("*.py"))
-            files_to_upload.extend(str(p) for p in d.rglob("*.yaml"))
-            files_to_upload.extend(str(p) for p in d.rglob("*.yml"))
-        run["source_code/files"].upload_files(files_to_upload)
 
-        commit = subprocess.getoutput("git rev-parse HEAD")
-        run["source_code/git_commit"] = commit
-    
+def init_wandb(config, agent_type):
+    api_token = os.getenv("API_TOKEN")
+    wb.login(key=api_token)
 
-def main(config, neptune_logging=False):
-    if neptune_logging:
-        NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT")
-        API_TOKEN = os.getenv("API_TOKEN")
-        run = neptune.init_run(project=NEPTUNE_PROJECT, api_token=API_TOKEN)
-        init_neptune_log(run, config)
+    entity = os.getenv("WANDB_ENTITY")
+    project = os.getenv("WANDB_PROJECT")
+
+    now = datetime.now()
+    timestamp = now.strftime("%B%d_t%H%M").lower()
+    run_name = f"train_{agent_type}_seed{config['seed']}_{timestamp}"
+
+    run = wb.init(
+        entity=entity,
+        project=project,
+        name=run_name,
+        config=config,
+        tags=[agent_type, f"seed{config['seed']}"],
+    )
+
+    source_files = []
+    for folder in ["config", "environment", "model", "scripts"]:
+        root = project_root / folder
+        source_files += list(root.rglob("*.py"))
+        source_files += list(root.rglob("*.yaml"))
+        source_files += list(root.rglob("*.yml"))
+
+    artifact = wb.Artifact("source_code", type="code")
+
+    for f in sorted(source_files):
+        rel_path = f.relative_to(project_root)
+        artifact.add_file(str(f), name=str(rel_path))
+
+    wb.log_artifact(artifact)
+
+    commit = subprocess.getoutput("git rev-parse HEAD")
+    wb.config.update({"git_commit": commit}, allow_val_change=True)
+
+    return run
+
+
+def _init_agent(config, agent_type, device):
+    if agent_type == "ppo":
+        return PPOAgent(config, device)
+    elif agent_type == "mappo":
+        return MAPPOAgent(config, device)
+    elif agent_type == "sac":
+        return SACAgent(config, device)
+    elif agent_type == "dqn":
+        return DQNAgent(config, device)
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+
+def _get_behavior_name(config):
+    behavior_raw = str(config.animal.init.behavior)
+    return behavior_raw.split("_CFG")[0]
+
+
+def _get_episode_csv_path(config):
+    behavior_name = _get_behavior_name(config)
+    return Path(config.run_dir) / f"{behavior_name}_episode.csv"
+
+
+def _get_train_csv_path(config):
+    behavior_name = _get_behavior_name(config)
+    return Path(config.run_dir) / f"{behavior_name}_train.csv"
+
+
+# =========================
+# CSV LOGGING
+# =========================
+def append_csv_row(csv_path, row):
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fieldnames = list(row.keys())
+
+    with open(csv_path, "a+", newline="") as f:
+        f.seek(0, 2)
+        write_header = f.tell() == 0
+
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+# ======================
+# WRAPPERS: EPISODE LOGS
+# ======================
+def _log_episode_local(csv_path, step, episode_reward_norm, stats, r_stats, save_count):
+    row = {
+        "step": step,
+        "episode_reward_norm": episode_reward_norm,
+        **stats,
+        **r_stats,
+        "checkpoint_save_count": save_count,
+    }
+    append_csv_row(csv_path, row)
+
+
+def _log_episode_wandb(step, episode_reward_norm, stats, r_stats, save_count, spawn_radius):
+    payload = {
+        "episode/reward_norm": episode_reward_norm,
+        "episode/progress": r_stats["episode_progress"],
+        "episode/step": step,
+        "episode/spawn_radius": spawn_radius,
+
+        "behavior/calm_frac": stats["calm_frac"],
+        "behavior/avoid_frac": stats["avoid_frac"],
+        "behavior/flee_frac": stats["flee_frac"],
+
+        "reward/monitoring": r_stats["r_monitoring"],
+        "reward/disturbance_penalty": r_stats["p_disturbance"],
+        "reward/visibility": r_stats["r_vis"],
+        "reward/distance": r_stats["r_dist"],
+        "reward/alignment": r_stats["r_align"],
+        "reward/bucket": r_stats["r_bucket"],
+
+        "checkpoint/save_count": save_count,
+    }
+    wb.log(payload, step=step)
+
+
+# ====================
+# WRAPPERS: TRAIN LOGS
+# ====================
+def _log_train_local(csv_path, step, train_metrics):
+    row = {"step": step, **train_metrics}
+    append_csv_row(csv_path, row)
+
+
+def _log_train_wandb(step, train_metrics):
+    payload = {f"train/{key}": val for key, val in train_metrics.items() if val is not None}
+    if payload:
+        wb.log(payload, step=step)
+
+
+def agent_env_step(agent, env, obs, agent_type):
+    if agent_type == "ppo":
+        actions = []
+        logps = []
+        vals = []
+
+        for drone_obs in obs:
+            a, lp, v = agent.choose_action(drone_obs)
+            actions.append(a)
+            logps.append(lp)
+            vals.append(v)
+
+        actions = np.array(actions)
+
+        next_obs, reward, terminated, truncated, info = env.step(actions)
+        done = terminated or truncated
+
+        for i in range(len(obs)):
+            agent.remember(obs[i], actions[i], logps[i], vals[i], reward, done)
+
+    elif agent_type == "mappo":
+        actions, log_prob, val = agent.choose_actions(obs)
+
+        next_obs, reward, terminated, truncated, info = env.step(actions)
+        done = terminated or truncated
+
+        agent.remember(obs, actions, log_prob, val, reward, done)
+
+    elif agent_type == "sac":
+        joint_obs = np.asarray(obs, dtype=np.float32).reshape(-1)
+
+        joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=False)
+
+        env_action = joint_action_flat.reshape(obs.shape[0], -1).astype(np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(env_action)
+        done = terminated or truncated
+
+        joint_next_obs = np.asarray(next_obs, dtype=np.float32).reshape(-1)
+
+        agent.remember(joint_obs, joint_action_flat, reward, joint_next_obs, done)
+
+    elif agent_type == "dqn":
+        if obs.shape[0] != 1:
+            raise ValueError("Current DQN path expects exactly 1 drone.")
+
+        single_obs = np.asarray(obs[0], dtype=np.float32)
+
+        action_vec, action_idx, _ = agent.choose_action(single_obs, deterministic=False)
+        env_action = action_vec.reshape(1, -1).astype(np.float32)
+
+        next_obs, reward, terminated, truncated, info = env.step(env_action)
+        done = terminated or truncated
+
+        next_single_obs = np.asarray(next_obs[0], dtype=np.float32)
+
+        agent.remember(single_obs, action_idx, reward, next_single_obs, done)
+
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+    return next_obs, reward, done, terminated, truncated, info
+
+
+def _should_train(agent_type, step_in_rollout, rollout_steps):
+    if agent_type in ("sac", "dqn"):
+        return True
+    return step_in_rollout == rollout_steps - 1
+
+
+def _train_step(agent, agent_type, obs, done):
+    if agent_type in ("ppo", "mappo"):
+        last_value = agent.get_last_value(obs, done)
+        return agent.learn(last_value)
+    elif agent_type in ("sac", "dqn"):
+        return agent.learn()
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+
+def _has_train_metrics(train_metrics):
+    if train_metrics is None:
+        return False
+    return any(v is not None for v in train_metrics.values())
+
+
+class spawn_radius_schedule:
+    def __init__(self, cooldown, min_radius, step_size):
+        self.cooldown = cooldown
+        self.min_radius = min_radius
+        self.step_size = step_size
+        self.counter = 0
+
+    def check_cooldown(self):
+        if self.counter <= 0:
+            return True
+        else:
+            self.counter -= 1
+            return False
+
+    def step(self, curr):
+        self.counter = self.cooldown
+        if curr - self.step_size > self.min_radius:
+            return curr - self.step_size
+        else:
+            return self.min_radius
+
+
+def main(config, agent_type="ppo", use_wandb=False, device="cpu"):
+    if use_wandb:
+        _ = init_wandb(config, agent_type)
 
     config = Box(config)
+
+    if args.schedule_spawn:
+        srs = spawn_radius_schedule(50, 200, 100)
+    rewards = deque(maxlen=50)
+
     env = Env(config)
-    agent = Agent(config)
+    agent = _init_agent(config, agent_type, device)
+
+    episode_csv_path = _get_episode_csv_path(config)
+    train_csv_path = _get_train_csv_path(config)
+
     obs, info = env.reset()
+    done = False
 
-    total_steps = 0
-    episode_reward = 0
-    reward_all_100 = []
-    reward_queue = collections.deque(maxlen=100)
+    curr_steps = 0
+    episode_reward = 0.0
+    max_rew = -np.inf
+
+    save_count = 0
+    save_models_frac = 0.5
+    total_steps = config.model.sampling.total_timesteps
+
+    milestone_thresholds = []
+    milestone_saved = {thr: False for thr in milestone_thresholds}
+
+    if args.save_every is not None:
+        save_steps = list(np.arange(0, config.model.sampling.total_timesteps, args.save_every) + args.save_every)
+        saved_steps = {stp: False for stp in save_steps}
+
     try:
-        with tqdm(total=config.model.sampling.total_timesteps, desc="Training") as pbar:
-            while total_steps < config.model.sampling.total_timesteps:
+        with tqdm(total=total_steps, desc="Training") as pbar:
+            while curr_steps < total_steps:
+                rollout_steps = 1 if agent_type == "sac" else min(
+                    config.model.sampling.rollout_steps,
+                    total_steps - curr_steps
+                )
 
-                for _ in range(config.model.sampling.rollout_steps):
-                    total_steps += 1
-                    pbar.update(1)   
+                for step_in_rollout in range(rollout_steps):
+                    curr_steps += 1
+                    pbar.update(1)
 
-                    action, log_prob, val = agent.choose_action(obs)
-                    next_obs, reward, terminated, truncated, info = env.step(action)
+                    next_obs, reward, done, terminated, truncated, info = agent_env_step(
+                        agent, env, obs, agent_type
+                    )
 
-                    done = terminated or truncated
-                    agent.remember(obs, action, log_prob, val, reward, done)
-                    
                     obs = next_obs
-
                     episode_reward += reward
+
                     if terminated or truncated:
-                        reward_queue.append(episode_reward / config.max_episode_steps)
-
-                        avg = np.mean(reward_queue)
-                        reward_all_100.append(avg)
+                        episode_reward_norm = episode_reward / config.max_episode_steps
                         stats = env.get_behavior_stats()
-                        if neptune_logging: 
-                            run["train_stats/reward"].append(avg)
+                        r_stats = env.get_reward_stats()
 
-                            run["train_stats/calm_frac"].append(stats["calm_frac"])
-                            run["train_stats/avoid_frac"].append(stats["avoid_frac"])
-                            run["train_stats/flee_frac"].append(stats["flee_frac"])
-                            run["train_stats/mean_disturbance"].append(stats["mean_disturbance"])
+                        _log_episode_local(
+                            episode_csv_path,
+                            curr_steps,
+                            episode_reward_norm,
+                            stats,
+                            r_stats,
+                            save_count,
+                        )
+
+                        if use_wandb:
+                            _log_episode_wandb(
+                                curr_steps,
+                                episode_reward_norm,
+                                stats,
+                                r_stats,
+                                save_count,
+                                env.spawn_radius,
+                            )
 
                         pbar.set_postfix({
-                            "rew_100": f"{avg:.2f}",
-                            "mean_dist": f"{stats['mean_disturbance']:.2f}",
+                            "rew_100": f"{episode_reward_norm:.2f}",
+                            "mean_dist": f"{r_stats['p_disturbance']:.2f}",
                         })
-                        episode_reward = 0
-                        obs, info = env.reset()
+                        rewards.append(episode_reward_norm)
+
+                        # save milestone checkpoints once
+                        if milestone_thresholds:
+                            thr = milestone_thresholds[0]
+                            if (not milestone_saved[thr]) and (np.mean(rewards) >= thr):
+                                tag = str(thr).replace(".", "p")
+                                agent.save_models(name=f"reward_{tag}")
+                                milestone_saved[thr] = True
+                                save_count += 1
+                                milestone_thresholds.pop(0)
+                                print(f"[INFO] Saved milestone checkpoint at reward >= {thr:.1f}")
                         
-                last_value = agent.get_last_value(obs, done)
-                agent.learn(last_value)
-            
-            agent.save_models()
+                        if args.save_every and save_steps:
+                            step = save_steps[0]
+                            if (not saved_steps[step]) and curr_steps >= step:
+                                agent.save_models(name=f"step_{step}")
+                                saved_steps[step] = True
+                                save_count += 1
+                                save_steps.pop(0)
+                                print(f"[INFO] Saved checkpoint at step >= {step:.1f}")
+
+                        # save best as usual, after some fraction of training
+                        if (
+                            episode_reward_norm > max_rew
+                            and curr_steps >= save_models_frac * total_steps
+                        ):
+                            agent.save_models(name="best")
+                            max_rew = episode_reward_norm
+                            save_count += 1
+
+                        if args.schedule_spawn:
+                            if srs.check_cooldown() and np.mean(rewards) >= 1.0: # needs tuning
+                                env.spawn_radius = srs.step(env.spawn_radius)
+                        
+                        if args.randomize_dr_scale:
+                            env.alpha = env.env_rng.uniform(0.22, 1)
+
+                        episode_reward = 0.0
+                        obs, info = env.reset()
+                        done = False
+
+                    if _should_train(agent_type, step_in_rollout, rollout_steps):
+                        train_metrics = _train_step(agent, agent_type, obs, done)
+
+                        if _has_train_metrics(train_metrics):
+                            _log_train_local(train_csv_path, curr_steps, train_metrics)
+                            if use_wandb:
+                                _log_train_wandb(curr_steps, train_metrics)
+
+            agent.save_models(name="last")
+
+            if use_wandb:
+                wb.save(os.path.join(config.run_dir, "*"))
+
     finally:
-        if neptune_logging:
-            run.stop()
+        if use_wandb:
+            wb.finish()
+
 
 def _init_argparse():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="train",
-        help="Config name inside config/ folder",
-    )
-
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed",
-    )
-
-    parser.add_argument(
-        "--neptune",
-        action="store_true",
-        help="Enable Neptune logging",
-    )
-
+    parser.add_argument("--config", type=str, default="train", help="Config name inside config/ folder")
+    parser.add_argument("--agent", type=str, default="ppo", choices=["ppo", "mappo", "sac", "dqn"], help="RL agent type")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--device", type=str, default="cpu", help="Device to run on")
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
+    parser.add_argument("--schedule_spawn", action="store_true", help="Enable animal spawn radius scheduling")
+    parser.add_argument("--randomize_dr_scale", action="store_true", help="Enable reward tradeoff randomization")
+    parser.add_argument("--save_every", type=int, default=None, help="Random seed")
     return parser.parse_args()
-    
-if __name__ == "__main__":
 
+
+if __name__ == "__main__":
     args = _init_argparse()
 
     cfg = load_config(args.config)
+    cfg["seed"] = args.seed
+    cfg["agent_type"] = args.agent
 
     run_dir = create_run_dir(cfg, args.seed)
+
     save_config_snapshot(cfg, run_dir)
-
     cfg["run_dir"] = str(run_dir)
-    cfg["seed"] = args.seed
 
-    main(cfg, neptune_logging=args.neptune)
+    main(cfg, agent_type=args.agent, use_wandb=args.wandb, device=args.device)
+    print(f"RUN_DIR::{run_dir.name}")

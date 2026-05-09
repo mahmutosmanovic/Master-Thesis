@@ -3,7 +3,7 @@ from pathlib import Path
 from copy import deepcopy
 from datetime import datetime
 from environment import MovementDim
-from config.loader import _build_behavior
+from config.loader import _build_behavior, load_config
 
 def create_run_dir(config: dict, seed: int):
 
@@ -21,6 +21,23 @@ def create_run_dir(config: dict, seed: int):
     run_dir.mkdir()
 
     return run_dir
+
+def create_eval_dir(config: dict, seed: int):
+
+    project_root = Path(__file__).resolve().parents[1]
+    evals_dir = project_root / "evals"
+    evals_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    config_name = config.get("_config_name", "exp")
+
+    run_name = f"{config_name}_seed{seed}_{timestamp}"
+
+    eval_dir = evals_dir / run_name
+    eval_dir.mkdir()
+
+    return eval_dir
 
 def save_config_snapshot(config: dict, run_dir: Path):
     """
@@ -75,22 +92,25 @@ def load_run(run_name: str):
     run_dir = resolve_run_dir(run_name)
     config_path = run_dir / "config.yaml"
 
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
+    
+    behavior_cfg = Path(cfg["behavior_cfg"]) / "behaviors.yaml"
 
-    # enum
+    with open(behavior_cfg, "r") as f:
+        behavior_cfg = yaml.safe_load(f)
+
+    # --- enums ---
     cfg["animal"]["init"]["movement_dim"] = (
         MovementDim[cfg["animal"]["init"]["movement_dim"]]
     )
 
-    # behavior dataclass
+    # --- behaviors ---
     behavior_name = cfg["animal"]["init"]["behavior"]
-
-    # snapshot stores "POI_CFG"
-    if behavior_name.endswith("_CFG"):
-        behavior_name = behavior_name[:-4]
-
-    cfg["animal"]["init"]["behavior"] = _build_behavior(behavior_name)
+    cfg["animal"]["init"]["behavior"] = _build_behavior(behavior_name, behavior_cfg[behavior_name])
 
     cfg["run_dir"] = str(run_dir)
 

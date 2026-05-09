@@ -133,40 +133,113 @@ def center_segment_coordinates(df, segment_col="segment", x_col="x", y_col="y"):
 
     return out
 
-def save_segments_from_df(df, out_dir, segment_col="segment", t_col="segment_t", x_col="x", y_col="y", id_col="tag-local-identifier", time_col="timestamp"):
+def add_step_metrics(df, x_col="x", y_col="y", dt_col="dt_seconds", group_cols=None):
+    out = df.copy()
+
+    if group_cols is None:
+        dx = out[x_col].diff()
+        dy = out[y_col].diff()
+    else:
+        dx = out.groupby(group_cols)[x_col].diff()
+        dy = out.groupby(group_cols)[y_col].diff()
+
+    out["step_dist"] = np.hypot(dx, dy)
+    out["speed_mps"] = out["step_dist"] / out[dt_col]
+
+    bad_dt = out[dt_col].isna() | (out[dt_col] <= 0)
+    out.loc[bad_dt, ["step_dist", "speed_mps"]] = np.nan
+    return out
+
+def split_segments_on_motion(
+    df,
+    id_col="TAG",
+    segment_col="segment",
+    dt_col="dt_seconds",
+    speed_col="speed_mps",
+    step_col="step_dist",
+    max_speed=None,
+    max_step=None,
+):
+    out = df.copy()
+
+    bad = out[dt_col].isna() | (out[dt_col] <= 0)
+
+    if max_speed is not None:
+        bad |= out[speed_col] > max_speed
+    if max_step is not None:
+        bad |= out[step_col] > max_step
+
+    # current row starts a new segment if the step into it is bad
+    out["_motion_break"] = bad
+
+    out["_subseg"] = (
+        out["_motion_break"]
+        .groupby([out[id_col], out[segment_col]])
+        .cumsum()
+        .astype(int)
+    )
+
+    out[segment_col] = (
+        out.groupby([id_col, segment_col, "_subseg"], sort=False)
+           .ngroup()
+           .astype(int)
+    )
+
+    return out.drop(columns=["_motion_break", "_subseg"])
+
+def save_segments_from_df(
+        df,
+        out_dir,
+        segment_col="segment",
+        t_col="segment_t",
+        x_col="x",
+        y_col="y",
+        id_col="tag-local-identifier",
+        time_col="timestamp",
+        duration_col=None,
+    ):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows = []
 
-    for segment_id, g in df.groupby(segment_col, sort=False):
+    for group_id, g in df.groupby(segment_col, sort=False):
         t = g[t_col].to_numpy(dtype=np.float32)
         x = g[x_col].to_numpy(dtype=np.float32)
         y = g[y_col].to_numpy(dtype=np.float32)
 
-        path = out_dir / f"{int(segment_id):08d}.npz"
+        path = out_dir / f"{int(group_id):08d}.npz"
         np.savez_compressed(path, t=t, x=x, y=y)
 
         row = {
-            "segment": int(segment_id),
+            segment_col: int(group_id),
             "path": path.name,
             "n_points": int(len(g)),
-            "duration_s": float(g["segment_duration"].iloc[0]) if "segment_duration" in g.columns else float(t[-1]),
+            "duration_s": float(g[duration_col].iloc[0]) if (duration_col is not None and duration_col in g.columns) else float(t[-1]),
             "xmin": float(np.min(x)),
             "xmax": float(np.max(x)),
             "ymin": float(np.min(y)),
             "ymax": float(np.max(y)),
         }
 
-        if id_col in g.columns:
+        if id_col is not None and id_col in g.columns:
             row[id_col] = g[id_col].iloc[0]
 
-        if time_col in g.columns:
+        if time_col is not None and time_col in g.columns:
             row["start_time"] = g[time_col].iloc[0]
             row["end_time"] = g[time_col].iloc[-1]
 
+        if "segment" in g.columns and segment_col != "segment":
+            row["parent_segment"] = int(g["segment"].iloc[0])
+
         if "segment_n" in g.columns:
             row["segment_n"] = int(g["segment_n"].iloc[0])
+
+        if "episode_n" in g.columns and segment_col == "episode":
+            row["episode_n"] = int(g["episode_n"].iloc[0])
+
+        if "episode_local" in g.columns and segment_col == "episode":
+            row["episode_local"] = int(g["episode_local"].iloc[0])
 
         manifest_rows.append(row)
 
@@ -175,27 +248,327 @@ def save_segments_from_df(df, out_dir, segment_col="segment", t_col="segment_t",
 
     return manifest
 
-def prepare_peruvian_boobies(input_path="data/peruvian_boobies/peruvian_boobies.csv", out_dir="track_segments/peruvian_boobies"):
-    print("--- Preparing gps tracks for peruvian boobies ---")
+def plot_speed_binned(df, plot_dir):
+    import matplotlib.pyplot as plt
 
-    df = pd.read_csv(input_path, na_values="NA", usecols=["location-lat", "location-long", "tag-local-identifier", "timestamp"])
-    print("NA Values:")
-    print(df.isna().any())
-    print()
+    plot_dir = Path(plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
-    df = transform_df_to_utm(df)
-    df = dt_from_datetime(df)
-    df = segments_from_dt(df, max_gap=60)
-    df = reset_first_dt_in_segment(df)
-    df = filter_min_segment_points(df, min_points=50)
-    df = filter_min_segment_time(df)
-    df = filter_min_segment_extent(df, min_extent=250)
-    df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
-    
-    print(f"--- Saving segments to {out_dir} ---")
-    save_segments_from_df(df, out_dir)
-    print("--- Finished preparation for peruvian boobies ---")
+    # Keep finite, non-negative speeds
+    speeds = df["speed_mps"].replace([np.inf, -np.inf], np.nan).dropna()
+    speeds = speeds[speeds >= 0]
+
+    # Optional: inspect binned counts
+    bin_width = 5  # m/s
+    max_speed = np.ceil(speeds.max() / bin_width) * bin_width
+    bins = np.arange(0, max_speed + bin_width, bin_width)
+
+    # Histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(speeds, bins=bins)
+    plt.xlabel("Speed (m/s)")
+    plt.ylabel("Count")
+    plt.title("Histogram of step speeds")
+    plt.tight_layout()
+    plt.savefig(plot_dir / "speed_histogram.png", dpi=200)
+    plt.close()
+
+def rolling_median_xy(
+        df,
+        x_col="x",
+        y_col="y",
+        segment_col="segment",
+        id_col="tag-local-identifier",
+        window=3,
+    ):
+        out = df.copy()
+        group_cols = [segment_col] if id_col is None else [id_col, segment_col]
+
+        out[x_col] = (
+            out.groupby(group_cols, sort=False)[x_col]
+            .transform(lambda s: s.rolling(window, center=True, min_periods=1).median())
+        )
+        out[y_col] = (
+            out.groupby(group_cols, sort=False)[y_col]
+            .transform(lambda s: s.rolling(window, center=True, min_periods=1).median())
+        )
+        return out
+
+def kalman_filter_xy_segment(
+        g,
+        x_col="x",
+        y_col="y",
+        dt_col="dt_seconds",
+        meas_var=25.0,
+        accel_var=4.0,
+    ):
+        g = g.copy()
+
+        xs = g[x_col].to_numpy(dtype=float)
+        ys = g[y_col].to_numpy(dtype=float)
+        dts = g[dt_col].fillna(0.0).to_numpy(dtype=float)
+
+        n = len(g)
+        if n == 0:
+            return g
+
+        # state = [x, y, vx, vy]
+        state = np.array([xs[0], ys[0], 0.0, 0.0], dtype=float)
+        P = np.diag([meas_var, meas_var, 25.0, 25.0]).astype(float)
+
+        H = np.array([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ], dtype=float)
+
+        R = np.diag([meas_var, meas_var]).astype(float)
+
+        xf = np.zeros(n, dtype=float)
+        yf = np.zeros(n, dtype=float)
+
+        xf[0] = xs[0]
+        yf[0] = ys[0]
+
+        for i in range(1, n):
+            dt = float(dts[i])
+            if not np.isfinite(dt) or dt <= 0:
+                dt = 1.0
+
+            F = np.array([
+                [1.0, 0.0, dt,  0.0],
+                [0.0, 1.0, 0.0, dt ],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ], dtype=float)
+
+            q = accel_var
+            dt2 = dt * dt
+            dt3 = dt2 * dt
+            dt4 = dt2 * dt2
+
+            Q1 = np.array([
+                [dt4 / 4.0, dt3 / 2.0],
+                [dt3 / 2.0, dt2],
+            ], dtype=float) * q
+
+            Q = np.array([
+                [Q1[0, 0], 0.0,      Q1[0, 1], 0.0     ],
+                [0.0,      Q1[0, 0], 0.0,      Q1[0, 1]],
+                [Q1[1, 0], 0.0,      Q1[1, 1], 0.0     ],
+                [0.0,      Q1[1, 0], 0.0,      Q1[1, 1]],
+            ], dtype=float)
+
+            # predict
+            state = F @ state
+            P = F @ P @ F.T + Q
+
+            # update
+            z = np.array([xs[i], ys[i]], dtype=float)
+            y = z - H @ state
+            S = H @ P @ H.T + R
+            K = P @ H.T @ np.linalg.inv(S)
+
+            state = state + K @ y
+            P = (np.eye(4) - K @ H) @ P
+
+            xf[i] = state[0]
+            yf[i] = state[1]
+
+        g[x_col] = xf
+        g[y_col] = yf
+        return g
+
+def kalman_filter_xy(
+        df,
+        x_col="x",
+        y_col="y",
+        dt_col="dt_seconds",
+        segment_col="segment",
+        id_col="tag-local-identifier",
+        meas_var=25.0,
+        accel_var=4.0,
+    ):
+        out = df.copy()
+        group_cols = [segment_col] if id_col is None else [id_col, segment_col]
+
+        parts = []
+        for _, g in out.groupby(group_cols, sort=False):
+            parts.append(
+                kalman_filter_xy_segment(
+                    g,
+                    x_col=x_col,
+                    y_col=y_col,
+                    dt_col=dt_col,
+                    meas_var=meas_var,
+                    accel_var=accel_var,
+                )
+            )
+
+        return pd.concat(parts, axis=0).sort_index()
+
+def split_segments_to_episodes(
+        df,
+        episode_duration_s=204.7,
+        segment_col="segment",
+        t_col="segment_t",
+    ):
+    if t_col not in df.columns:
+        raise ValueError(f"Expected column '{t_col}' to exist before episode splitting.")
+
+    episode_parts = []
+    next_episode_id = 0
+
+    for parent_segment, g in df.groupby(segment_col, sort=False):
+        g = g.sort_values(t_col, kind="stable").copy()
+        t = g[t_col].to_numpy(dtype=float)
+
+        if len(g) == 0:
+            continue
+
+        start_idx = 0
+        episode_local = 0
+
+        while start_idx < len(g):
+            start_t = t[start_idx]
+            target_t = start_t + episode_duration_s
+
+            # first point at or after the target duration
+            end_idx = np.searchsorted(t, target_t, side="left")
+
+            # no more complete episodes in this parent segment
+            if end_idx >= len(g):
+                break
+
+            ep = g.iloc[start_idx:end_idx + 1].copy()
+            ep["episode_local"] = episode_local
+            ep["episode"] = next_episode_id
+            ep["episode_t"] = ep[t_col] - start_t
+            ep["episode_duration"] = float(ep["episode_t"].iloc[-1])
+            ep["episode_n"] = len(ep)
+
+            episode_parts.append(ep)
+
+            next_episode_id += 1
+            episode_local += 1
+
+            # move to the boundary point so consecutive episodes stay contiguous
+            start_idx = end_idx
+
+    if not episode_parts:
+        out = df.iloc[0:0].copy()
+        out["episode_local"] = pd.Series(dtype="int64")
+        out["episode"] = pd.Series(dtype="int64")
+        out["episode_t"] = pd.Series(dtype="float64")
+        out["episode_duration"] = pd.Series(dtype="float64")
+        out["episode_n"] = pd.Series(dtype="int64")
+        return out
+
+    return pd.concat(episode_parts, ignore_index=False)
+
+def split_train_test_groups(df, group_col="segment", test_frac=0.2, seed=42):
+    out = df.copy()
+
+    groups = pd.Index(out[group_col].drop_duplicates())
+    n_groups = len(groups)
+
+    if n_groups == 0:
+        return out.copy(), out.iloc[0:0].copy()
+
+    if n_groups == 1:
+        return out.copy(), out.iloc[0:0].copy()
+
+    rng = np.random.default_rng(seed)
+    shuffled = groups.to_numpy().copy()
+    rng.shuffle(shuffled)
+
+    n_test = int(round(n_groups * test_frac))
+    n_test = max(1, n_test)
+    n_test = min(n_test, n_groups - 1)
+
+    test_groups = set(shuffled[:n_test])
+    is_test = out[group_col].isin(test_groups)
+
+    train_df = out.loc[~is_test].copy()
+    test_df = out.loc[is_test].copy()
+
+    return train_df, test_df
+
+def save_full_and_episode_versions(
+        df,
+        out_dir,
+        id_col,
+        time_col,
+        episode_duration_s=204.7,
+        test_frac=0.2,
+        split_seed=42,
+    ):
+    out_dir = Path(out_dir)
+
+    full_dir = out_dir / "full"
+    episodes_all_dir = out_dir / "episodes" / "all"
+    episodes_train_dir = out_dir / "episodes" / "train"
+    episodes_test_dir = out_dir / "episodes" / "test"
+
+    print(f"--- Saving full segments to {full_dir} ---")
+    full_manifest = save_segments_from_df(
+        df,
+        full_dir,
+        segment_col="segment",
+        t_col="segment_t",
+        id_col=id_col,
+        time_col=time_col,
+        duration_col="segment_duration",
+    )
+
+    episodes = split_segments_to_episodes(
+        df,
+        episode_duration_s=episode_duration_s,
+        segment_col="segment",
+        t_col="segment_t",
+    )
+
+    print(f"--- Saving all episodes to {episodes_all_dir} ---")
+    episode_manifest = save_segments_from_df(
+        episodes,
+        episodes_all_dir,
+        segment_col="episode",
+        t_col="episode_t",
+        id_col=id_col,
+        time_col=time_col,
+        duration_col="episode_duration",
+    )
+
+    # Split by parent full segment to avoid leakage
+    train_episodes, test_episodes = split_train_test_groups(
+        episodes,
+        group_col="segment",
+        test_frac=test_frac,
+        seed=split_seed,
+    )
+
+    print(f"--- Saving train episodes to {episodes_train_dir} ---")
+    train_manifest = save_segments_from_df(
+        train_episodes,
+        episodes_train_dir,
+        segment_col="episode",
+        t_col="episode_t",
+        id_col=id_col,
+        time_col=time_col,
+        duration_col="episode_duration",
+    )
+
+    print(f"--- Saving test episodes to {episodes_test_dir} ---")
+    test_manifest = save_segments_from_df(
+        test_episodes,
+        episodes_test_dir,
+        segment_col="episode",
+        t_col="episode_t",
+        id_col=id_col,
+        time_col=time_col,
+        duration_col="episode_duration",
+    )
+
+    return full_manifest, episode_manifest, train_manifest, test_manifest
 
 def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_segments/jackals"):
     print("--- Preparing gps tracks for jackals ---")
@@ -205,19 +578,40 @@ def prepare_jackals(input_path="data/jackals/jackal_data.csv", out_dir="track_se
     print("NA Values:")
     print(df.isna().any())
     print()
-    df
+    df["dateTime_local"] = pd.to_datetime(df["dateTime_local"], errors="coerce")
+    df = df.dropna(subset=["TAG", "dateTime_local", "lat", "lon"])
+
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_datetime(df, datetime_col="dateTime_local", id_col="TAG")
     df = segments_from_dt(df, max_gap=20, id_col="TAG")
-    df = reset_first_dt_in_segment(df)
-    df = filter_min_segment_points(df, min_points=100)
-    df = filter_min_segment_time(df)
-    df = filter_min_segment_extent(df, min_extent=250)
-    df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
 
-    print(f"--- Saving segments to {out_dir} ---")
-    save_segments_from_df(df, out_dir, id_col="TAG")
+    # df = rolling_median_xy(df, x_col="x", y_col="y", segment_col="segment", id_col="TAG", window=3)
+    df = kalman_filter_xy(df, x_col="x", y_col="y", dt_col="dt_seconds", segment_col="segment", id_col="TAG", meas_var=50.0, accel_var=5.0)
+
+    df = add_step_metrics(df, group_cols=["TAG", "segment"])
+    df = split_segments_on_motion(df, id_col="TAG", segment_col="segment", max_speed=20)
+
+    df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["TAG", "segment"])
+
+    df = filter_min_segment_points(df, min_points=100)
+    df = filter_min_segment_time(df, min_time=205)
+    df = filter_min_segment_extent(df, min_extent=100)
+    df = segment_t_from_dt(df)
+
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
+
+    save_full_and_episode_versions(
+        df,
+        out_dir=out_dir,
+        id_col="TAG",
+        time_col="dateTime_local",
+        episode_duration_s=204.7,
+        test_frac=0.3,
+        split_seed=42,
+    )
+
     print("--- Finished preparation for jackals ---")
 
 def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_winged_lapwings1.csv", out_dir="track_segments/spur_winged_lapwings"):
@@ -231,15 +625,34 @@ def prepare_spur_winged_lapwings(input_path="data/spur_winged_lapwings/spur_wing
     df = transform_df_to_utm(df)
     df = dt_from_datetime(df)
     df = segments_from_dt(df, max_gap=20)
+
+    # df = rolling_median_xy(df, window=3)
+    df = kalman_filter_xy(df, dt_col="dt_seconds", meas_var=50.0, accel_var=5.0)
+
+    df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
+    df = split_segments_on_motion(df, id_col="tag-local-identifier", segment_col="segment", max_speed=100)
+
     df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["tag-local-identifier", "segment"])
+
     df = filter_min_segment_points(df, min_points=100)
-    df = filter_min_segment_time(df)
+    df = filter_min_segment_time(df, min_time=205)
     df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
+    
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
 
-    print(f"--- Saving segments to {out_dir} ---")
-    save_segments_from_df(df, out_dir)
+    save_full_and_episode_versions(
+        df,
+        out_dir=out_dir,
+        id_col="tag-local-identifier",
+        time_col="timestamp",
+        episode_duration_s=204.7,
+        test_frac=0.3,
+        split_seed=42,
+    )
+
     print("--- Finished preparation for spur winged lapwings ---")
 
 def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons"):
@@ -260,19 +673,34 @@ def prepare_pigeons(input_path="data/pigeons", out_dir="track_segments/pigeons")
     df = transform_df_to_utm(df, lat_col="lat", lon_col="lon")
     df = dt_from_t(df, id_col="file_id")
     df = segments_from_dt(df, max_gap=20, id_col="file_id")
+
+    df = add_step_metrics(df, group_cols=["file_id", "segment"])
+    df = split_segments_on_motion(df, id_col="file_id", segment_col="segment", max_speed=100) # pigeons have speeds matching their stated max
+
     df = reset_first_dt_in_segment(df)
+    df = add_step_metrics(df, group_cols=["file_id", "segment"])
+
     df = filter_min_segment_points(df, min_points=100)
-    df = filter_min_segment_time(df)
+    df = filter_min_segment_time(df, min_time=205)
     df = filter_min_segment_extent(df, min_extent=250)
     df = segment_t_from_dt(df)
-    # df = center_segment_coordinates(df)
+    
+    report_dir = Path(out_dir).parent / "report" / Path(out_dir).name
+    plot_speed_binned(df, report_dir)
 
-    print(f"--- Saving segments to {out_dir} ---")
-    save_segments_from_df(df, out_dir)
+    save_full_and_episode_versions(
+        df,
+        out_dir=out_dir,
+        id_col="file_id",
+        time_col=None,
+        episode_duration_s=204.7,
+        test_frac=0.3,
+        split_seed=42,
+    )
+
     print("--- Finished preparation for pigeons ---")
 
 if __name__ == "__main__":
     prepare_pigeons()
     prepare_jackals()
-    # prepare_spur_winged_lapwings()
-    # prepare_peruvian_boobies()
+    prepare_spur_winged_lapwings()

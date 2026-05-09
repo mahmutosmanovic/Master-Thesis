@@ -11,11 +11,11 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 def _build_behavior(name: str, params: dict):
 
     behaviors = {
-        "POI": POI_CFG,
-        "EE": EE_CFG,
-        "CRW": CRW_CFG,
-        "LPOI": LPOI_CFG,
-        "REPLAY": REPLAY_CFG
+        "POI_CFG": POI_CFG,
+        "EE_CFG": EE_CFG,
+        "CRW_CFG": CRW_CFG,
+        "LPOI_CFG": LPOI_CFG,
+        "REPLAY_CFG": REPLAY_CFG
     }
 
     try:
@@ -38,7 +38,9 @@ def load_config(name: str):
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
     
-    with open("config/behaviors.yaml", "r") as f:
+    behavior_cfg = Path(cfg["behavior_cfg"]) / "behaviors.yaml"
+
+    with open(behavior_cfg, "r") as f:
         behavior_cfg = yaml.safe_load(f)
 
     # --- enums ---

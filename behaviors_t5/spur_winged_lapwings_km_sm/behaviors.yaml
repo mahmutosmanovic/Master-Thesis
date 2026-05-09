@@ -1,0 +1,64 @@
+CRW_CFG:
+  persistence: 0.1
+  turn_sigma: 0.01
+  target_speed: 0.740157617656676
+  speed_sigma: 0.17155801977852084
+  speed_smooth: 0.004446054825210877
+  bias_gain: 0.0
+EE_CFG:
+  explore_cfg:
+    persistence: 0.1
+    turn_sigma: 0.01
+    target_speed: 0.7179070011973091
+    speed_sigma: 0.16384492356576127
+    speed_smooth: 0.0043258698682590024
+    bias_gain: 0.0
+  exploit_cfg:
+    persistence: 0.9249999999999999
+    turn_sigma: 0.20750000000000002
+    target_speed: 0.6419341181977833
+    speed_sigma: 0.38715612056314913
+    speed_smooth: 0.01303304365550606
+    bias_gain: 0.0
+  time_to_leave: 16.0
+POI_CFG:
+  explore_cfg:
+    persistence: 0.1
+    turn_sigma: 0.01
+    target_speed: 0.7179070011973091
+    speed_sigma: 0.16384492356576127
+    speed_smooth: 0.0043258698682590024
+    bias_gain: 0.2
+  exploit_cfg:
+    persistence: 0.9249999999999999
+    turn_sigma: 0.20750000000000002
+    target_speed: 0.6419341181977833
+    speed_sigma: 0.38715612056314913
+    speed_smooth: 0.01303304365550606
+    bias_gain: 0.0
+  arrive_dist: 50.0
+  time_to_leave: 16.0
+LPOI_CFG:
+  explore_cfg:
+    persistence: 0.1
+    turn_sigma: 0.01
+    target_speed: 0.7179070011973091
+    speed_sigma: 0.16384492356576127
+    speed_smooth: 0.0043258698682590024
+    bias_gain: 0.2
+  exploit_cfg:
+    persistence: 0.9249999999999999
+    turn_sigma: 0.20750000000000002
+    target_speed: 0.6419341181977833
+    speed_sigma: 0.38715612056314913
+    speed_smooth: 0.01303304365550606
+    bias_gain: 0.0
+  arrive_dist: 50.0
+  time_to_leave: 16.0
+  epsilon: 0.2
+  learning_rate: 0.3
+  disturbance_penalty: 1.0
+REPLAY_CFG:
+  manifest_path: ./track_segments/spur_winged_lapwings/episodes/all/manifest.parquet
+  selection: random
+  zero_centered: false
