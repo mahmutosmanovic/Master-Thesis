@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from box import Box
 from tqdm import tqdm
@@ -15,13 +16,13 @@ from model import PPOAgent, MAPPOAgent, SACAgent, DQNAgent
 from .run_utils import load_run, create_eval_dir, save_config_snapshot
 from .centroid import CentroidStandoff
 from .plots.reward_distribution import plot_eval_reward_distribution
-import pandas as pd
 from .plots.policy_heatmap import (
     plot_policy_heatmap_from_csv,
     plot_xy_policy_heatmap_from_csv,
     plot_reward_heatmap_from_csv,
     plot_disturbance_heatmap_from_csv,
-    plot_visitation_on_disturbance_background
+    plot_visitation_on_disturbance_background,
+    plot_closest_animal_visitation_by_drone_from_csv,
 )
 
 BASELINES = {
@@ -55,6 +56,14 @@ STEP_LOG_FIELDS = [
     "r_vis",
     "r_dist",
     "r_align",
+    "closest_animal_distance",
+    "nearest_drone_distance",
+    "mean_drone_distance",
+    "nearest_drone_to_animal_dist_ratio",
+    "mean_drone_to_animal_dist_ratio",
+    "nearest_drone_minus_closest_animal_distance",
+    "closest_animal_id",
+    "angular_separation_score",
 ]
 
 EPISODE_LOG_FIELDS = [
@@ -73,6 +82,7 @@ EPISODE_LOG_FIELDS = [
 SUMMARY_APPEND_FIELDS = [
     "run_name",
     "checkpoint_name",
+    "train_step",
     "seed",
     "episode",
     "step",
@@ -82,7 +92,336 @@ SUMMARY_APPEND_FIELDS = [
     "r_dist",
 ]
 
-def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
+
+def _resolve_morphology_sequence(env):
+    """
+    Returns morphology names in the same order as env.drones.
+    Falls back to M1, M2, ... if morphology names are unavailable.
+    """
+    names = []
+    drones = getattr(env, "drones", [])
+
+    for i, drone in enumerate(drones):
+        morphology_name = None
+
+        for attr in ("morphology_name", "morphology", "type", "name", "model_name"):
+            if hasattr(drone, attr):
+                value = getattr(drone, attr)
+                if value is not None and str(value).strip():
+                    morphology_name = str(value).strip()
+                    break
+
+        if morphology_name is None and hasattr(drone, "config"):
+            cfg = getattr(drone, "config")
+            for attr in ("morphology_name", "morphology", "type", "name", "model_name"):
+                if hasattr(cfg, attr):
+                    value = getattr(cfg, attr)
+                    if value is not None and str(value).strip():
+                        morphology_name = str(value).strip()
+                        break
+
+        if morphology_name is None:
+            morphology_name = f"M{i + 1}"
+
+        names.append(morphology_name)
+
+    if not names:
+        names = ["M1", "M2", "M3"]
+
+    return names
+
+
+def _safe_float_or_nan(x):
+    try:
+        if x is None or x == "":
+            return np.nan
+        return float(x)
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _safe_int_or_none(x):
+    try:
+        if x is None or x == "":
+            return None
+        return int(float(x))
+    except (TypeError, ValueError):
+        return None
+
+
+def _xy_from_row(row):
+    return np.array(
+        [
+            _safe_float_or_nan(row.get("x")),
+            _safe_float_or_nan(row.get("y")),
+        ],
+        dtype=float,
+    )
+
+
+def _xyz_from_row(row):
+    return np.array(
+        [
+            _safe_float_or_nan(row.get("x")),
+            _safe_float_or_nan(row.get("y")),
+            _safe_float_or_nan(row.get("z")),
+        ],
+        dtype=float,
+    )
+
+
+def _angular_uniformity_score_xy(angles):
+    """
+    Returns a score in [0, 1].
+
+    1.0 = perfectly uniform angular spacing around the animal
+    0.0 = maximally collapsed into one direction
+
+    Construction:
+      - sort circular angles
+      - compute circular gaps
+      - compare to ideal equal gap 2*pi/n
+      - normalize by the theoretical worst-case L1 deviation
+    """
+    angles = np.asarray(angles, dtype=float)
+    angles = angles[np.isfinite(angles)]
+
+    n = len(angles)
+    if n < 2:
+        return np.nan
+
+    angles = np.mod(angles, 2 * np.pi)
+    angles = np.sort(angles)
+
+    gaps = np.diff(np.r_[angles, angles[0] + 2 * np.pi])
+    ideal_gap = 2 * np.pi / n
+
+    deviation = float(np.sum(np.abs(gaps - ideal_gap)))
+
+    # Worst case: all drones at same angle -> gaps [0, 0, ..., 2*pi]
+    max_deviation = 4 * np.pi * (1 - 1 / n)
+
+    if max_deviation <= 1e-12:
+        return np.nan
+
+    score = 1.0 - deviation / max_deviation
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def augment_step_rows_with_interdrone_metrics(step_rows):
+    """
+    Adds per-drone inter-drone metrics and an angular-separation score.
+
+    New fields added to drone rows:
+      - nearest_drone_distance
+      - mean_drone_distance
+      - nearest_drone_to_animal_dist_ratio
+      - mean_drone_to_animal_dist_ratio
+      - nearest_drone_minus_closest_animal_distance
+      - closest_animal_id
+      - angular_separation_score
+
+    Angular score idea:
+      For each drone row, find its closest animal from the current step's animal rows.
+      Then consider all drones' XY angles around that animal.
+      Score = 1 when angular spacing is perfectly uniform, 0 when angles collapse.
+    """
+    if not step_rows:
+        return step_rows
+
+    animal_rows = [
+        row for row in step_rows
+        if str(row.get("entity_type", "")).lower() == "animal"
+    ]
+    drone_rows = [
+        row for row in step_rows
+        if str(row.get("entity_type", "")).lower() != "animal"
+    ]
+
+    if not drone_rows:
+        return step_rows
+
+    drone_positions_xyz = [_xyz_from_row(row) for row in drone_rows]
+
+    for i, row in enumerate(drone_rows):
+        current_drone_xyz = drone_positions_xyz[i]
+
+        # -------- Inter-drone distance metrics --------
+        if len(drone_rows) <= 1:
+            nearest_drone_distance = np.nan
+            mean_drone_distance = np.nan
+        else:
+            dists = []
+            for j, other_xyz in enumerate(drone_positions_xyz):
+                if i == j:
+                    continue
+                if not np.all(np.isfinite(current_drone_xyz)) or not np.all(np.isfinite(other_xyz)):
+                    continue
+                dists.append(float(np.linalg.norm(current_drone_xyz - other_xyz)))
+
+            nearest_drone_distance = float(np.min(dists)) if dists else np.nan
+            mean_drone_distance = float(np.mean(dists)) if dists else np.nan
+
+        closest_animal_distance = _safe_float_or_nan(row.get("closest_animal_distance"))
+
+        if np.isfinite(closest_animal_distance) and closest_animal_distance > 1e-8:
+            nearest_ratio = (
+                nearest_drone_distance / closest_animal_distance
+                if np.isfinite(nearest_drone_distance)
+                else np.nan
+            )
+            mean_ratio = (
+                mean_drone_distance / closest_animal_distance
+                if np.isfinite(mean_drone_distance)
+                else np.nan
+            )
+            nearest_minus_animal = (
+                nearest_drone_distance - closest_animal_distance
+                if np.isfinite(nearest_drone_distance)
+                else np.nan
+            )
+        else:
+            nearest_ratio = np.nan
+            mean_ratio = np.nan
+            nearest_minus_animal = np.nan
+
+        # -------- Closest animal and angular-separation score --------
+        closest_animal_id = None
+        angular_separation_score = np.nan
+
+        if animal_rows:
+            current_drone_xy = _xy_from_row(row)
+
+            best_animal_row = None
+            best_dist = np.inf
+
+            for animal_row in animal_rows:
+                animal_xy = _xy_from_row(animal_row)
+                if not np.all(np.isfinite(current_drone_xy)) or not np.all(np.isfinite(animal_xy)):
+                    continue
+
+                d = float(np.linalg.norm(current_drone_xy - animal_xy))
+                if d < best_dist:
+                    best_dist = d
+                    best_animal_row = animal_row
+
+            if best_animal_row is not None:
+                closest_animal_id = _safe_int_or_none(best_animal_row.get("id"))
+                animal_xy = _xy_from_row(best_animal_row)
+
+                angles = []
+                for drone_row in drone_rows:
+                    drone_xy = _xy_from_row(drone_row)
+                    rel = drone_xy - animal_xy
+                    if not np.all(np.isfinite(rel)):
+                        continue
+
+                    norm_xy = np.linalg.norm(rel)
+                    if norm_xy <= 1e-10:
+                        continue
+
+                    angles.append(np.arctan2(rel[1], rel[0]))
+
+                angular_separation_score = _angular_uniformity_score_xy(angles)
+
+        row["nearest_drone_distance"] = nearest_drone_distance
+        row["mean_drone_distance"] = mean_drone_distance
+        row["nearest_drone_to_animal_dist_ratio"] = nearest_ratio
+        row["mean_drone_to_animal_dist_ratio"] = mean_ratio
+        row["nearest_drone_minus_closest_animal_distance"] = nearest_minus_animal
+        row["closest_animal_id"] = closest_animal_id if closest_animal_id is not None else ""
+        row["angular_separation_score"] = angular_separation_score
+
+    return step_rows
+
+
+def write_drone_norm_stats_from_rl_step_csv(env, rl_csv, out_csv):
+    rl_csv = Path(rl_csv)
+    out_csv = Path(out_csv)
+
+    df = pd.read_csv(rl_csv)
+
+    df = df[
+        (df["entity_type"] != "animal")
+        & df["closest_animal_distance"].notna()
+    ].copy()
+
+    df["closest_animal_distance"] = pd.to_numeric(
+        df["closest_animal_distance"], errors="coerce"
+    )
+
+    df = df.dropna(subset=["closest_animal_distance"])
+
+    df["morphology_name"] = df["entity_type"]
+
+    stats_df = (
+        df.groupby("morphology_name", as_index=False)["closest_animal_distance"]
+        .agg(mean_dist="mean", std_dist="std")
+        .sort_values("morphology_name")
+    )
+
+    stats_df.to_csv(out_csv, index=False)
+
+    return out_csv
+
+
+def write_angular_separation_stats_from_step_csv(step_csv, out_csv):
+    """
+    Writes one new CSV containing the angular-separation metric summary.
+
+    Columns:
+      morphology_name
+      mean_angular_separation
+      std_angular_separation
+
+    Interpretation:
+      1 = drones are evenly spread around the relevant animal in angle
+      0 = drones collapse into the same direction around the animal
+    """
+    step_csv = Path(step_csv)
+    out_csv = Path(out_csv)
+
+    df = pd.read_csv(step_csv)
+
+    if "angular_separation_score" not in df.columns:
+        raise KeyError(
+            f"'angular_separation_score' not found in {step_csv}. "
+            "Make sure step rows were augmented before writing."
+        )
+
+    df = df[df["entity_type"] != "animal"].copy()
+    df["angular_separation_score"] = pd.to_numeric(
+        df["angular_separation_score"], errors="coerce"
+    )
+    df = df.dropna(subset=["angular_separation_score"])
+
+    df["morphology_name"] = df["entity_type"]
+
+    stats_df = (
+        df.groupby("morphology_name", as_index=False)["angular_separation_score"]
+        .agg(
+            mean_angular_separation="mean",
+            std_angular_separation="std",
+        )
+        .sort_values("morphology_name")
+    )
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    stats_df.to_csv(out_csv, index=False)
+
+    return out_csv
+
+
+def run_episode_summary(
+    env,
+    config,
+    seed,
+    agent=None,
+    agent_type=None,
+    baseline=None,
+    step_writer=None,
+    randomize_dr_scale=False,
+):
     if randomize_dr_scale:
         env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
@@ -101,11 +440,12 @@ def run_episode_summary(env, config, seed, agent=None, agent_type=None, baseline
         obs, reward, terminated, truncated, info = env.step(action)
 
         if step_writer is not None:
-            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+            step_rows = env.step_log()
+            step_rows = augment_step_rows_with_interdrone_metrics(step_rows)
+            write_log_rows(step_writer, step_rows, STEP_LOG_FIELDS)
 
         ep_reward += float(reward)
 
-    behavior_stats = env.get_behavior_stats()
     reward_stats = env.get_reward_stats()
 
     return {
@@ -124,7 +464,7 @@ def evaluate_checkpoint_prefix_episodes(
     checkpoint_prefix,
     seeds,
     append_summary_csv,
-    randomize_dr_scale=False
+    randomize_dr_scale=False,
 ):
     weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
 
@@ -139,7 +479,6 @@ def evaluate_checkpoint_prefix_episodes(
         print(f"  - {w}")
 
     total = len(weight_files) * len(seeds)
-
     f, writer = init_append_logger(append_summary_csv, SUMMARY_APPEND_FIELDS)
 
     try:
@@ -160,7 +499,7 @@ def evaluate_checkpoint_prefix_episodes(
                         seed=seed,
                         agent=agent,
                         agent_type=agent_type,
-                        randomize_dr_scale=randomize_dr_scale
+                        randomize_dr_scale=randomize_dr_scale,
                     )
 
                     out_row = {
@@ -186,6 +525,7 @@ def evaluate_checkpoint_prefix_episodes(
         "num_episodes": len(seeds),
         "summary_csv": str(append_summary_csv),
     }
+
 
 def init_logger(path, fieldnames):
     path = Path(path)
@@ -221,9 +561,6 @@ def write_log_row(writer, row, fieldnames):
 
 
 def init_agent(config, run_dir, weight_type="last"):
-    """
-    Standard full-agent loading using the project's normal load_models(name=...).
-    """
     agent_type = config.agent_type
 
     if agent_type == "ppo":
@@ -275,18 +612,6 @@ def init_agent(config, run_dir, weight_type="last"):
 
 
 def init_agent_actor_only(config, run_dir, actor_weight_file):
-    """
-    Initialize agent and load actor-like inference weights only from a checkpoint file.
-
-    PPO / MAPPO / SAC checkpoints are expected to contain:
-        'actor_state_dict'
-
-    DQN checkpoints are expected to contain:
-        'q_net_state_dict'
-
-    Optional:
-        'train_step'
-    """
     agent_type = config.agent_type
 
     if agent_type == "ppo":
@@ -315,7 +640,7 @@ def init_agent_actor_only(config, run_dir, actor_weight_file):
         map_location = agent.q_net.device
 
     checkpoint = torch.load(weight_path, map_location=map_location, weights_only=False)
-    
+
     if not isinstance(checkpoint, dict):
         raise TypeError(
             f"Unexpected checkpoint format in {weight_path}. "
@@ -363,7 +688,6 @@ def choose_action(agent, obs, agent_type):
         joint_obs = obs_arr.reshape(-1)
 
         joint_action_flat, _, _ = agent.choose_action(joint_obs, deterministic=True)
-
         env_action = np.asarray(joint_action_flat, dtype=np.float32).reshape(obs_arr.shape[0], -1)
         return env_action
 
@@ -385,7 +709,16 @@ def choose_action(agent, obs, agent_type):
         raise ValueError(agent_type)
 
 
-def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, step_writer=None, randomize_dr_scale=False):
+def run_episode(
+    env,
+    config,
+    seed,
+    agent=None,
+    agent_type=None,
+    baseline=None,
+    step_writer=None,
+    randomize_dr_scale=False,
+):
     if randomize_dr_scale:
         env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
@@ -403,8 +736,11 @@ def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, s
 
         obs, reward, terminated, truncated, info = env.step(action)
 
+        step_rows = env.step_log()
+        step_rows = augment_step_rows_with_interdrone_metrics(step_rows)
+
         if step_writer is not None:
-            write_log_rows(step_writer, env.step_log(), STEP_LOG_FIELDS)
+            write_log_rows(step_writer, step_rows, STEP_LOG_FIELDS)
 
         ep_reward += float(reward)
 
@@ -412,10 +748,6 @@ def run_episode(env, config, seed, agent=None, agent_type=None, baseline=None, s
 
 
 def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, randomize_dr_scale=False):
-    """
-    Run up to n inference steps, stopping early if terminated/truncated.
-    Returns one summary row per executed step.
-    """
     if randomize_dr_scale:
         env.D_R_scale = env.env_rng.uniform(0.22, 1.0)
     obs, info = env.reset(seed=seed)
@@ -435,7 +767,6 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, 
             action = baseline.act(obs)
 
         obs, reward, terminated, truncated, info = env.step(action)
-
         reward_stats = env.get_reward_stats()
 
         rows.append({
@@ -444,17 +775,13 @@ def run_n_steps(env, seed, n_steps, agent=None, agent_type=None, baseline=None, 
             "reward": float(reward),
             "r_monitoring": float(reward_stats.get("r_monitoring", np.nan)),
             "p_disturbance": float(reward_stats.get("p_disturbance", np.nan)),
-            "r_dist": float(reward_stats.get("p_disturbance", np.nan)),
+            "r_dist": float(reward_stats.get("r_dist", np.nan)),
         })
 
     return rows
 
 
 def list_matching_actor_weight_files(run_dir, checkpoint_prefix):
-    """
-    Lists files directly in run_dir matching:
-        <checkpoint_prefix>*.pt
-    """
     run_dir = Path(run_dir)
     paths = sorted(run_dir.glob(f"{checkpoint_prefix}*.pt"))
     return [p.name for p in paths if p.is_file()]
@@ -469,7 +796,7 @@ def evaluate_checkpoint_prefix_steps(
     num_steps,
     seeds,
     append_summary_csv,
-    randomize_dr_scale=False
+    randomize_dr_scale=False,
 ):
     weight_files = list_matching_actor_weight_files(run_dir, checkpoint_prefix)
 
@@ -484,7 +811,6 @@ def evaluate_checkpoint_prefix_steps(
         print(f"  - {w}")
 
     total = len(weight_files) * len(seeds)
-
     f, writer = init_append_logger(append_summary_csv, SUMMARY_APPEND_FIELDS)
 
     try:
@@ -540,7 +866,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
     base_rewards = []
 
     with tqdm(total=total, desc="Evaluation") as pbar:
-
         if baseline is not None:
             env.reset_episode_id()
             f, writer = init_logger(log_dir / f"{type(baseline).__name__}.csv", STEP_LOG_FIELDS)
@@ -557,7 +882,7 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                         seed=seed,
                         baseline=baseline,
                         step_writer=writer,
-                        randomize_dr_scale=randomize_dr_scale
+                        randomize_dr_scale=randomize_dr_scale,
                     )
                     base_rewards.append(base_r)
 
@@ -571,7 +896,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                         **reward_stats,
                     }
                     write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
-
                     pbar.update(1)
             finally:
                 f.close()
@@ -591,7 +915,7 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                     agent=agent,
                     agent_type=agent_type,
                     step_writer=writer,
-                    randomize_dr_scale=randomize_dr_scale
+                    randomize_dr_scale=randomize_dr_scale,
                 )
                 rl_rewards.append(rl_r)
 
@@ -605,7 +929,6 @@ def evaluate(env, config, seeds, agent, agent_type, baseline=None, log_dir=None,
                     **reward_stats,
                 }
                 write_log_row(ep_writer, ep_row, EPISODE_LOG_FIELDS)
-
                 pbar.update(1)
         finally:
             f.close()
@@ -771,10 +1094,20 @@ def _init_argparse():
     parser.add_argument(
         "--randomize_dr_scale",
         action="store_true",
-        help="Enable reward tradeoff randomization"
+        help="Enable reward tradeoff randomization",
     )
 
     return parser.parse_args()
+
+
+def _safe_make_plot(label, fn, *args, **kwargs):
+    try:
+        out = fn(*args, **kwargs)
+        print(f"[ok] {label}: {out}")
+        return out
+    except Exception as e:
+        print(f"[failed] {label}: {e}")
+        return None
 
 
 def main():
@@ -814,7 +1147,7 @@ def main():
                 checkpoint_prefix=args.checkpoint_prefix,
                 seeds=seeds,
                 append_summary_csv=args.append_summary_csv,
-                randomize_dr_scale=args.randomize_dr_scale 
+                randomize_dr_scale=args.randomize_dr_scale,
             )
 
             print("\n=== CHECKPOINT EPISODE SWEEP DONE ===")
@@ -838,7 +1171,7 @@ def main():
             num_steps=args.num_steps,
             seeds=seeds,
             append_summary_csv=args.append_summary_csv,
-            randomize_dr_scale=args.randomize_dr_scale 
+            randomize_dr_scale=args.randomize_dr_scale,
         )
 
         print("\n=== CHECKPOINT STEP SWEEP DONE ===")
@@ -852,7 +1185,6 @@ def main():
         return
 
     agent, agent_type = init_agent(config, run_dir, args.weights)
-
     print(f"Detected RL algorithm: {agent_type}")
 
     baseline = None
@@ -876,7 +1208,7 @@ def main():
         agent_type=agent_type,
         baseline=baseline,
         log_dir=eval_dir,
-        randomize_dr_scale=args.randomize_dr_scale
+        randomize_dr_scale=args.randomize_dr_scale,
     )
 
     print("\n=== RESULTS ===")
@@ -895,63 +1227,162 @@ def main():
             f"n={report['baseline']['n']}"
         )
 
-    if args.plot_heatmaps:
-        rl_csv = eval_dir / f"{agent_type}.csv"
-        df = pd.read_csv(rl_csv)
-        reward_min = df["reward"].min()
-        reward_max = df["reward"].max()
-        vmin = reward_min
-        vmax = reward_max
+    # Always write the new angular-separation summary CSV for RL step logs
+    rl_step_csv = eval_dir / f"{agent_type}.csv"
+    angular_stats_csv = eval_dir / "angular_separation_stats.csv"
 
-        _ = plot_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        _ = plot_disturbance_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        _ = plot_xy_policy_heatmap_from_csv(rl_csv, bins=100, cmap="turbo", title=behavior_name)
-        _ = plot_reward_heatmap_from_csv(
-            rl_csv,
+    try:
+        write_angular_separation_stats_from_step_csv(
+            step_csv=rl_step_csv,
+            out_csv=angular_stats_csv,
+        )
+        print(f">>> Angular separation stats CSV: {angular_stats_csv}")
+    except Exception as e:
+        print(f"[failed] angular separation stats CSV: {e}")
+
+    if baseline is not None:
+        baseline_step_csv = eval_dir / f"{type(baseline).__name__}.csv"
+        baseline_angular_stats_csv = eval_dir / "angular_separation_stats_baseline.csv"
+        try:
+            write_angular_separation_stats_from_step_csv(
+                step_csv=baseline_step_csv,
+                out_csv=baseline_angular_stats_csv,
+            )
+            print(f">>> Baseline angular separation stats CSV: {baseline_angular_stats_csv}")
+        except Exception as e:
+            print(f"[failed] baseline angular separation stats CSV: {e}")
+
+    if args.plot_heatmaps:
+        print(f"\nGenerating heatmaps from: {rl_step_csv}")
+
+        df = pd.read_csv(rl_step_csv)
+        reward_min = pd.to_numeric(df["reward"], errors="coerce").min()
+        reward_max = pd.to_numeric(df["reward"], errors="coerce").max()
+
+        _safe_make_plot(
+            "RL policy heatmap",
+            plot_policy_heatmap_from_csv,
+            rl_step_csv,
             bins=100,
             cmap="turbo",
-            vmin=vmin,
-            vmax=vmax,
+            title=behavior_name,
+        )
+        _safe_make_plot(
+            "RL disturbance heatmap",
+            plot_disturbance_heatmap_from_csv,
+            rl_step_csv,
+            bins=100,
+            cmap="turbo",
+            title=behavior_name,
+        )
+        _safe_make_plot(
+            "RL XY heatmap",
+            plot_xy_policy_heatmap_from_csv,
+            rl_step_csv,
+            bins=100,
+            cmap="turbo",
+            title=behavior_name,
+        )
+        _safe_make_plot(
+            "RL reward heatmap",
+            plot_reward_heatmap_from_csv,
+            rl_step_csv,
+            bins=100,
+            cmap="turbo",
+            vmin=float(reward_min),
+            vmax=float(reward_max),
             use_radial=True,
             title=behavior_name,
         )
-        _ = plot_visitation_on_disturbance_background(
-            csv_path=rl_csv,
+        _safe_make_plot(
+            "RL visitation-on-disturbance heatmap",
+            plot_visitation_on_disturbance_background,
+            csv_path=rl_step_csv,
             bins=100,
             disturbance_cmap="bone_r",
             title=behavior_name,
         )
+        _safe_make_plot(
+            "RL closest-animal distance heatmap",
+            plot_closest_animal_visitation_by_drone_from_csv,
+            rl_step_csv,
+            title="",
+        )
 
         if baseline is not None:
             baseline_csv = eval_dir / f"{type(baseline).__name__}.csv"
+            print(f"\nGenerating baseline heatmaps from: {baseline_csv}")
 
             df = pd.read_csv(baseline_csv)
-            vmin = df["reward"].min()
-            vmax = df["reward"].max()
+            reward_min = pd.to_numeric(df["reward"], errors="coerce").min()
+            reward_max = pd.to_numeric(df["reward"], errors="coerce").max()
 
-            _ = plot_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            _ = plot_disturbance_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            _ = plot_xy_policy_heatmap_from_csv(baseline_csv, bins=100, cmap="turbo", title=behavior_name)
-            _ = plot_reward_heatmap_from_csv(
+            _safe_make_plot(
+                "Baseline policy heatmap",
+                plot_policy_heatmap_from_csv,
                 baseline_csv,
                 bins=100,
                 cmap="turbo",
-                vmin=vmin,
-                vmax=vmax,
+                title=behavior_name,
+            )
+            _safe_make_plot(
+                "Baseline disturbance heatmap",
+                plot_disturbance_heatmap_from_csv,
+                baseline_csv,
+                bins=100,
+                cmap="turbo",
+                title=behavior_name,
+            )
+            _safe_make_plot(
+                "Baseline XY heatmap",
+                plot_xy_policy_heatmap_from_csv,
+                baseline_csv,
+                bins=100,
+                cmap="turbo",
+                title=behavior_name,
+            )
+            _safe_make_plot(
+                "Baseline reward heatmap",
+                plot_reward_heatmap_from_csv,
+                baseline_csv,
+                bins=100,
+                cmap="turbo",
+                vmin=float(reward_min),
+                vmax=float(reward_max),
                 use_radial=True,
                 title=behavior_name,
             )
-            _ = plot_visitation_on_disturbance_background(
+            _safe_make_plot(
+                "Baseline visitation-on-disturbance heatmap",
+                plot_visitation_on_disturbance_background,
                 csv_path=baseline_csv,
                 bins=100,
                 disturbance_cmap="bone_r",
                 title=behavior_name,
             )
+            _safe_make_plot(
+                "Baseline closest-animal distance heatmap",
+                plot_closest_animal_visitation_by_drone_from_csv,
+                baseline_csv,
+                title=f"{behavior_name} - closest animal distance",
+            )
 
-    if args.plot_rewards and baseline is not None:
-        baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv"
+    if args.plot_rewards:
+        baseline_ep_csv = eval_dir / f"{type(baseline).__name__}_ep.csv" if baseline is not None else None
         rl_ep_csv = eval_dir / f"{agent_type}_ep.csv"
-        _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
+
+        if baseline is not None:
+            _ = plot_eval_reward_distribution(rl_ep_csv, baseline_ep_csv)
+
+        drone_norm_stats_csv = eval_dir / "drone_norm_stats.csv"
+
+        write_drone_norm_stats_from_rl_step_csv(
+            env=env,
+            rl_csv=rl_step_csv,
+            out_csv=drone_norm_stats_csv,
+        )
+
+        print(f">>> Drone norm stats CSV: {drone_norm_stats_csv}")
 
     print(f"EVAL_DIR::{eval_dir.name}")
 

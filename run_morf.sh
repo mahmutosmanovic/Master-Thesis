@@ -1,8 +1,23 @@
 #!/bin/bash
 set -e
 
-configs=("CRW_MAPPO__3A_3D_M2x3")
-max_jobs=1
+configs=(
+    "CRW_MAPPO__1A_1D_M2x1"
+    "CRW_MAPPO__1A_2D_M2x2"
+    "CRW_MAPPO__1A_3D_M1_M2_M3"
+    "CRW_MAPPO__1A_3D_M1x2_M2x1"
+    "CRW_MAPPO__1A_3D_M1x2_M3x1"
+    "CRW_MAPPO__1A_3D_M1x3"
+    "CRW_MAPPO__1A_3D_M2x2_M1x1"
+    "CRW_MAPPO__1A_3D_M2x2_M3x1"
+    "CRW_MAPPO__1A_3D_M2x3"
+    "CRW_MAPPO__1A_3D_M3x2_M1x1"
+    "CRW_MAPPO__1A_3D_M3x2_M2x1"
+    "CRW_MAPPO__2A_2D_M2x2"
+    "CRW_MAPPO__3A_3D_M2x3"
+)
+
+max_jobs=2
 
 for cfg in "${configs[@]}"
 do
@@ -31,9 +46,9 @@ do
     echo "Evaluation created: $eval_name"
     echo "Starting play..."
 
-    python -m scripts.play \
-        --run "$run_name" \
-        --seed 42
+    # python -m scripts.play \
+    #     --run "$run_name" \
+    #     --seed 42
 
     echo "Finished config: $cfg"
     echo ""
