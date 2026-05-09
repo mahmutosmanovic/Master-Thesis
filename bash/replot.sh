@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 MANIFEST="table/runs_manifest_20260421_141025_2.csv"
 
 mkdir -p imgtemp

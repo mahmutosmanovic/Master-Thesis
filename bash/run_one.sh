@@ -1,13 +1,10 @@
 #!/bin/bash
 set -e
 
-configs=(
-    "CRW_ppo_Mild_Wind"
-    "CRW_ppo_Strong_Wind"
-    "CRW_ppo_Gusty_Wind"
-)
+cd "$(dirname "$0")/.."
 
-max_jobs=2
+configs=("CRW_MAPPO__3A_3D_M2x3")
+max_jobs=1
 
 for cfg in "${configs[@]}"
 do
@@ -35,6 +32,10 @@ do
 
     echo "Evaluation created: $eval_name"
     echo "Starting play..."
+
+    python -m scripts.play \
+        --run "$run_name" \
+        --seed 42
 
     echo "Finished config: $cfg"
     echo ""

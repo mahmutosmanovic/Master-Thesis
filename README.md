@@ -40,20 +40,32 @@ Animals respond to drone-induced disturbance. Depending on disturbance magnitude
 
 ## Reward design
 
-The reward encourages useful monitoring while penalizing disruptive behavior.
+The reward encourages monitoring animals from useful viewpoints while penalizing disruptive or inefficient drone behaviour. The main monitoring reward combines animal disturbance and target-viewing quality through a trade-off controlled by $\alpha$.
 
 Positive terms include:
 
-- keeping animals visible
-- maintaining good viewing distance
+- keeping animals visible in the camera view
+- keeping the assigned target visible
+- maintaining a useful viewing distance to the target
 - aligning the camera with the target
+- completing the episode without losing track
 
 Penalties include:
 
-- disturbing the animals
+- animal disturbance, included through the monitoring trade-off
 - excessive drone speed
 - excessive camera rotation
-- losing visibility entirely
+- abrupt changes in flight direction
+- losing sight of the assigned target for repeated steps
+
+Multi-agent terms:
+
+- bonus when all drones keep their assigned targets visible
+- reward for separated viewpoints around the same target
+- penalty when animals enter avoid or flee states
+- penalty for drones flying too close to each other
+- penalty for drones flying too close to animals
+- hard safety penalty and termination for severe proximity violations
 
 The environment also tracks per-episode behavior statistics such as calm, avoidance, and flee fractions.
 
@@ -63,6 +75,8 @@ Training is implemented in `scripts/train_agent.py`.
 
 - `ppo`: independent per-drone policy/value updates using local observations
 - `mappo`: shared actor with centralized critic over the joint observation
+- `sac`: centralized continuous-control actor with twin soft Q-critics over the joint drone observation/action space
+- `dqn`: single-drone branching dueling Q-network with discrete direction, speed, and theta action branches
 
 Both implementations use:
 
@@ -97,9 +111,10 @@ Representative configs in the repo include:
 ## Repository layout
 
 ```text
+bash/             Bash batch run and conveniece scripts
 config/           Experiment YAMLs and config loader
 environment/      Simulation environment, entities, disturbance, viewer, vector math
-model/            PPO and MAPPO implementations
+model/            PPO, DQN, SAC and MAPPO implementations
 scripts/          Training, evaluation, playback, baseline, preprocessing, plotting
 data/             Raw movement/GPS data
 track_segments/   Preprocessed replay segments
@@ -149,6 +164,18 @@ Train a MAPPO agent:
 
 ```bash
 python3 -m scripts.train_agent --config CRW --agent mappo --seed 42
+```
+
+Train a SAC agent:
+
+```bash
+python3 -m scripts.train_agent --config CRW --agent sac --seed 42
+```
+
+Train a DQN agent:
+
+```bash
+python3 -m scripts.train_agent --config CRW --agent dqn --seed 42
 ```
 
 Train with Weights & Biases logging:
@@ -245,11 +272,85 @@ To use replay behavior, switch to the `REPLAY` config and point it at prepared t
 
 The repository also includes batch helpers for running repeated experiments:
 
-- `run.sh` for selected training + evaluation runs
-- `run_eval.sh` for evaluating a list of stored runs
-- `run_pareto.sh`
-- `run_dist_ablation.sh`
-- `run_sensitivity_speed.sh`
+### `replay_test.sh`
+Runs replay-based evaluations for runs listed in a manifest.
+
+```bash
+bash bash/replay_test.sh table/runs_manifest.csv
+```
+
+Uses `MAX_JOBS`, `RUNS_DIR`, and `EVALS_DIR` as optional environment variables.
+
+### `replot.sh`
+Regenerates policy heatmaps from a fixed runs manifest and copies them to `imgtemp/`.
+
+```bash
+bash bash/replot.sh
+```
+
+### `replot_transfer.sh`
+Regenerates transfer-evaluation policy heatmaps and copies them to `imgtemp_transfer/`.
+
+```bash
+bash bash/replot_transfer.sh
+```
+
+### `restore_backups.sh`
+Restores backed-up `config.yaml` files after animal-evaluation edits.
+
+```bash
+bash bash/restore_backups.sh
+```
+
+Optionally specify a runs directory:
+
+```bash
+bash bash/restore_backups.sh <run dir>
+```
+
+### `run_animal_table.sh`
+Runs animal-transfer evaluations for runs listed in a manifest.
+
+```bash
+bash bash/run_animal_table.sh <bash run manifest>
+```
+
+Uses `MAX_JOBS`, `RUNS_DIR`, and `EVALS_DIR` as optional environment variables.
+
+### `run_fit.sh`
+Fits movement-behaviour models for the animal trajectory datasets.
+
+```bash
+bash bash/run_fit.sh
+```
+
+### `run_morf.sh`
+Trains and evaluates the MORF/MAPPO configuration set.
+
+```bash
+bash bash/run_morf.sh
+```
+
+### `run_one.sh`
+Trains, evaluates, and plays a single MAPPO configuration.
+
+```bash
+bash bash/run_one.sh
+```
+
+### `run_table.sh`
+Runs training and evaluation jobs and writes a manifest to `table/`.
+
+```bash
+bash bash/run_table.sh
+```
+
+### `run_wind.sh`
+Trains and evaluates the wind-condition experiment configurations.
+
+```bash
+bash bash/run_wind.sh
+```
 
 These are useful once the project environment is already set up.
 
