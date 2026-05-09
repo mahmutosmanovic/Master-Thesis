@@ -1,28 +1,28 @@
 CRW_CFG:
-  persistence: 0.65
-  turn_sigma: 0.30
-  target_speed: 6.0
-  speed_sigma: 2.5
-  speed_smooth: 0.05
+  persistence: 0.9
+  turn_sigma: 0.1
+  target_speed: 6
+  speed_sigma: 0.03
+  speed_smooth: 0.2
   bias_gain: 0.0
 
 EE_CFG:
   time_to_leave: 10
 
   explore_cfg:
-    persistence: 0.85
-    turn_sigma: 0.12
-    target_speed: 7.0
-    speed_sigma: 3.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.1
+    target_speed: 6
+    speed_sigma: 0.03
+    speed_smooth: 0.2
     bias_gain: 0.0
 
   exploit_cfg:
-    persistence: 0.35
-    turn_sigma: 0.50
-    target_speed: 3.0
-    speed_sigma: 2.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 3
+    speed_sigma: 0.03
+    speed_smooth: 0.2
     bias_gain: 0.0
 
 POI_CFG:
@@ -30,19 +30,19 @@ POI_CFG:
   time_to_leave: 10
 
   explore_cfg:
-    persistence: 0.85
-    turn_sigma: 0.12
-    target_speed: 7.0
-    speed_sigma: 3.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.1
+    target_speed: 6
+    speed_sigma: 0.03
+    speed_smooth: 0.4
     bias_gain: 0.3
 
   exploit_cfg:
-    persistence: 0.35
-    turn_sigma: 0.50
-    target_speed: 3.0
-    speed_sigma: 2.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 3
+    speed_sigma: 0.03
+    speed_smooth: 0.2
     bias_gain: 0.0
 
 LPOI_CFG:
@@ -54,19 +54,19 @@ LPOI_CFG:
   disturbance_penalty: 1.0
 
   explore_cfg:
-    persistence: 0.85
-    turn_sigma: 0.12
-    target_speed: 7.0
-    speed_sigma: 3.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.1
+    target_speed: 6
+    speed_sigma: 0.03
+    speed_smooth: 0.4
     bias_gain: 0.3
-
+    
   exploit_cfg:
-    persistence: 0.35
-    turn_sigma: 0.50
-    target_speed: 3.0
-    speed_sigma: 2.0
-    speed_smooth: 0.05
+    persistence: 0.9
+    turn_sigma: 0.3
+    target_speed: 3
+    speed_sigma: 0.03
+    speed_smooth: 0.2
     bias_gain: 0.0
 
 REPLAY_CFG:
