@@ -352,50 +352,25 @@ class Viewer:
         views = frame["views"]
         visible = frame["visible"]
 
-        max_trail_age = 100
-
-        def draw_fading_trail(history_xy, color, base_lw, zorder):
-            if len(history_xy) < 2:
-                return
-
-            start_idx = max(0, len(history_xy) - max_trail_age - 1)
-            pts = history_xy[start_idx:]
-
-            nseg = len(pts) - 1
-            if nseg <= 0:
-                return
-
-            for k in range(nseg):
-                age = nseg - 1 - k  # 0 = newest segment
-                t = 1.0 - (age / max(max_trail_age, 1))  # newest -> 1, oldest -> small
-                alpha = 0.04 + 0.46 * t
-                lw = base_lw * (0.55 + 0.45 * t)
-
-                ax.plot(
-                    pts[k:k + 2, 0],
-                    pts[k:k + 2, 1],
-                    color=color,
-                    lw=lw,
-                    alpha=alpha,
-                    zorder=zorder,
-                    solid_capstyle="round",
-                )
-
         for j in range(len(drones)):
             pts = np.array([f["drones"][j][:2] for f in self.frames[:frame_idx + 1]])
-            draw_fading_trail(
-                pts,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
+                lw=0.95,
+                alpha=0.45,
                 color=self.drone_trail_color,
-                base_lw=0.95,
                 zorder=3,
             )
 
         for j in range(len(animals)):
             pts = np.array([f["animals"][j][:2] for f in self.frames[:frame_idx + 1]])
-            draw_fading_trail(
-                pts,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
+                lw=0.90,
+                alpha=0.40,
                 color=self.animal_trail_color,
-                base_lw=0.90,
                 zorder=2.8,
             )
 

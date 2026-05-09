@@ -20,7 +20,6 @@ from .centroid import CentroidStandoff
 from config import load_config
 from .run_utils import load_run
 
-
 def _normalize(v):
     v = np.asarray(v, dtype=float)
     return v / (np.linalg.norm(v) + 1e-8)
@@ -47,15 +46,6 @@ def _extract_metric(info, candidates, default=0.0):
     return float(default)
 
 
-def _heading_angle_deg(forward):
-    f = np.asarray(forward, dtype=float).copy()
-    f[2] = 0.0
-    if np.linalg.norm(f) < 1e-8:
-        f = np.array([1.0, 0.0, 0.0], dtype=float)
-    f = _normalize(f)
-    return np.degrees(np.arctan2(f[1], f[0]))
-
-
 def _frustum_ground_polygon(pos, forward, hfov, depth):
     pos = np.asarray(pos, dtype=float)
     forward = np.asarray(forward, dtype=float)
@@ -69,16 +59,22 @@ def _frustum_ground_polygon(pos, forward, hfov, depth):
     right = np.array([f[1], -f[0], 0.0], dtype=float)
     right = _normalize(right)
 
-    # Cap effective horizontal FOV to avoid absurdly wide frustums in plots.
-    hfov_eff = min(float(hfov), np.deg2rad(70.0))
-
-    half_w = np.tan(hfov_eff * 0.5) * depth
+    half_w = np.tan(hfov * 0.5) * depth
     far_center = pos + f * depth
 
     p0 = pos[:2]
     p1 = (far_center + right * half_w)[:2]
     p2 = (far_center - right * half_w)[:2]
     return np.vstack([p0, p1, p2])
+
+
+def _heading_angle_deg(forward):
+    f = np.asarray(forward, dtype=float).copy()
+    f[2] = 0.0
+    if np.linalg.norm(f) < 1e-8:
+        f = np.array([1.0, 0.0, 0.0], dtype=float)
+    f = _normalize(f)
+    return np.degrees(np.arctan2(f[1], f[0]))
 
 
 def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
@@ -97,11 +93,10 @@ def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
     d1 = _normalize(f + right)
     d2 = _normalize(f - right)
 
-    arm_len = 0.92 * size
-    p1 = pos + d1 * arm_len
-    p2 = pos - d1 * arm_len
-    p3 = pos + d2 * arm_len
-    p4 = pos - d2 * arm_len
+    p1 = pos + d1 * size
+    p2 = pos - d1 * size
+    p3 = pos + d2 * size
+    p4 = pos - d2 * size
 
     segs = [
         np.array([p1[:2], p2[:2]], dtype=float),
@@ -109,21 +104,19 @@ def _drone_segments_2d(pos, forward, size, rotor_radius=None, n_circle_pts=28):
     ]
 
     if rotor_radius is None:
-        rotor_radius = 0.16 * size
+        rotor_radius = 0.22 * size
 
     t = np.linspace(0.0, 2.0 * np.pi, n_circle_pts)
     circle = np.stack(
         [rotor_radius * np.cos(t), rotor_radius * np.sin(t)],
-        axis=1,
+        axis=1
     )
 
     centers = [p1[:2], p2[:2], p3[:2], p4[:2]]
     for c in centers:
         segs.append(c + circle)
 
-    nose = pos[:2] + f[:2] * (0.42 * size)
-    return segs, nose
-
+    return segs
 
 class PaperViewer:
     def __init__(self, config, run_name="run", seed=99):
@@ -148,50 +141,26 @@ class PaperViewer:
         self.output_dir = None
         self.floor_size = 500.0
 
+        self.drone_trail_color = "tab:cyan"
         self.animal_trail_color = "tab:pink"
-        self.drone_type_colors = self._build_drone_type_colors()
 
         self.drone_trail_style = dict(
-            lw=1.6,
-            alpha=0.34,
+            lw=1.0,
+            alpha=0.60,
             linestyle="-",
         )
         self.animal_trail_style = dict(
-            lw=1.6,
+            lw=1.0,
             alpha=0.60,
             linestyle="--",
         )
 
         self.animal_size = 12.5
-        self.drone_size = 13.0
+        self.drone_size = 16.0
 
-        self.video_camera_elev = 28
-        self.video_camera_azim = -52
+        self.video_camera_elev = 32
+        self.video_camera_azim = -58
         self.video_z_margin = 20.0
-
-        self.max_fade_positions = 300
-
-    def _build_drone_type_colors(self):
-        drone_types = list(self.drone_cfg.keys())
-        palette = [
-            "tab:blue",
-            "tab:orange",
-            "tab:green",
-            "tab:red",
-            "tab:purple",
-            "tab:brown",
-            "tab:olive",
-            "tab:cyan",
-            "tab:pink",
-            "tab:gray",
-        ]
-        return {
-            drone_type: palette[i % len(palette)]
-            for i, drone_type in enumerate(drone_types)
-        }
-
-    def _get_drone_trail_color(self, drone_type):
-        return self.drone_type_colors.get(drone_type, "tab:cyan")
 
     def set_output_dir(self, path):
         self.output_dir = Path(path)
@@ -365,84 +334,10 @@ class PaperViewer:
             ymax - ymin,
             facecolor="none",
             edgecolor="#d0d0d0",
-            linewidth=1,
+            linewidth=1.6,
             zorder=1,
         )
         ax.add_patch(border)
-
-    def _draw_ground_plane_3d(self, ax):
-        xmin, xmax, ymin, ymax = self._arena_bounds()
-
-        ground_z = -0.20
-        grid_z = ground_z
-        border_z = ground_z + 0.01
-
-        xspan = xmax - xmin
-        yspan = ymax - ymin
-        grid_step = max(10.0, round(max(xspan, yspan) / 18.0))
-
-        xs = np.arange(np.floor(xmin / grid_step) * grid_step, xmax + grid_step, grid_step)
-        ys = np.arange(np.floor(ymin / grid_step) * grid_step, ymax + grid_step, grid_step)
-
-        for x in xs:
-            ax.plot(
-                [x, x],
-                [ymin, ymax],
-                [grid_z, grid_z],
-                color=(0.72, 0.72, 0.72, 0.20),
-                lw=0.55,
-                solid_capstyle="round",
-            )
-
-        for y in ys:
-            ax.plot(
-                [xmin, xmax],
-                [y, y],
-                [grid_z, grid_z],
-                color=(0.72, 0.72, 0.72, 0.20),
-                lw=0.55,
-                solid_capstyle="round",
-            )
-
-        border = np.array([
-            [xmin, ymin, border_z],
-            [xmax, ymin, border_z],
-            [xmax, ymax, border_z],
-            [xmin, ymax, border_z],
-            [xmin, ymin, border_z],
-        ], dtype=float)
-
-        ax.plot(
-            border[:, 0],
-            border[:, 1],
-            border[:, 2],
-            color=(0.60, 0.60, 0.60, 0.30),
-            lw=0.9,
-        )
-
-    def _draw_arena_depth_cues_3d(self, ax):
-        xmin, xmax, ymin, ymax = self._arena_bounds()
-        zmin, zmax = self._z_bounds()
-
-        ground_z = -0.20
-        wall_h = 0.10 * (zmax - zmin)
-        wall_h = max(6.0, min(wall_h, 18.0))
-
-        corners = [
-            ([xmin, ymin, ground_z], [xmin, ymin, ground_z + wall_h]),
-            ([xmax, ymin, ground_z], [xmax, ymin, ground_z + wall_h]),
-            ([xmax, ymax, ground_z], [xmax, ymax, ground_z + wall_h]),
-            ([xmin, ymax, ground_z], [xmin, ymax, ground_z + wall_h]),
-        ]
-
-        for a, b in corners:
-            ax.plot(
-                [a[0], b[0]],
-                [a[1], b[1]],
-                [a[2], b[2]],
-                color=(0.55, 0.55, 0.55, 0.14),
-                lw=0.8,
-            )
 
     def _setup_axes_3d(self, ax):
         xmin, xmax, ymin, ymax = self._arena_bounds()
@@ -456,11 +351,11 @@ class PaperViewer:
         yspan = max(ymax - ymin, 1.0)
         zspan = max(zmax - zmin, 1.0)
 
-        ax.set_box_aspect((xspan, yspan, 0.55 * zspan))
+        ax.set_box_aspect((xspan, yspan, 0.42 * zspan))
         ax.view_init(elev=self.video_camera_elev, azim=self.video_camera_azim)
 
         try:
-            ax.set_proj_type("persp", focal_length=1.15)
+            ax.set_proj_type("persp", focal_length=1.35)
         except Exception:
             pass
 
@@ -475,8 +370,8 @@ class PaperViewer:
         ax.grid(False)
 
         fig = ax.figure
-        fig.patch.set_facecolor("#e9eaec")
-        ax.set_facecolor("#e9eaec")
+        fig.patch.set_facecolor("#efefef")
+        ax.set_facecolor("#efefef")
 
         try:
             ax.xaxis.pane.fill = False
@@ -505,9 +400,6 @@ class PaperViewer:
         except Exception:
             pass
 
-        self._draw_ground_plane_3d(ax)
-        self._draw_arena_depth_cues_3d(ax)
-
     def _draw_soft_shadow(self, ax, x, y, angle_deg, width, height, alpha=0.12, dx=6.0, dy=-5.0):
         shadow = Ellipse(
             (x + dx, y + dy),
@@ -525,11 +417,11 @@ class PaperViewer:
         x, y = pos[:2]
         angle = _heading_angle_deg(forward)
 
-        body_w = 2.0 * size
-        body_h = 1.05 * size
+        body_w = 2.2 * size
+        body_h = 1.15 * size
 
         self._draw_soft_shadow(
-            ax, x, y, angle, 1.05 * body_w, 0.90 * body_h, alpha=0.11, dx=4.2, dy=-3.2
+            ax, x, y, angle, 1.08 * body_w, 0.95 * body_h, alpha=0.12, dx=4.5, dy=-3.5
         )
 
         body = Ellipse(
@@ -538,8 +430,8 @@ class PaperViewer:
             height=body_h,
             angle=angle,
             facecolor="#6d6b69" if visible else "#6a645d",
-            edgecolor="#242424",
-            linewidth=1.0,
+            edgecolor="#1d1d1d",
+            linewidth=1.1,
             alpha=0.98,
             zorder=6,
         )
@@ -554,7 +446,7 @@ class PaperViewer:
         f = _normalize(f)
 
         cfg = self.drone_cfg[drone_type]
-        depth = float(cfg["view_range"]) / 8.0
+        depth = float(cfg["view_range"]) / 6.0
         hfov = np.deg2rad(float(cfg["hor_angle"]))
         poly = _frustum_ground_polygon(pos, f, hfov, depth)
 
@@ -563,8 +455,8 @@ class PaperViewer:
             closed=True,
             facecolor="black",
             edgecolor="none",
-            alpha=0.022,
-            zorder=4.4,
+            alpha=0.035,
+            zorder=4.5,
         )
         ax.add_patch(frustum_fill)
 
@@ -572,68 +464,32 @@ class PaperViewer:
             poly,
             closed=True,
             facecolor="none",
-            edgecolor="#444444",
-            linewidth=0.75,
-            alpha=0.14,
-            zorder=4.8,
+            edgecolor="black",
+            linewidth=0.9,
+            alpha=0.16,
+            zorder=5,
         )
         ax.add_patch(frustum_edge)
 
         angle = _heading_angle_deg(f)
         shadow = Ellipse(
-            (x + 5.0, y - 5.0),
-            width=1.6 * size,
-            height=0.95 * size,
+            (x + 6.0, y - 6.0),
+            width=1.9 * size,
+            height=1.2 * size,
             angle=angle,
             facecolor="black",
             edgecolor="none",
-            alpha=0.08,
+            alpha=0.10,
             zorder=4,
         )
         ax.add_patch(shadow)
 
-        segments, nose = _drone_segments_2d(
-            pos,
-            f,
-            size,
-            rotor_radius=0.16 * size,
-            n_circle_pts=28,
-        )
-
-        arm_color = "#2a2a2a"
-        ring_color = "#3a3a3a"
-        hub_face = "#d9d9d9"
-        hub_edge = "#2a2a2a"
-        accent = self._get_drone_trail_color(drone_type)
-
+        segments = _drone_segments_2d(pos, f, size, rotor_radius=0.22 * size, n_circle_pts=28)
         for seg in segments[:2]:
-            ax.plot(seg[:, 0], seg[:, 1], color=arm_color, lw=1.25, alpha=0.96, zorder=8)
+            ax.plot(seg[:, 0], seg[:, 1], color="#222222", lw=1.6, alpha=0.96, zorder=8)
 
         for seg in segments[2:]:
-            ax.plot(seg[:, 0], seg[:, 1], color=ring_color, lw=0.85, alpha=0.96, zorder=8)
-
-        hub = Ellipse(
-            (x, y),
-            width=0.38 * size,
-            height=0.28 * size,
-            angle=angle,
-            facecolor=hub_face,
-            edgecolor=hub_edge,
-            linewidth=0.75,
-            alpha=0.98,
-            zorder=9,
-        )
-        ax.add_patch(hub)
-
-        ax.plot(
-            [x, nose[0]],
-            [y, nose[1]],
-            color=accent,
-            lw=1.4,
-            alpha=0.95,
-            zorder=9,
-            solid_capstyle="round",
-        )
+            ax.plot(seg[:, 0], seg[:, 1], color="#222222", lw=1.0, alpha=0.96, zorder=8)
 
     def _ellipse_points_3d(self, center, forward, width, height, n=40):
         center = np.asarray(center, dtype=float)
@@ -698,11 +554,8 @@ class PaperViewer:
         u = np.cross(right, f)
         u = _normalize(u)
 
-        hfov_eff = min(float(hfov), np.deg2rad(70.0))
-        vfov_eff = min(float(vfov), np.deg2rad(55.0))
-
-        half_w = np.tan(hfov_eff * 0.5) * depth
-        half_h = np.tan(vfov_eff * 0.5) * depth
+        half_w = np.tan(hfov * 0.5) * depth
+        half_h = np.tan(vfov * 0.5) * depth
 
         far_center = pos + f * depth
 
@@ -713,40 +566,40 @@ class PaperViewer:
 
         return far_tl, far_tr, far_bl, far_br
 
-    def _draw_rotor_ring_3d(self, ax, center, normal, radius, color="#3a3a3a", lw=0.9):
-        pts = self._circle_points_3d(center, normal, radius, n=36)
+    def _draw_rotor_ring_3d(self, ax, center, normal, radius, color="#222222", lw=1.1):
+        pts = self._circle_points_3d(center, normal, radius, n=44)
         ax.plot(
             pts[:, 0],
             pts[:, 1],
             pts[:, 2],
             color=color,
             lw=lw,
-            alpha=0.95,
+            alpha=0.96,
         )
 
     def _draw_animal_3d(self, ax, pos, forward, visible):
         pos = np.asarray(pos, dtype=float).copy()
 
         x, y, z = pos
-        body_w = 2.0 * self.animal_size
-        body_h = 1.05 * self.animal_size
+        body_w = 2.2 * self.animal_size
+        body_h = 1.15 * self.animal_size
 
         face = "#6d6b69" if visible else "#6a645d"
-        edge = "#242424"
+        edge = "#1d1d1d"
 
-        shadow_center = np.array([x + 4.2, y - 3.2, 0.0], dtype=float)
+        shadow_center = np.array([x + 4.5, y - 3.5, 0.0], dtype=float)
         shadow_pts = self._ellipse_points_3d(
             shadow_center,
             forward,
-            width=1.05 * body_w,
-            height=0.90 * body_h,
+            width=1.08 * body_w,
+            height=0.95 * body_h,
             n=40,
         )
         shadow = Poly3DCollection(
             [shadow_pts],
             facecolors="black",
             edgecolors="none",
-            alpha=0.11,
+            alpha=0.12,
             zorder=3,
         )
         ax.add_collection3d(shadow)
@@ -762,7 +615,7 @@ class PaperViewer:
             [body_pts],
             facecolors=face,
             edgecolors=edge,
-            linewidths=1.0,
+            linewidths=1.1,
             alpha=0.98,
             zorder=6,
         )
@@ -789,45 +642,48 @@ class PaperViewer:
         d1 = _normalize(f + right)
         d2 = _normalize(f - right)
 
-        arm_len = 0.92 * size
-        p1 = pos + d1 * arm_len
-        p2 = pos - d1 * arm_len
-        p3 = pos + d2 * arm_len
-        p4 = pos - d2 * arm_len
+        p1 = pos + d1 * size
+        p2 = pos - d1 * size
+        p3 = pos + d2 * size
+        p4 = pos - d2 * size
 
         shadow_pts = self._ellipse_points_3d(
-            np.array([pos[0] + 5.0, pos[1] - 5.0, 0.0], dtype=float),
+            np.array([pos[0] + 6.0, pos[1] - 6.0, 0.0], dtype=float),
             f,
-            width=1.7 * size,
-            height=0.95 * size,
+            width=1.9 * size,
+            height=1.2 * size,
             n=40,
         )
         shadow = Poly3DCollection(
             [shadow_pts],
             facecolors="black",
             edgecolors="none",
-            alpha=0.08,
+            alpha=0.10,
             zorder=3,
         )
         ax.add_collection3d(shadow)
-
-        arm_color = "#2a2a2a"
-        ring_color = "#3a3a3a"
-        hub_face = "#d9d9d9"
-        hub_edge = "#2a2a2a"
-        accent = self._get_drone_trail_color(drone_type)
 
         for a, b in [(p1, p2), (p3, p4)]:
             ax.plot(
                 [a[0], b[0]],
                 [a[1], b[1]],
                 [a[2], b[2]],
-                lw=1.35,
+                lw=1.8,
                 alpha=0.96,
-                color=arm_color,
+                color="#222222",
             )
 
-        rotor_radius = 0.16 * size
+        ax.scatter(
+            [pos[0]],
+            [pos[1]],
+            [pos[2]],
+            s=18,
+            c="#222222",
+            alpha=0.98,
+            depthshade=False,
+        )
+
+        rotor_radius = 0.22 * size
         rotor_normal = up
 
         for p in [p1, p2, p3, p4]:
@@ -836,44 +692,21 @@ class PaperViewer:
                 center=p,
                 normal=rotor_normal,
                 radius=rotor_radius,
-                color=ring_color,
-                lw=0.9,
+                color="#222222",
+                lw=1.15,
             )
             ax.scatter(
                 [p[0]],
                 [p[1]],
                 [p[2]],
-                s=5,
-                c=ring_color,
-                alpha=0.90,
+                s=7,
+                c="#222222",
+                alpha=0.95,
                 depthshade=False,
             )
 
-        ax.scatter(
-            [pos[0]],
-            [pos[1]],
-            [pos[2]],
-            s=26,
-            c=hub_face,
-            edgecolors=hub_edge,
-            linewidths=0.7,
-            alpha=0.98,
-            depthshade=False,
-        )
-
-        nose = pos + f * (0.42 * size)
-        ax.plot(
-            [pos[0], nose[0]],
-            [pos[1], nose[1]],
-            [pos[2], nose[2]],
-            lw=1.5,
-            alpha=0.95,
-            color=accent,
-            solid_capstyle="round",
-        )
-
         cfg = self.drone_cfg[drone_type]
-        depth = float(cfg["view_range"]) / 8.0
+        depth = float(cfg["view_range"]) / 6.0
         hfov = np.deg2rad(float(cfg["hor_angle"]))
         vfov = np.deg2rad(float(cfg["ver_angle"])) if "ver_angle" in cfg else np.deg2rad(60.0)
 
@@ -902,16 +735,16 @@ class PaperViewer:
                 [a[0], b[0]],
                 [a[1], b[1]],
                 [a[2], b[2]],
-                lw=0.72,
-                alpha=0.14,
-                color="#444444",
+                lw=0.9,
+                alpha=0.18,
+                color="black",
             )
 
         far_face = Poly3DCollection(
             [[far_tl, far_tr, far_br, far_bl]],
-            facecolors="#555555",
+            facecolors="black",
             edgecolors="none",
-            alpha=0.014,
+            alpha=0.025,
             zorder=1,
         )
         ax.add_collection3d(far_face)
@@ -929,71 +762,6 @@ class PaperViewer:
             motion = np.array([1.0, 0.0, 0.0], dtype=float)
         return motion
 
-    def _draw_fading_trail_2d(self, ax, pts, color, base_style, zorder, max_positions=None):
-        pts = np.asarray(pts, dtype=float)
-        if len(pts) < 2:
-            return
-
-        if max_positions is not None:
-            pts = pts[-max_positions:]
-
-        base_lw = float(base_style.get("lw", 1.0))
-        base_alpha = float(base_style.get("alpha", 0.60))
-        base_ls = base_style.get("linestyle", "-")
-
-        ax.plot(
-            pts[:, 0],
-            pts[:, 1],
-            color=color,
-            lw=base_lw,
-            alpha=base_alpha,
-            linestyle=base_ls,
-            zorder=zorder,
-            solid_capstyle="round",
-        )
-
-    def _draw_fading_trail_3d(self, ax, pts, color, base_style, max_positions=None):
-        pts = np.asarray(pts, dtype=float)
-        if len(pts) < 2:
-            return
-
-        if max_positions is None:
-            max_positions = self.max_fade_positions
-
-        pts = pts[-max_positions:]
-        nseg = len(pts) - 1
-        if nseg <= 0:
-            return
-
-        base_lw = float(base_style.get("lw", 1.0))
-        base_alpha = float(base_style.get("alpha", 0.60))
-        base_ls = base_style.get("linestyle", "-")
-
-        dash_on = 10
-        dash_off = 10
-        dash_period = dash_on + dash_off
-
-        for k in range(nseg):
-            if base_ls == "--":
-                phase = k % dash_period
-                if phase >= dash_on:
-                    continue
-
-            t = (k + 1) / nseg
-            alpha = base_alpha * (0.10 + 0.90 * t)
-
-            seg = pts[k:k + 2]
-            ax.plot(
-                seg[:, 0],
-                seg[:, 1],
-                seg[:, 2],
-                color=color,
-                lw=base_lw,
-                alpha=alpha,
-                linestyle="-",
-                solid_capstyle="round",
-            )
-
     def _save_snapshot(self, frame_idx, filename):
         fig, ax = plt.subplots(figsize=(7.2, 7.2), dpi=220)
         self._setup_axes(ax)
@@ -1005,26 +773,23 @@ class PaperViewer:
         visible = frame["visible"]
 
         for j in range(len(d)):
-            drone_type = frame["drone_types"][j]
             pts = np.array([f["drones"][j][:2] for f in self.frames[: frame_idx + 1]])
-            self._draw_fading_trail_2d(
-                ax,
-                pts,
-                color=self._get_drone_trail_color(drone_type),
-                base_style=self.drone_trail_style,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
+                color=self.drone_trail_color,
                 zorder=3,
-                max_positions=None,
+                **self.drone_trail_style,
             )
 
         for j in range(len(a)):
             pts = np.array([f["animals"][j][:2] for f in self.frames[: frame_idx + 1]])
-            self._draw_fading_trail_2d(
-                ax,
-                pts,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
                 color=self.animal_trail_color,
-                base_style=self.animal_trail_style,
                 zorder=2.8,
-                max_positions=None,
+                **self.animal_trail_style,
             )
 
         for j in range(len(a)):
@@ -1043,55 +808,31 @@ class PaperViewer:
 
         n_drones = len(self.frames[0]["drones"])
         n_animals = len(self.frames[0]["animals"])
-        drone_types = self.frames[0]["drone_types"]
 
         for j in range(n_drones):
-            drone_type = drone_types[j]
             pts = np.array([f["drones"][j][:2] for f in self.frames])
-            self._draw_fading_trail_2d(
-                ax,
-                pts,
-                color=self._get_drone_trail_color(drone_type),
-                base_style=self.drone_trail_style,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
+                color=self.drone_trail_color,
                 zorder=3,
-                max_positions=None,
+                **self.drone_trail_style,
             )
 
         for j in range(n_animals):
             pts = np.array([f["animals"][j][:2] for f in self.frames])
-            self._draw_fading_trail_2d(
-                ax,
-                pts,
+            ax.plot(
+                pts[:, 0],
+                pts[:, 1],
                 color=self.animal_trail_color,
-                base_style=self.animal_trail_style,
                 zorder=2.8,
-                max_positions=None,
+                **self.animal_trail_style,
             )
 
         fig.savefig(self.output_dir / "trajectories.png", bbox_inches="tight", pad_inches=0.02)
         plt.close(fig)
 
-    def _rolling_stats(self, y, window=100):
-        y = np.asarray(y, dtype=float)
-        n = len(y)
-
-        if n == 0:
-            return y, y, y
-
-        means = np.empty(n, dtype=float)
-        stds = np.empty(n, dtype=float)
-
-        for i in range(n):
-            start = max(0, i - window + 1)
-            chunk = y[start:i + 1]
-            means[i] = np.mean(chunk)
-            stds[i] = np.std(chunk)
-
-        lower = means - stds
-        upper = means + stds
-        return means, lower, upper
-
-    def _save_reward_plot(self, window=100, show_band=True, band_type="std"):
+    def _save_reward_plot(self):
         fig, axes = plt.subplots(1, 3, figsize=(12.0, 3.2), dpi=220)
 
         x = np.arange(len(self.reward_hist))
@@ -1103,30 +844,8 @@ class PaperViewer:
 
         for ax, (y, title) in zip(axes, series):
             y = np.asarray(y, dtype=float)
-
-            mean, lower, upper = self._rolling_stats(y, window=window)
-
-            if show_band and len(y) > 0:
-                if band_type == "sem":
-                    sem = np.empty(len(y), dtype=float)
-                    for i in range(len(y)):
-                        start = max(0, i - window + 1)
-                        chunk = y[start:i + 1]
-                        sem[i] = np.std(chunk) / np.sqrt(max(len(chunk), 1))
-                    lower = mean - 1.96 * sem
-                    upper = mean + 1.96 * sem
-
-                ax.fill_between(
-                    x,
-                    lower,
-                    upper,
-                    color="black",
-                    alpha=0.15,
-                    linewidth=0.0,
-                )
-
-            ax.plot(x, mean, lw=1.2, alpha=0.95, color="black")
-            ax.set_title(f"{title} (rolling {window})", fontsize=10)
+            ax.plot(x, y, lw=0.3, alpha=0.9, color="black")
+            ax.set_title(title, fontsize=10)
             ax.grid(alpha=0.10)
             ax.set_xlabel("Step", fontsize=9)
             ax.tick_params(labelsize=8)
@@ -1139,7 +858,7 @@ class PaperViewer:
 
     def _save_video(self):
         fig = plt.figure(figsize=(7.2, 7.2), dpi=180)
-        fig.patch.set_facecolor("#e9eaec")
+        fig.patch.set_facecolor("#efefef")
         fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
 
         ax = fig.add_subplot(111, projection="3d")
@@ -1157,22 +876,23 @@ class PaperViewer:
             visible = frame["visible"]
 
             for j in range(len(d)):
-                drone_type = frame["drone_types"][j]
                 pts = np.array([f["drones"][j] for f in self.frames[: i + 1]])
-                self._draw_fading_trail_3d(
-                    ax,
-                    pts,
-                    color=self._get_drone_trail_color(drone_type),
-                    base_style=self.drone_trail_style,
+                ax.plot(
+                    pts[:, 0],
+                    pts[:, 1],
+                    pts[:, 2],
+                    color=self.drone_trail_color,
+                    **self.drone_trail_style,
                 )
 
             for j in range(len(a)):
                 pts = np.array([f["animals"][j] for f in self.frames[: i + 1]])
-                self._draw_fading_trail_3d(
-                    ax,
-                    pts,
+                ax.plot(
+                    pts[:, 0],
+                    pts[:, 1],
+                    pts[:, 2],
                     color=self.animal_trail_color,
-                    base_style=self.animal_trail_style,
+                    **self.animal_trail_style,
                 )
 
             for j in range(len(a)):
@@ -1199,52 +919,6 @@ class PaperViewer:
 
         plt.close(fig)
 
-    def _save_snapshot_3d(self, frame_idx, filename):
-        fig = plt.figure(figsize=(7.2, 7.2), dpi=220)
-        fig.patch.set_facecolor("#e9eaec")
-        fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
-
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_position([0.0, 0.0, 1.0, 1.0])
-
-        self._setup_axes_3d(ax)
-        ax.set_axis_off()
-
-        frame = self.frames[frame_idx]
-        d = frame["drones"]
-        a = frame["animals"]
-        v = frame["views"]
-        visible = frame["visible"]
-
-        for j in range(len(d)):
-            drone_type = frame["drone_types"][j]
-            pts = np.array([f["drones"][j] for f in self.frames[: frame_idx + 1]])
-            self._draw_fading_trail_3d(
-                ax,
-                pts,
-                color=self._get_drone_trail_color(drone_type),
-                base_style=self.drone_trail_style,
-            )
-
-        for j in range(len(a)):
-            pts = np.array([f["animals"][j] for f in self.frames[: frame_idx + 1]])
-            self._draw_fading_trail_3d(
-                ax,
-                pts,
-                color=self.animal_trail_color,
-                base_style=self.animal_trail_style,
-            )
-
-        for j in range(len(a)):
-            motion = self._get_motion(self.frames, frame_idx, j, kind="animals")
-            self._draw_animal_3d(ax, a[j], motion, bool(visible[j]))
-
-        for j in range(len(d)):
-            self._draw_drone_3d(ax, d[j], v[j], frame["drone_types"][j], self.drone_size)
-
-        fig.savefig(self.output_dir / filename, bbox_inches="tight", pad_inches=0.02)
-        plt.close(fig)
-
     def close(self):
         if not self.frames:
             return
@@ -1257,17 +931,15 @@ class PaperViewer:
 
         n = len(self.frames)
         progress_points = [
-            (0.20, "snapshot_20.png", "snapshot_3d_20.png"),
-            (0.40, "snapshot_40.png", "snapshot_3d_40.png"),
-            (0.60, "snapshot_60.png", "snapshot_3d_60.png"),
-            (0.80, "snapshot_80.png", "snapshot_3d_80.png"),
-            (1.00, "snapshot_100.png", "snapshot_3d_100.png"),
+            (0.20, "snapshot_20.png"),
+            (0.40, "snapshot_40.png"),
+            (0.60, "snapshot_60.png"),
+            (0.80, "snapshot_80.png"),
+            (1.00, "snapshot_100.png"),
         ]
-
-        for frac, name_2d, name_3d in progress_points:
+        for frac, name in progress_points:
             idx = min(n - 1, max(0, int(np.ceil(frac * n)) - 1))
-            self._save_snapshot(idx, name_2d)
-            self._save_snapshot_3d(idx, name_3d)
+            self._save_snapshot(idx, name)
 
         self._save_trajectories()
         self._save_reward_plot()
@@ -1339,7 +1011,6 @@ def choose_action_agent(agent, obs, agent_type):
 
     raise ValueError(agent_type)
 
-
 def _make_output_dir(tag, seed):
     repo_root = Path(__file__).resolve().parent.parent
     recordings_dir = repo_root / "recordings"
@@ -1349,7 +1020,6 @@ def _make_output_dir(tag, seed):
     out_dir = recordings_dir / f"{tag}_seed{seed}_{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
-
 
 def rollout(env, action_fn):
     obs, info = env.reset()
@@ -1371,7 +1041,6 @@ def rollout(env, action_fn):
 
     norm_reward = episode_reward / env.config.max_episode_steps
     return norm_reward, step_count
-
 
 def main_agent(config, run_dir, seed, model_type="best"):
     config = Box(config)
@@ -1396,7 +1065,6 @@ def main_agent(config, run_dir, seed, model_type="best"):
     print(f"Artifacts saved in: {out_dir}")
 
     env.viewer.close()
-
 
 def main_centroid(config_name, seed):
     cfg = load_config(config_name)
@@ -1423,7 +1091,6 @@ def main_centroid(config_name, seed):
     print(f"Artifacts saved in: {out_dir}")
 
     env.viewer.close()
-
 
 def _init_argparse():
     parser = argparse.ArgumentParser()

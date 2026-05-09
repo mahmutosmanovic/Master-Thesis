@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-configs=("CRW_MAPPO__3A_3D_M2x3")
-max_jobs=1
+configs=("POI_sac_M1" "POI_sac_M2" "POI_sac_M3" "LPOI_sac_M1" "LPOI_sac_M2" "LPOI_sac_M3")
+max_jobs=2
 
 for cfg in "${configs[@]}"
 do
@@ -13,7 +13,7 @@ do
 
     run_name=$(python -m scripts.train_agent \
         --config "$cfg" \
-        --agent mappo \
+        --agent sac \
         --seed 42 \
         --wandb | tee /dev/tty | grep "RUN_DIR::" | cut -d':' -f3)
 
@@ -27,13 +27,6 @@ do
         --plot-rewards \
         --plot-heatmaps \
         --start-seed 42 | tee /dev/tty | grep "EVAL_DIR::" | cut -d':' -f3)
-
-    echo "Evaluation created: $eval_name"
-    echo "Starting play..."
-
-    python -m scripts.play \
-        --run "$run_name" \
-        --seed 42
 
     echo "Finished config: $cfg"
     echo ""
