@@ -1,6 +1,6 @@
-# Stealth-Fleet
+# MSc. Low-Disturbance Wildlife Monitoring with Drones
 
-Stealth-Fleet is a reinforcement learning project for training drone policies that monitor animals while minimizing disturbance. The repository combines a custom multi-agent simulation environment, PPO/MAPPO training code, a handcrafted centroid baseline, evaluation and plotting utilities, and preprocessing for real GPS track replay.
+Low-Disturbance Wildlife Monitoring with Drones is a reinforcement learning project for training drone policies that monitor animals while minimizing disturbance, the project was conducted at Jönköping School of Engineering as part of a MSc. thesis. The repository combines a custom multi-agent simulation environment, PPO/MAPPO training code, a handcrafted centroid baseline, evaluation and plotting utilities, and preprocessing for real GPS track replay.
 
 The core idea is to learn surveillance behavior that keeps animals visible and well-framed without pushing them into avoidance or escape behavior. Reward shaping in the environment balances monitoring quality against disturbance and control effort.
 
