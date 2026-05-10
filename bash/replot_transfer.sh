@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 BASE="evals/eval_animals/behaviors_t5"
 OUT="imgtemp_transfer"
 

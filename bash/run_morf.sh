@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+cd "$(dirname "$0")/.."
+
 configs=(
     "CRW_MAPPO__1A_1D_M2x1"
     "CRW_MAPPO__1A_2D_M2x2"

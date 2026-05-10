@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <runs_manifest.csv>"
     exit 1

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+cd "$(dirname "$0")/.."
+
 # configs=("JACKALS" "JACKALS_GPS" "PIGEONS" "PIGEONS_GPS" "SPUR" "SPUR_GPS")
 # agents=("sac")
 # configs=("CRW" "EE" "POI" "LPOI")
