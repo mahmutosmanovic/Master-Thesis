@@ -369,6 +369,12 @@ These are useful once the project environment is already set up.
 - Some folders such as `pareto/`, `reward_ablation/`, and `speed_sensitivity/` store experiment artifacts and analysis outputs
 - The `tests/` folder currently looks lightweight, so most validation appears to happen through scripted training, playback, and evaluation runs
 
+## Data Availability
+For purposes of reproducability, users can access part of the data which has already been made public by [Orr Spiegel](https://scholar.google.com/citations?user=1lEq3csAAAAJ&hl=en): https://datarepository.movebank.org/entities/datapackage/a2e2f6f1-e0b4-476f-b108-2208f4b29baa
+The data which has been made public is for the Spur-Winged Lapwings. Folder: _ATLAS tracking of spur-winged lapwings-1of6.csv.zip_ was utilized, containing about 21.5M datapoints. After filteration, where we consider distance traveled, steps traveled, etc, we end up with approximately 400k points. A similar processing procedure was conducted with the pigeon and jackal data.
+
+With regards to ethical collection of the data, all trapping and tagging procedures were authorized by permits 2020/42481, 2021/42733, and 2022/42989 from the Israel Nature and Parks Authority, and the researchers state that no birds were harmed during the tagging process and that all individuals remained active in their respective home ranges after release. For the full public statement of the authors, please see the following article, https://royalsocietypublishing.org/rspb/article/292/2038/20242471/104772/Spur-winged-lapwings-show-spatial-behavioural.
+
 ## License
 
 This repository includes a `LICENSE` file at the project root.
