@@ -14,8 +14,10 @@ from pyproj import Transformer
 
 def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
             episode_seconds=204.8, time_scale=1.0):
-    for name, value in (("max_gap", max_gap), ("episode_seconds", episode_seconds),
-                        ("time_scale", time_scale)):
+    checks = [("max_gap", max_gap), ("time_scale", time_scale)]
+    if episode_seconds is not None:
+        checks.append(("episode_seconds", episode_seconds))
+    for name, value in checks:
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
     out_dir = Path(out_dir)
@@ -67,10 +69,12 @@ def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
             plot_tracks.append((identifier, x, y))
             # Include exact window endpoints even when GPS fixes are hours apart.
             # This avoids discarding sparse but valid tracks or padding stationary tails.
-            n_windows = int(np.ceil(t[-1] / episode_seconds))
+            # None keeps one sparse full segment for on-demand episode sampling.
+            window_seconds = t[-1] if episode_seconds is None else episode_seconds
+            n_windows = int(np.ceil(t[-1] / window_seconds))
             for window in range(n_windows):
-                start = window * episode_seconds
-                end = min(start + episode_seconds, t[-1])
+                start = window * window_seconds
+                end = min(start + window_seconds, t[-1])
                 if end - start < 1e-9:
                     continue
                 knots = np.r_[start, t[(t > start) & (t < end)], end]
@@ -94,7 +98,7 @@ def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
     manifest.to_csv(out_dir / "manifest.csv", index=False)
     report = {"source": str(Path(csv_path).resolve()), "input_rows": original_rows,
               "usable_rows": len(df), "individuals": int(df[id_col].nunique()),
-              "episodes": len(rows), "max_gap_seconds": max_gap,
+              ("segments" if episode_seconds is None else "episodes"): len(rows), "max_gap_seconds": max_gap,
               "episode_seconds": episode_seconds, "time_scale": time_scale,
               "median_fix_interval_seconds": float(np.median(all_gaps)),
               "median_recorded_step_speed_mps": float(np.median(all_speeds)),
