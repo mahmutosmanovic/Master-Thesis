@@ -38,6 +38,7 @@ def read_run_config(run_dir):
         raise ValueError('This environment requires 12 animal features, but the run uses '
                          'an older observation layout. Use a compatible checkpoint/environment; '
                          'do not simply change the saved feature count.')
+    cfg['run_dir'] = str(Path(run_dir).resolve())
     return cfg
 
 
