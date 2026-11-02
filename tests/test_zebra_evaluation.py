@@ -100,6 +100,20 @@ class MovebankReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'older observation layout'):
             read_run_config(self.root)
 
+    def test_run_config_sets_checkpoint_directory_without_editing_saved_config(self):
+        import yaml
+        from box import Box
+        from scripts.eval_zebras import read_run_config
+        cfg = {'animal': {'env': {'count': 1}},
+               'model': {'space': {'animal_features': 12}},
+               'run_dir': '/old/training/machine/run'}
+        path = self.root/'config.yaml'
+        path.write_text(yaml.safe_dump(cfg))
+        before = path.read_bytes()
+        loaded = Box(read_run_config(self.root))
+        self.assertEqual(loaded.run_dir, str(self.root.resolve()))
+        self.assertEqual(path.read_bytes(), before)
+
     def test_refuses_overwriting_existing_output(self):
         out = self.root/'existing'
         out.mkdir()
