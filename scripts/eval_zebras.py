@@ -42,6 +42,42 @@ def read_run_config(run_dir):
     return cfg
 
 
+def sample_replay_window(manifest, base_dir, out_dir, episode, steps, dt, rng):
+    """Sample uniformly over valid start indices without expanding full tracks."""
+    if steps < 1 or not np.isfinite(dt) or dt <= 0:
+        raise ValueError('steps and dt must be positive')
+    durations = manifest['duration_s'].to_numpy(dtype=float)
+    last_indices = np.floor(durations / dt + 1e-9).astype(np.int64)
+    counts = np.maximum(last_indices - steps + 1, 0)
+    total = int(counts.sum())
+    if total == 0:
+        raise ValueError(f'No continuous track is long enough for {steps} steps at dt={dt}')
+    draw = int(rng.integers(total))
+    cumulative = counts.cumsum()
+    index = int(np.searchsorted(cumulative, draw, side='right'))
+    start_index = draw - (int(cumulative[index-1]) if index else 0)
+    row = manifest.iloc[index].copy()
+    with np.load(Path(base_dir)/row['path'], allow_pickle=False) as track:
+        elapsed = np.arange(steps+1, dtype=float)*dt
+        source_times = start_index*dt + elapsed
+        x = np.interp(source_times, track['t'], track['x'])
+        y = np.interp(source_times, track['t'], track['y'])
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    window_path = (out_dir/f'episode_{episode:03d}.npz').resolve()
+    np.savez_compressed(window_path, t=elapsed, x=x-x[0], y=y-y[0])
+    row['path'] = str(window_path)
+    row['n_points'] = steps+1
+    row['duration_s'] = steps*dt
+    row['start_time'] = pd.Timestamp(row['start_time']) + pd.to_timedelta(start_index*dt*row['time_scale'], unit='s')
+    row['end_time'] = row['start_time'] + pd.to_timedelta(steps*dt*row['time_scale'], unit='s')
+    row['sample_start_index'] = start_index
+    row['source_segment_index'] = index
+    row['xmin'], row['xmax'] = float((x-x[0]).min()), float((x-x[0]).max())
+    row['ymin'], row['ymax'] = float((y-y[0]).min()), float((y-y[0]).max())
+    return pd.DataFrame([row]), index
+
+
 def write_plots(steps, episodes, out):
     import matplotlib
     matplotlib.use('Agg')
@@ -72,7 +108,7 @@ def main():
     parser.add_argument('--csv', default='data/zebras/Z3864.csv')
     parser.add_argument('--run', help="Trained folder under runs/, or 'latest'")
     parser.add_argument('--weights', default='best')
-    parser.add_argument('--episodes', type=int, default=10, help='Maximum distinct windows to evaluate')
+    parser.add_argument('--episodes', type=int, default=10, help='Number of random trajectory windows to evaluate')
     parser.add_argument('--seed', type=int, default=99)
     parser.add_argument('--individual', help='Optional individual ID if CSV contains multiple animals')
     parser.add_argument('--max-gap', type=float, default=7200, help='Original GPS seconds before splitting a track')
@@ -97,9 +133,8 @@ def main():
         from .run_utils import resolve_run_dir
         run_dir = resolve_run_dir(args.run)
         cfg = read_run_config(run_dir)
-    duration = float(cfg['dt'])*int(cfg['max_episode_steps']) if cfg else 204.8
     report = prepare(source, out/'tracks', individual=args.individual,
-                     max_gap=args.max_gap, episode_seconds=duration, time_scale=args.time_scale)
+                     max_gap=args.max_gap, episode_seconds=None, time_scale=args.time_scale)
     print(json.dumps(report, indent=2))
     print('GPS movement is linearly interpolated. Replay does not model zebra reactions to drones.')
     if args.time_scale != 1:
@@ -115,16 +150,18 @@ def main():
     from .eval_models import init_agent, choose_action
 
     manifest = pd.read_parquet(out/'tracks/manifest.parquet')
-    indices = np.linspace(0, len(manifest)-1, min(args.episodes, len(manifest)), dtype=int)
+    sampling_rng = np.random.default_rng(args.seed)
     cfg['animal']['init']['movement_dim'] = MovementDim.TWO_D
     cfg['animal']['init']['behavior'] = REPLAY_CFG(str(out/'tracks/manifest.parquet'))
     config = Box(cfg)
     agent, agent_type = init_agent(config, run_dir, args.weights)
     episode_rows, all_rows = [], []
-    for episode, index in enumerate(indices):
-        # A one-row manifest pins the chosen window even if reset retries occur.
-        chosen = manifest.iloc[[index]].copy()
-        chosen['path'] = chosen['path'].map(lambda p: str((out/'tracks'/p).resolve()))
+    for episode in range(args.episodes):
+        # Interpolate only this episode: 2049 positions for 2048 movement steps.
+        chosen, index = sample_replay_window(
+            manifest, out/'tracks', out/'sampled_windows', episode,
+            int(config.max_episode_steps), float(config.dt), sampling_rng)
+        # Pin this sampled window even if the environment retries its reset.
         selected_manifest = out/f'episode_{episode:03d}_manifest.parquet'
         chosen.to_parquet(selected_manifest, index=False)
         ep_cfg = deepcopy(config)
@@ -166,7 +203,9 @@ def main():
         stats.update({'episode': episode, 'window_index': int(index), 'seed': args.seed+episode,
                       'source_csv': str(source), 'source_start_time': str(chosen['start_time'].iloc[0]),
                       'source_end_time': str(chosen['end_time'].iloc[0]),
-                      'time_scale': args.time_scale, 'track_lost': bool(loss),
+                      'time_scale': args.time_scale,
+                      'sample_start_index': int(chosen['sample_start_index'].iloc[0]),
+                      'track_lost': bool(loss),
                       'hard_safety_violation': bool(info['hard_safety_violation']),
                       'stop_reason': 'track_lost' if loss else 'safety' if info['hard_safety_violation'] else 'window_or_horizon_end'})
         episode_rows.append(stats)
@@ -176,7 +215,7 @@ def main():
         pd.DataFrame(all_rows).to_csv(out/'steps.csv', index=False)
         if args.record and episode == 0:
             env.viewer.close()
-        print(f"Episode {episode+1}/{len(indices)}: visibility={stats['visible_fraction']:.3f}, "
+        print(f"Episode {episode+1}/{args.episodes}: visibility={stats['visible_fraction']:.3f}, "
               f"distance={stats['mean_distance_m']:.1f}m, reward/step={stats['mean_reward_per_step']:.4f}")
 
     episodes = pd.DataFrame(episode_rows)
