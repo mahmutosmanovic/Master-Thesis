@@ -26,7 +26,8 @@ A new directory under `evals/zebras/` contains:
 
 - `tracks/report.json`: fix counts, sampling intervals and recorded step speeds.
 - `tracks/trajectories.png`: original fixes connected by interpolation lines.
-- `tracks/manifest.csv` and `.parquet`: replay windows with source dates and IDs.
+- `tracks/manifest.csv` and `.parquet`: continuous sparse segments with source dates and IDs.
+- `sampled_windows/`: only the requested random episode windows (2,049 positions for 2,048 steps).
 - `steps.csv`: reward, visibility, disturbance, animal/drone coordinates and distances.
 - `episodes.csv`: episode statistics, durations, track loss and selected window.
 - `summary.json`: aggregate performance, checkpoint, source CSV and time scale.
@@ -35,10 +36,12 @@ A new directory under `evals/zebras/` contains:
 - `recording/`: optional first-episode video and snapshots.
 
 Use `--out evals/zebras/my_test` to set a new or empty output directory. Preparation
-alone creates only the `tracks/` outputs. Each evaluation selects at most
-`--episodes` distinct windows, evenly spaced through the manifest, with no repeated
-windows. Seeds control drone spawning; short final windows and early track loss
-can result in different episode lengths. Mean reward per executed step and reward
+alone creates only the `tracks/` outputs. Each evaluation draws `--episodes` random starting indices, reproducibly from
+`--seed`. Starts are uniform across all valid indices in continuous segments.
+Only the selected windows are interpolated onto the simulation timestep grid;
+full tracks are never expanded into dense arrays or thousands of episode files.
+Samples can overlap or repeat, and never cross individual boundaries or long gaps. Seeds also control drone spawning. Every sampled window has a full episode
+horizon, though early track loss can shorten the actual rollout. Mean reward per executed step and reward
 per configured horizon step are both reported. Aggregate visibility, distance and
 disturbance are weighted by executed steps. Early termination should be assessed
 alongside episode duration and track-loss count.
@@ -54,7 +57,9 @@ as UTC. Coordinates are projected from latitude/longitude to a UTM CRS per segme
 and translated to local metres. Invalid/duplicate/outlier/invisible fixes are
 filtered; time gaps exceeding `--max-gap 7200` original seconds split segments.
 No smoothing or spatial scaling is applied. Inspect the report/plot for remaining
-implausible jumps. Prepared windows match the run's `dt * max_episode_steps`.
+implausible jumps. Each random start ranges from zero through `floor(duration / dt) - max_episode_steps`,
+inclusive. Segments shorter than a full horizon are ineligible. Each sampled window
+contains `max_episode_steps + 1` positions, preserving recorded speeds by default.
 
 The example fixes are about one hour apart. Linear interpolation cannot recover
 unobserved short-term turns, and 205-second windows may contain only a small
