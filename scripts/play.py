@@ -1427,6 +1427,8 @@ def main_centroid(config_name, seed):
 
 def _init_argparse():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--replay-manifest", help="Override animal movement with prepared GPS tracks")
+    parser.add_argument("--replay-selection", choices=["random", "cycle"], default="random")
 
     parser.add_argument(
         "--mode",
@@ -1466,6 +1468,9 @@ def _init_argparse():
 
     args = parser.parse_args()
 
+    if args.mode != "agent" and args.replay_manifest:
+        parser.error("--replay-manifest requires --mode agent")
+
     if args.mode == "agent" and not args.run:
         parser.error("--run is required when --mode agent")
 
@@ -1476,7 +1481,8 @@ if __name__ == "__main__":
     args = _init_argparse()
 
     if args.mode == "agent":
-        cfg, run_dir = load_run(args.run)
+        cfg, run_dir = load_run(args.run, replay_manifest=args.replay_manifest,
+                                replay_selection=args.replay_selection)
         main_agent(cfg, run_dir, seed=args.seed, model_type=args.weights)
     else:
         main_centroid(args.config, seed=args.seed)

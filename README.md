@@ -378,3 +378,65 @@ With regards to ethical collection of the data, all trapping and tagging procedu
 ## License
 
 This repository includes a `LICENSE` file at the project root.
+
+### Replay a new Movebank CSV (for example, zebras)
+
+Prepare one individual's recorded fixes as local metre coordinates:
+
+```bash
+python3 -m scripts.prepare_movebank \
+  --csv "data/zebras/Migratory Burchell's zebra (Equus burchellii) in northern Botswana.csv" \
+  --individual Z3864 \
+  --out track_segments/zebras_Z3864 \
+  --max-gap 7200 \
+  --episode-seconds 204.8
+```
+
+Install `pyarrow` if needed (`python3 -m pip install pyarrow`). The output includes
+`manifest.parquet`, readable `manifest.csv`, compressed trajectory windows,
+`report.json` with sampling/speed statistics, and `trajectories.png`. Use an empty
+output directory. Omit `--individual` to process all individuals separately.
+Invalid coordinates/timestamps, invisible fixes, marked outliers and duplicate
+individual/timestamp pairs are removed. Gaps over `--max-gap` (original seconds)
+start new segments; isolated fixes cannot be replayed. Inspect the report and plot
+for remaining implausible jumps. Projection is calculated from latitude/longitude
+using one UTM CRS per segment, so no reliance is placed on CSV UTM columns.
+
+Play an existing trained policy against these trajectories:
+
+```bash
+python3 -m scripts.play --run YOUR_RUN --weights best --seed 99 \
+  --replay-manifest track_segments/zebras_Z3864/manifest.parquet
+```
+
+This uses the existing video/snapshot/reward exports under `recordings/`. Evaluate
+without a baseline:
+
+```bash
+python3 -m scripts.eval_models --run YOUR_RUN --weights best \
+  --num-episodes 100 --start-seed 99 --plot-rewards --plot-heatmaps \
+  --replay-manifest track_segments/zebras_Z3864/manifest.parquet
+```
+
+The override changes animal movement in memory; it preserves the training config,
+model dimensions and drone settings. Use a checkpoint compatible with the current
+environment's observation layout. Saved older configs in this repository may have
+8 animal features, while the current environment requires 12; such checkpoints
+need their matching environment or retraining, rather than editing feature counts.
+The number of animals is retained to preserve checkpoint dimensions. Each animal
+selects a separate replay window, so multi-animal runs do not reconstruct a
+synchronized herd. Selection defaults to random; `--replay-selection cycle` cycles
+through windows, although environment reset retries can advance selection.
+Match `--episode-seconds` to `dt * max_episode_steps` in your run. Last windows may
+be shorter. Evaluation seeds can sample the same windows more than once and do not
+necessarily represent unique independent tracks.
+
+**Sparse GPS limitation:** the example zebra fixes are about one hour apart. The
+replay interpolates straight lines between them; it does not recover unobserved
+turns. With real timing, a 204.8-second window often covers only a small portion of
+one GPS interval. Optionally prepare a separate output with `--time-scale 60` for
+a demonstration at 60 times recorded speed. This changes animal speeds and must
+be labelled as time-compressed, rather than reported as performance at real speed.
+No spatial scaling or smoothing is applied. The replay animal stays on the recorded
+path and cannot flee; disturbance scores are model predictions and do not validate
+real zebra responses to a drone.

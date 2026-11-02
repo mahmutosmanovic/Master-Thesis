@@ -1017,6 +1017,8 @@ def plot_results(base_rewards, rl_rewards):
 
 def _init_argparse():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--replay-manifest", help="Override animal movement with prepared GPS tracks")
+    parser.add_argument("--replay-selection", choices=["random", "cycle"], default="random")
 
     parser.add_argument(
         "--run",
@@ -1113,7 +1115,8 @@ def _safe_make_plot(label, fn, *args, **kwargs):
 def main():
     args = _init_argparse()
 
-    cfg, run_dir = load_run(args.run)
+    cfg, run_dir = load_run(args.run, replay_manifest=args.replay_manifest,
+                                replay_selection=args.replay_selection)
     config = Box(cfg)
     behavior_name = str(config._config_name)
 

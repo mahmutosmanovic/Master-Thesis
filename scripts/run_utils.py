@@ -87,7 +87,7 @@ def resolve_run_dir(run_name: str) -> Path:
 
     return run_dir
 
-def load_run(run_name: str):
+def load_run(run_name: str, replay_manifest=None, replay_selection="random"):
 
     run_dir = resolve_run_dir(run_name)
     config_path = run_dir / "config.yaml"
@@ -98,10 +98,22 @@ def load_run(run_name: str):
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
     
-    behavior_cfg = Path(cfg["behavior_cfg"]) / "behaviors.yaml"
-
-    with open(behavior_cfg, "r") as f:
-        behavior_cfg = yaml.safe_load(f)
+    if replay_manifest is None:
+        behavior_cfg = Path(cfg["behavior_cfg"]) / "behaviors.yaml"
+        with open(behavior_cfg, "r") as f:
+            behavior_cfg = yaml.safe_load(f)
+    else:
+        manifest = Path(replay_manifest).resolve()
+        if not manifest.is_file():
+            raise FileNotFoundError(f"Replay manifest not found: {manifest}")
+        cfg["animal"]["init"]["behavior"] = "REPLAY_CFG"
+        cfg["animal"]["init"]["movement_dim"] = "TWO_D"
+        behavior_cfg = {"REPLAY_CFG": {
+            "manifest_path": str(manifest),
+            "selection": replay_selection,
+            "zero_centered": False,
+        }}
+        cfg["replay_override"] = behavior_cfg["REPLAY_CFG"].copy()
 
     # --- enums ---
     cfg["animal"]["init"]["movement_dim"] = (
