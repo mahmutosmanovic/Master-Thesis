@@ -277,23 +277,27 @@ Evaluate recorded zebra fixes in chronological order (no random windows):
 python3 -m scripts.eval_zebras --csv data/zebras/Z3864.csv --run latest --weights best --episodes 1 --record
 ```
 
-Each episode uses `max_episode_steps` consecutive recorded movements, requiring
-`max_episode_steps + 1` positions. Adjacent episodes share only their boundary
-position. With 9,000 usable points and 2,048 steps per episode, four episodes fit;
-requesting five fails before policy loading or output creation. Incomplete tails
-are discarded. Existing track-loss/safety termination still applies; the next
-episode always starts at the next preassigned block.
+Each episode covers `max_episode_steps * dt` recorded seconds. GPS coordinates
+are projected into metres and linearly interpolated at every simulation tick,
+using the original timestamps. For 2,048 steps at dt=0.1, episode 1 covers
+0–204.8 seconds, episode 2 covers 204.8–409.6 seconds, and so on. There is no
+random sampling or time compression.
+
+Capacity is checked from recorded duration before loading the policy or creating
+outputs. Requests exceeding the available complete time windows fail immediately.
+Incomplete time tails are discarded. This means 9,000 GPS fixes can support many
+more than four episodes when fixes are approximately hourly.
 
 Fixes are cleaned, deduplicated and ordered by individual and timestamp. Different
 individuals are never joined. Use `--individual` to select one animal.
 `--prepare-only` reports usable point counts without loading a policy.
+Existing track-loss/safety termination still applies; the next episode always
+starts at the next preassigned time window.
 
-This mode assigns one recorded movement to each simulation step. It preserves
-recorded positions but **does not preserve GPS timing or recorded speeds**.
-Long GPS gaps are not split, and `--max-gap` / `--time-scale` are no longer
-options for this evaluator. Original block timestamps are retained in the
-results. Disturbance remains a model-based proxy; replay animals do not react
-to drones. The separate `scripts.prepare_movebank` timed replay workflow is unchanged.
+GPS interval-average displacement speeds are preserved, but movement between
+fixes is unobserved and assumed straight and constant-speed. Long gaps are not
+split in this evaluator. Disturbance remains a model-based proxy; replay animals
+do not react to drones. The separate `scripts.prepare_movebank` workflow is unchanged.
 
 Run the sequential replay checks with:
 

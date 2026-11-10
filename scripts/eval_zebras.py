@@ -42,46 +42,60 @@ def read_run_config(run_dir):
     return cfg
 
 
-def check_fix_capacity(fixes, id_col, episodes, steps):
-    """Require complete episodes; never join separate animals."""
+def check_fix_capacity(fixes, id_col, episodes, steps, dt):
+    """Count full time windows without joining different individuals."""
     if episodes < 1 or steps < 1:
         raise ValueError('episodes and steps must be positive')
-    counts = fixes.groupby(id_col, sort=False).size()
-    available = int(((counts - 1).clip(lower=0) // steps).sum())
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError('dt must be finite and positive')
+    horizon = steps * dt
+    available = sum(
+        int(np.floor((animal['timestamp'].iloc[-1] -
+                      animal['timestamp'].iloc[0]).total_seconds() / horizon + 1e-9))
+        for _, animal in fixes.groupby(id_col, sort=False) if len(animal) >= 2)
     if episodes > available:
         raise ValueError(
-            f'Not enough usable GPS points: requested {episodes} episodes of '
-            f'{steps} movements, but only {available} complete episodes fit '
-            f'in {len(fixes)} points. Each episode needs {steps + 1} positions; '
-            'consecutive episodes share their boundary point.')
+            f'Not enough recorded duration: requested {episodes} episodes of '
+            f'{horizon:g} seconds, but only {available} complete episodes fit. '
+            'Capacity is based on GPS timestamps, not row count.')
     return available
 
 
 def prepare_sequential(fixes, id_col, out_dir, episodes, steps, dt):
-    """One recorded movement per simulation step; discard incomplete tails."""
+    """Interpolate consecutive time windows at dt, preserving GPS timing."""
     from pyproj import Transformer
-    available = check_fix_capacity(fixes, id_col, episodes, steps)
-    if not np.isfinite(dt) or dt <= 0:
-        raise ValueError('dt must be finite and positive')
+    available = check_fix_capacity(fixes, id_col, episodes, steps, dt)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
+    horizon = steps * dt
     for identifier, animal in fixes.groupby(id_col, sort=False):
-        for start in range(0, len(animal) - steps, steps):
-            block = animal.iloc[start:start + steps + 1]
-            lon, lat = block['location-long'].to_numpy(), block['location-lat'].to_numpy()
-            zone = min(60, max(1, int((np.median(lon) + 180) // 6) + 1))
-            epsg = (32600 if np.median(lat) >= 0 else 32700) + zone
-            transformer = Transformer.from_crs(4326, epsg, always_xy=True)
-            x, y = transformer.transform(lon, lat)
+        if len(animal) < 2:
+            continue
+        times = (animal['timestamp'] - animal['timestamp'].iloc[0]).dt.total_seconds().to_numpy()
+        lon, lat = animal['location-long'].to_numpy(), animal['location-lat'].to_numpy()
+        zone = min(60, max(1, int((np.median(lon) + 180) // 6) + 1))
+        epsg = (32600 if np.median(lat) >= 0 else 32700) + zone
+        transformer = Transformer.from_crs(4326, epsg, always_xy=True)
+        source_x, source_y = transformer.transform(lon, lat)
+        source_x, source_y = source_x - source_x[0], source_y - source_y[0]
+        count = int(np.floor(times[-1] / horizon + 1e-9))
+        for window in range(count):
+            start = window * horizon
+            elapsed = np.arange(steps + 1, dtype=float) * dt
+            query = start + elapsed
+            x = np.interp(query, times, source_x)
+            y = np.interp(query, times, source_y)
             x, y = x - x[0], y - y[0]
             path = (out_dir / f'episode_{len(rows):03d}.npz').resolve()
-            np.savez_compressed(path, t=np.arange(steps + 1)*dt, x=x, y=y)
+            np.savez_compressed(path, t=elapsed, x=x, y=y)
             rows.append({
                 'path': str(path), id_col: identifier, 'n_points': steps + 1,
-                'duration_s': steps*dt, 'start_time': block['timestamp'].iloc[0],
-                'end_time': block['timestamp'].iloc[-1],
-                'source_start_index': start, 'source_end_index': start + steps,
+                'duration_s': horizon,
+                'start_time': animal['timestamp'].iloc[0] + pd.to_timedelta(start, unit='s'),
+                'end_time': animal['timestamp'].iloc[0] + pd.to_timedelta(start + horizon, unit='s'),
+                'source_start_index': max(0, int(np.searchsorted(times, start, side='right')) - 1),
+                'source_end_index': min(len(times) - 1, int(np.searchsorted(times, start + horizon))),
                 'utm_epsg': epsg, 'xmin': float(x.min()), 'xmax': float(x.max()),
                 'ymin': float(y.min()), 'ymax': float(y.max()),
             })
@@ -121,7 +135,7 @@ def main():
     parser.add_argument('--csv', default='data/zebras/Z3864.csv')
     parser.add_argument('--run', help="Trained folder under runs/, or 'latest'")
     parser.add_argument('--weights', default='best')
-    parser.add_argument('--episodes', type=int, default=10, help='Number of consecutive full GPS blocks to evaluate')
+    parser.add_argument('--episodes', type=int, default=10, help='Number of consecutive full time windows to evaluate')
     parser.add_argument('--seed', type=int, default=99)
     parser.add_argument('--individual', help='Optional individual ID if CSV contains multiple animals')
     parser.add_argument('--out', help='New or empty output directory')
@@ -153,15 +167,16 @@ def main():
     cfg = read_run_config(run_dir)
     steps, dt = int(cfg['max_episode_steps']), float(cfg['dt'])
     try:
-        available = check_fix_capacity(fixes, id_col, args.episodes, steps)
+        available = check_fix_capacity(fixes, id_col, args.episodes, steps, dt)
     except ValueError as exc:
         parser.error(str(exc))
     # Capacity is checked before creating outputs, preparing tracks or loading weights.
     manifest, available = prepare_sequential(
         fixes, id_col, out/'tracks', args.episodes, steps, dt)
     print(f'{len(fixes)} usable points; {available} complete episodes available.')
-    print('Sequential recorded positions: one GPS movement per simulation step. '
-          'Original timestamps and speeds are NOT preserved; gaps are not split. '
+    print(f'Sequential timed replay: linear interpolation at dt={dt:g} seconds. '
+          'GPS timestamps and interval-average displacement speeds are preserved. '
+          'Gaps are not split; movement between fixes is unobserved. '
           'Replay does not model zebra reactions to drones.')
 
     import torch
@@ -221,7 +236,7 @@ def main():
         stats.update({'episode': episode, 'window_index': int(index), 'seed': args.seed+episode,
                       'source_csv': str(source), 'source_start_time': str(chosen['start_time'].iloc[0]),
                       'source_end_time': str(chosen['end_time'].iloc[0]),
-                      'replay_timing': 'one_recorded_movement_per_simulation_step',
+                      'replay_timing': 'gps_timestamp_aligned_linear_interpolation',
                       'source_start_index': int(chosen['source_start_index'].iloc[0]),
                       'source_end_index': int(chosen['source_end_index'].iloc[0]),
                       'track_lost': bool(loss),
@@ -239,13 +254,13 @@ def main():
 
     episodes = pd.DataFrame(episode_rows)
     summary = {'run': str(run_dir), 'weights': args.weights, 'source_csv': str(source),
-               'episodes': len(episodes), 'replay_timing': 'one_recorded_movement_per_simulation_step',
+               'episodes': len(episodes), 'replay_timing': 'gps_timestamp_aligned_linear_interpolation',
                'track_loss_episodes': int(episodes['track_lost'].sum()),
                'mean_episode_reward_per_step': float(episodes['mean_reward_per_step'].mean()),
                'step_weighted_visible_fraction': float(np.mean([r['target_visible_fraction'] for r in all_rows])),
                'mean_distance_m': float(np.mean([r['mean_distance_m'] for r in all_rows])),
                'mean_disturbance': float(np.mean([r['disturbance'] for r in all_rows])),
-               'interpolation': 'none between simulation steps; recorded fixes retimed to dt',
+               'interpolation': 'linear between recorded GPS timestamps; no time compression',
                'available_episodes': available, 'usable_points': len(fixes),
                'disturbance': 'model-based; replay animals do not react'}
     (out/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
