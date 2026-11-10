@@ -122,39 +122,6 @@ class MovebankReplayTests(unittest.TestCase):
         with np.load(out/'00000000.npz') as z:
             np.testing.assert_allclose(z['t'], [0, 3578, 7167])
 
-    def test_sampling_includes_last_valid_start_and_2049_positions(self):
-        from scripts.eval_zebras import sample_replay_window
-        class LastStart:
-            def integers(self, upper):
-                self.upper = upper
-                return upper-1
-        rng = LastStart()
-        np.savez(self.root/'sparse.npz', t=[0., 300.], x=[0., 300.], y=[0., 600.])
-        manifest = pd.DataFrame([{'path': 'sparse.npz', 'duration_s': 300.,
-                                 'time_scale': 1., 'start_time': '2007-10-25T00:00:00Z'}])
-        chosen, index = sample_replay_window(manifest, self.root, self.root/'samples',
-                                            0, 2048, 0.1, rng)
-        self.assertEqual(rng.upper, 953)
-        self.assertEqual(chosen['sample_start_index'].iloc[0], 952)
-        self.assertEqual(index, 0)
-        with np.load(chosen['path'].iloc[0]) as z:
-            self.assertEqual(len(z['t']), 2049)
-            np.testing.assert_allclose(z['t'], np.arange(2049)*0.1)
-            np.testing.assert_allclose(z['x'], z['t'], atol=1e-10)
-            np.testing.assert_allclose(z['y'], 2*z['t'], atol=1e-10)
-        a, _ = sample_replay_window(manifest, self.root, self.root/'samples',
-                                    1, 2048, 0.1, np.random.default_rng(42))
-        b, _ = sample_replay_window(manifest, self.root, self.root/'samples',
-                                    2, 2048, 0.1, np.random.default_rng(42))
-        self.assertEqual(a['sample_start_index'].iloc[0], b['sample_start_index'].iloc[0])
-
-    def test_sampling_rejects_tracks_shorter_than_episode(self):
-        from scripts.eval_zebras import sample_replay_window
-        manifest = pd.DataFrame([{'duration_s': 200.}])
-        with self.assertRaisesRegex(ValueError, 'No continuous track is long enough'):
-            sample_replay_window(manifest, self.root, self.root/'none', 0,
-                                 2048, 0.1, np.random.default_rng(42))
-
     def test_refuses_overwriting_existing_output(self):
         out = self.root/'existing'
         out.mkdir()

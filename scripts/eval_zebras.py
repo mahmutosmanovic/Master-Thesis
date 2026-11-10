@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .prepare_movebank import prepare
+from .prepare_movebank import read_fixes
 
 
 def summarize(rows, horizon_steps, dt):
@@ -42,40 +42,53 @@ def read_run_config(run_dir):
     return cfg
 
 
-def sample_replay_window(manifest, base_dir, out_dir, episode, steps, dt, rng):
-    """Sample uniformly over valid start indices without expanding full tracks."""
-    if steps < 1 or not np.isfinite(dt) or dt <= 0:
-        raise ValueError('steps and dt must be positive')
-    durations = manifest['duration_s'].to_numpy(dtype=float)
-    last_indices = np.floor(durations / dt + 1e-9).astype(np.int64)
-    counts = np.maximum(last_indices - steps + 1, 0)
-    total = int(counts.sum())
-    if total == 0:
-        raise ValueError(f'No continuous track is long enough for {steps} steps at dt={dt}')
-    draw = int(rng.integers(total))
-    cumulative = counts.cumsum()
-    index = int(np.searchsorted(cumulative, draw, side='right'))
-    start_index = draw - (int(cumulative[index-1]) if index else 0)
-    row = manifest.iloc[index].copy()
-    with np.load(Path(base_dir)/row['path'], allow_pickle=False) as track:
-        elapsed = np.arange(steps+1, dtype=float)*dt
-        source_times = start_index*dt + elapsed
-        x = np.interp(source_times, track['t'], track['x'])
-        y = np.interp(source_times, track['t'], track['y'])
+def check_fix_capacity(fixes, id_col, episodes, steps):
+    """Require complete episodes; never join separate animals."""
+    if episodes < 1 or steps < 1:
+        raise ValueError('episodes and steps must be positive')
+    counts = fixes.groupby(id_col, sort=False).size()
+    available = int(((counts - 1).clip(lower=0) // steps).sum())
+    if episodes > available:
+        raise ValueError(
+            f'Not enough usable GPS points: requested {episodes} episodes of '
+            f'{steps} movements, but only {available} complete episodes fit '
+            f'in {len(fixes)} points. Each episode needs {steps + 1} positions; '
+            'consecutive episodes share their boundary point.')
+    return available
+
+
+def prepare_sequential(fixes, id_col, out_dir, episodes, steps, dt):
+    """One recorded movement per simulation step; discard incomplete tails."""
+    from pyproj import Transformer
+    available = check_fix_capacity(fixes, id_col, episodes, steps)
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError('dt must be finite and positive')
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    window_path = (out_dir/f'episode_{episode:03d}.npz').resolve()
-    np.savez_compressed(window_path, t=elapsed, x=x-x[0], y=y-y[0])
-    row['path'] = str(window_path)
-    row['n_points'] = steps+1
-    row['duration_s'] = steps*dt
-    row['start_time'] = pd.Timestamp(row['start_time']) + pd.to_timedelta(start_index*dt*row['time_scale'], unit='s')
-    row['end_time'] = row['start_time'] + pd.to_timedelta(steps*dt*row['time_scale'], unit='s')
-    row['sample_start_index'] = start_index
-    row['source_segment_index'] = index
-    row['xmin'], row['xmax'] = float((x-x[0]).min()), float((x-x[0]).max())
-    row['ymin'], row['ymax'] = float((y-y[0]).min()), float((y-y[0]).max())
-    return pd.DataFrame([row]), index
+    rows = []
+    for identifier, animal in fixes.groupby(id_col, sort=False):
+        for start in range(0, len(animal) - steps, steps):
+            block = animal.iloc[start:start + steps + 1]
+            lon, lat = block['location-long'].to_numpy(), block['location-lat'].to_numpy()
+            zone = min(60, max(1, int((np.median(lon) + 180) // 6) + 1))
+            epsg = (32600 if np.median(lat) >= 0 else 32700) + zone
+            transformer = Transformer.from_crs(4326, epsg, always_xy=True)
+            x, y = transformer.transform(lon, lat)
+            x, y = x - x[0], y - y[0]
+            path = (out_dir / f'episode_{len(rows):03d}.npz').resolve()
+            np.savez_compressed(path, t=np.arange(steps + 1)*dt, x=x, y=y)
+            rows.append({
+                'path': str(path), id_col: identifier, 'n_points': steps + 1,
+                'duration_s': steps*dt, 'start_time': block['timestamp'].iloc[0],
+                'end_time': block['timestamp'].iloc[-1],
+                'source_start_index': start, 'source_end_index': start + steps,
+                'utm_epsg': epsg, 'xmin': float(x.min()), 'xmax': float(x.max()),
+                'ymin': float(y.min()), 'ymax': float(y.max()),
+            })
+            if len(rows) == episodes:
+                manifest = pd.DataFrame(rows)
+                manifest.to_parquet(out_dir/'manifest.parquet', index=False)
+                return manifest, available
 
 
 def write_plots(steps, episodes, out):
@@ -108,13 +121,11 @@ def main():
     parser.add_argument('--csv', default='data/zebras/Z3864.csv')
     parser.add_argument('--run', help="Trained folder under runs/, or 'latest'")
     parser.add_argument('--weights', default='best')
-    parser.add_argument('--episodes', type=int, default=10, help='Number of random trajectory windows to evaluate')
+    parser.add_argument('--episodes', type=int, default=10, help='Number of consecutive full GPS blocks to evaluate')
     parser.add_argument('--seed', type=int, default=99)
     parser.add_argument('--individual', help='Optional individual ID if CSV contains multiple animals')
-    parser.add_argument('--max-gap', type=float, default=7200, help='Original GPS seconds before splitting a track')
-    parser.add_argument('--time-scale', type=float, default=1, help='Recorded seconds per simulated second')
     parser.add_argument('--out', help='New or empty output directory')
-    parser.add_argument('--prepare-only', action='store_true', help='Inspect/prepare CSV without loading a policy')
+    parser.add_argument('--prepare-only', action='store_true', help='Inspect usable fixes without loading a policy')
     parser.add_argument('--record', action='store_true', help='Also export video and snapshots of first episode (requires ffmpeg)')
     args = parser.parse_args()
     if not args.prepare_only and not args.run:
@@ -127,21 +138,31 @@ def main():
     out = Path(args.out or ('evals/zebras/'+datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f'))).resolve()
     if out.exists() and any(out.iterdir()):
         parser.error(f'Output directory must be empty: {out}')
-    out.mkdir(parents=True, exist_ok=True)
-    cfg = None
-    if not args.prepare_only:
-        from .run_utils import resolve_run_dir
-        run_dir = resolve_run_dir(args.run)
-        cfg = read_run_config(run_dir)
-    report = prepare(source, out/'tracks', individual=args.individual,
-                     max_gap=args.max_gap, episode_seconds=None, time_scale=args.time_scale)
-    print(json.dumps(report, indent=2))
-    print('GPS movement is linearly interpolated. Replay does not model zebra reactions to drones.')
-    if args.time_scale != 1:
-        print(f'TIME COMPRESSION: animal speeds multiplied by {args.time_scale:g}.')
+    try:
+        fixes, id_col, input_rows = read_fixes(source, args.individual)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.prepare_only:
-        print(f'Prepared tracks and sampling/trajectory report: {out}')
+        print(json.dumps({'input_rows': input_rows, 'usable_rows': len(fixes),
+                          'individuals': int(fixes[id_col].nunique()),
+                          'mode': 'sequential recorded fixes'}, indent=2))
         return
+
+    from .run_utils import resolve_run_dir
+    run_dir = resolve_run_dir(args.run)
+    cfg = read_run_config(run_dir)
+    steps, dt = int(cfg['max_episode_steps']), float(cfg['dt'])
+    try:
+        available = check_fix_capacity(fixes, id_col, args.episodes, steps)
+    except ValueError as exc:
+        parser.error(str(exc))
+    # Capacity is checked before creating outputs, preparing tracks or loading weights.
+    manifest, available = prepare_sequential(
+        fixes, id_col, out/'tracks', args.episodes, steps, dt)
+    print(f'{len(fixes)} usable points; {available} complete episodes available.')
+    print('Sequential recorded positions: one GPS movement per simulation step. '
+          'Original timestamps and speeds are NOT preserved; gaps are not split. '
+          'Replay does not model zebra reactions to drones.')
 
     import torch
     from box import Box
@@ -149,19 +170,16 @@ def main():
     from environment.behaviors import REPLAY_CFG
     from .eval_models import init_agent, choose_action
 
-    manifest = pd.read_parquet(out/'tracks/manifest.parquet')
-    sampling_rng = np.random.default_rng(args.seed)
     cfg['animal']['init']['movement_dim'] = MovementDim.TWO_D
     cfg['animal']['init']['behavior'] = REPLAY_CFG(str(out/'tracks/manifest.parquet'))
     config = Box(cfg)
     agent, agent_type = init_agent(config, run_dir, args.weights)
     episode_rows, all_rows = [], []
     for episode in range(args.episodes):
-        # Interpolate only this episode: 2049 positions for 2048 movement steps.
-        chosen, index = sample_replay_window(
-            manifest, out/'tracks', out/'sampled_windows', episode,
-            int(config.max_episode_steps), float(config.dt), sampling_rng)
-        # Pin this sampled window even if the environment retries its reset.
+        # Each block is fixed in advance, including after early termination.
+        index = episode
+        chosen = manifest.iloc[[episode]].copy()
+        # Pin this block even if the environment retries its reset.
         selected_manifest = out/f'episode_{episode:03d}_manifest.parquet'
         chosen.to_parquet(selected_manifest, index=False)
         ep_cfg = deepcopy(config)
@@ -203,8 +221,9 @@ def main():
         stats.update({'episode': episode, 'window_index': int(index), 'seed': args.seed+episode,
                       'source_csv': str(source), 'source_start_time': str(chosen['start_time'].iloc[0]),
                       'source_end_time': str(chosen['end_time'].iloc[0]),
-                      'time_scale': args.time_scale,
-                      'sample_start_index': int(chosen['sample_start_index'].iloc[0]),
+                      'replay_timing': 'one_recorded_movement_per_simulation_step',
+                      'source_start_index': int(chosen['source_start_index'].iloc[0]),
+                      'source_end_index': int(chosen['source_end_index'].iloc[0]),
                       'track_lost': bool(loss),
                       'hard_safety_violation': bool(info['hard_safety_violation']),
                       'stop_reason': 'track_lost' if loss else 'safety' if info['hard_safety_violation'] else 'window_or_horizon_end'})
@@ -220,13 +239,15 @@ def main():
 
     episodes = pd.DataFrame(episode_rows)
     summary = {'run': str(run_dir), 'weights': args.weights, 'source_csv': str(source),
-               'episodes': len(episodes), 'time_scale': args.time_scale,
+               'episodes': len(episodes), 'replay_timing': 'one_recorded_movement_per_simulation_step',
                'track_loss_episodes': int(episodes['track_lost'].sum()),
                'mean_episode_reward_per_step': float(episodes['mean_reward_per_step'].mean()),
                'step_weighted_visible_fraction': float(np.mean([r['target_visible_fraction'] for r in all_rows])),
                'mean_distance_m': float(np.mean([r['mean_distance_m'] for r in all_rows])),
                'mean_disturbance': float(np.mean([r['disturbance'] for r in all_rows])),
-               'interpolation': 'linear between GPS fixes; disturbance is model-based'}
+               'interpolation': 'none between simulation steps; recorded fixes retimed to dt',
+               'available_episodes': available, 'usable_points': len(fixes),
+               'disturbance': 'model-based; replay animals do not react'}
     (out/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
     snapshot = deepcopy(cfg)
     snapshot['animal']['init']['movement_dim'] = 'TWO_D'
@@ -240,3 +261,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

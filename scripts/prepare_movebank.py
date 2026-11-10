@@ -12,17 +12,8 @@ import pandas as pd
 from pyproj import Transformer
 
 
-def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
-            episode_seconds=204.8, time_scale=1.0):
-    checks = [("max_gap", max_gap), ("time_scale", time_scale)]
-    if episode_seconds is not None:
-        checks.append(("episode_seconds", episode_seconds))
-    for name, value in checks:
-        if not np.isfinite(value) or value <= 0:
-            raise ValueError(f"{name} must be finite and positive")
-    out_dir = Path(out_dir)
-    if out_dir.exists() and any(out_dir.iterdir()):
-        raise ValueError(f"Output directory must be empty: {out_dir}")
+def read_fixes(csv_path, individual=None):
+    """Clean and order recorded fixes without interpolation or gap splitting."""
     df = pd.read_csv(csv_path, dtype={"individual-local-identifier": str,
                                     "tag-local-identifier": str})
     original_rows = len(df)
@@ -47,6 +38,22 @@ def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
     df = df.drop_duplicates([id_col, "timestamp"], keep="first")
     if len(df) < 2:
         raise ValueError("Fewer than two usable fixes; check filters and individual ID")
+
+    return df, id_col, original_rows
+
+
+def prepare(csv_path, out_dir, individual=None, max_gap=7200.0,
+            episode_seconds=204.8, time_scale=1.0):
+    checks = [("max_gap", max_gap), ("time_scale", time_scale)]
+    if episode_seconds is not None:
+        checks.append(("episode_seconds", episode_seconds))
+    for name, value in checks:
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
+    out_dir = Path(out_dir)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise ValueError(f"Output directory must be empty: {out_dir}")
+    df, id_col, original_rows = read_fixes(csv_path, individual)
 
     rows, all_gaps, all_speeds, plot_tracks = [], [], [], []
     for identifier, animal in df.groupby(id_col, sort=False):
@@ -143,3 +150,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

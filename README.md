@@ -268,6 +268,39 @@ python3 -m scripts.prepare_tracks
 
 To use replay behavior, switch to the `REPLAY` config and point it at prepared track segments.
 
+
+## Sequential zebra evaluation
+
+Evaluate recorded zebra fixes in chronological order (no random windows):
+
+```bash
+python3 -m scripts.eval_zebras --csv data/zebras/Z3864.csv --run latest --weights best --episodes 1 --record
+```
+
+Each episode uses `max_episode_steps` consecutive recorded movements, requiring
+`max_episode_steps + 1` positions. Adjacent episodes share only their boundary
+position. With 9,000 usable points and 2,048 steps per episode, four episodes fit;
+requesting five fails before policy loading or output creation. Incomplete tails
+are discarded. Existing track-loss/safety termination still applies; the next
+episode always starts at the next preassigned block.
+
+Fixes are cleaned, deduplicated and ordered by individual and timestamp. Different
+individuals are never joined. Use `--individual` to select one animal.
+`--prepare-only` reports usable point counts without loading a policy.
+
+This mode assigns one recorded movement to each simulation step. It preserves
+recorded positions but **does not preserve GPS timing or recorded speeds**.
+Long GPS gaps are not split, and `--max-gap` / `--time-scale` are no longer
+options for this evaluator. Original block timestamps are retained in the
+results. Disturbance remains a model-based proxy; replay animals do not react
+to drones. The separate `scripts.prepare_movebank` timed replay workflow is unchanged.
+
+Run the sequential replay checks with:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_zebra_sequential.py' -v
+```
+
 ## Convenience scripts
 
 The repository also includes batch helpers for running repeated experiments:
