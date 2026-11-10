@@ -271,38 +271,67 @@ To use replay behavior, switch to the `REPLAY` config and point it at prepared t
 
 ## Sequential zebra evaluation
 
-Evaluate recorded zebra fixes in chronological order (no random windows):
+The default zebra source is the cleaned, ground-plane drone trajectories from
+Duporge et al. (2025), *Tracking the Flight: Exploring a Computational Framework
+for Analyzing Escape Responses in Plains Zebra (Equus quagga)*:
+https://github.com/neuroinformatics-unit/zebras-stitching
+and https://arxiv.org/abs/2505.16882.
+
+Install the additional reader dependency after updating an existing environment:
 
 ```bash
-python3 -m scripts.eval_zebras --csv data/zebras/Z3864.csv --run latest --weights best --episodes 1 --record
+pip install 'h5py>=3.11'
+python3 -m scripts.eval_zebras --run latest --weights best --episodes 1 --record
 ```
 
-Each episode covers `max_episode_steps * dt` recorded seconds. GPS coordinates
-are projected into metres and linearly interpolated at every simulation tick,
-using the original timestamps. For 2,048 steps at dt=0.1, episode 1 covers
-0–204.8 seconds, episode 2 covers 204.8–409.6 seconds, and so on. There is no
-random sampling or time compression.
+The first run automatically downloads a pinned, checksum-verified 4.94 MB HDF5
+file into `data/zebras/drone_escape_clean.h5`. No video-processing packages or
+video downloads are needed. The source has 44 zebras at 29.97 frames/s over
+approximately 210 seconds. It is an escape-response dataset collected during
+simulated predation, suitable as a tracking stress test, not as evidence of
+undisturbed behaviour or validation of drone-induced disturbance.
 
-Capacity is checked from recorded duration before loading the policy or creating
-outputs. Requests exceeding the available complete time windows fail immediately.
-Incomplete time tails are discarded. This means 9,000 GPS fixes can support many
-more than four episodes when fixes are approximately hourly.
+Use `--individual track_25` to select a zebra, `--tracks-file /path/to/file.h5`
+to read a local copy, or `--prepare-only` to inspect the source without loading
+a policy. The original visualization CSVs omit missing frames and timestamps;
+the evaluator instead reads the cleaned HDF5 and retains original frame indices.
 
-Fixes are cleaned, deduplicated and ordered by individual and timestamp. Different
-individuals are never joined. Use `--individual` to select one animal.
-`--prepare-only` reports usable point counts without loading a policy.
-Existing track-loss/safety termination still applies; the next episode always
-starts at the next preassigned time window.
+The mean of head and tailbase keypoints defines position. Both keypoints must
+be finite. The ground-plane coordinates have arbitrary scale, so the evaluator
+uses a **2.0 m assumed median head-to-tailbase length**, configurable with
+`--body-length-m`. This is a modelling assumption, not measured metric ground
+truth. The scale factor is assumed length / median source head-tailbase length
+across all finite, positive body lengths in the source. Local plane xy is used
+in metres with z=0. Results include `source.json` recording source commit,
+SHA-256, scale, body-length assumption, frame rate, and gap policy.
 
-GPS interval-average displacement speeds are preserved, but movement between
-fixes is unobserved and assumed straight and constant-speed. Long gaps are not
-split in this evaluator. Disturbance remains a model-based proxy; replay animals
-do not react to drones. The separate `scripts.prepare_movebank` workflow is unchanged.
+Positions are linearly resampled to the trained configuration's `dt` (normally
+0.1 s), without time compression. Missing-data gaps over 0.5 s split tracks;
+shorter gaps may be interpolated. Change this explicitly with `--max-track-gap`.
+There is no endpoint extrapolation or padding. Capacity is checked before model
+loading and evaluation outputs are created. At 2,048 steps and dt=0.1,
+**two complete episodes** fit with the default gap threshold, from `track_25`
+and `track_31`. The first episode uses `track_25` starting at video time 0.
+Incomplete tails are discarded, and windows are deterministic and consecutive
+within each continuous track. Different animals are never joined.
 
-Run the sequential replay checks with:
+These tracks come from the same short herd video; episodes across zebras are
+not independent recordings. Existing early termination still applies, and the
+next episode starts at its preassigned window.
+
+For the older GPS replay mode, pass the CSV explicitly:
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_zebra_sequential.py' -v
+python3 -m scripts.eval_zebras --csv data/zebras/Z3864.csv --run latest --episodes 1
+```
+
+This preserves GPS timestamps but assumes linear motion between sparse fixes.
+The separate `scripts.prepare_movebank` workflow is unchanged.
+
+Run replay regression tests with:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_zebra*.py' -v
 ```
 
 ## Convenience scripts
