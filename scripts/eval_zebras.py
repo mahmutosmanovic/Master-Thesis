@@ -27,12 +27,12 @@ def summarize(rows, horizon_steps, dt):
     }
 
 
-def read_run_config(run_dir):
+def read_run_config(run_dir, animal_label='Zebra'):
     """Use the trained dimensions; do not load unrelated synthetic behavior files."""
     with open(run_dir/'config.yaml') as f:
         cfg = yaml.safe_load(f)
     if cfg['animal']['env']['count'] != 1:
-        raise ValueError('Zebra evaluation requires a run trained with one animal; '
+        raise ValueError(f'{animal_label} evaluation requires a run trained with one animal; '
                          'changing the animal count would change checkpoint dimensions.')
     if cfg['model']['space'].get('animal_features') != 12:
         raise ValueError('This environment requires 12 animal features, but the run uses '
@@ -114,7 +114,7 @@ def prepare_sequential(fixes, id_col, out_dir, episodes, steps, dt):
                 return manifest, available
 
 
-def write_plots(steps, episodes, out):
+def write_plots(steps, episodes, out, animal_label='Zebra'):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -128,7 +128,7 @@ def write_plots(steps, episodes, out):
     plt.close(fig)
     first = steps[steps['episode'] == 0]
     fig, ax = plt.subplots(figsize=(7, 6))
-    ax.plot(first['animal_x'], first['animal_y'], label='Zebra replay')
+    ax.plot(first['animal_x'], first['animal_y'], label=f'{animal_label} replay')
     for drone in range(int(first['drone_count'].iloc[0])):
         ax.plot(first[f'drone_{drone}_x'], first[f'drone_{drone}_y'], label=f'Drone {drone}')
     ax.set(xlabel='Local east (m)', ylabel='Local north (m)', title='First evaluated trajectory')

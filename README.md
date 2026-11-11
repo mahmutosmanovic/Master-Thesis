@@ -444,3 +444,66 @@ With regards to ethical collection of the data, all trapping and tagging procedu
 ## License
 
 This repository includes a `LICENSE` file at the project root.
+
+## Baboon trajectory evaluation
+
+Use the Movebank CSV at:
+
+```text
+data/baboons/Collective movement in wild baboons (data from Strandburg-Peshkin et al. 2015).csv
+```
+
+Evaluate an exact checkpoint (keep its saved `config.yaml` in the same directory):
+
+```bash
+python3 -m scripts.eval_baboons --model-path /path/to/run/ppo_best.pt --individual 1 --record
+```
+
+Or select a run folder and its best/last checkpoint:
+
+```bash
+python3 -m scripts.eval_baboons --run /path/to/run --weights best
+# Folder names under runs/ and --run latest also work.
+```
+
+Omit `--individual` to select the first eligible individual in CSV appearance
+order. The reader scans the CSV in chunks, removes invalid/outlier/invisible
+fixes and duplicate timestamps, and retains exactly the earliest **2,048 valid
+GPS fixes from that one individual**, sorted by timestamp. Individuals with
+fewer fixes, or gaps over `--max-gap 2` seconds within their first 2,048 fixes,
+are rejected. It never joins animals or skips to later windows. `--csv` accepts
+an alternative CSV path with the same four required columns.
+
+Coordinates are converted from WGS84 longitude/latitude to local UTM metres.
+Original timestamps and speeds are preserved; interpolation is linear at the
+trained model's `dt`. **2,048 source fixes are different from 2,048 simulation
+steps**: at 1 Hz the selected fixes span 2,047 seconds, while a saved horizon of
+2,048 steps with `dt=0.1` evaluates the first 204.8 seconds. No time compression
+is applied. `--episodes` can evaluate further consecutive full windows within
+those same selected fixes; the default is one episode. Early termination is
+reported and is not padded or restarted.
+
+Inspect/export the selection without weights:
+
+```bash
+python3 -m scripts.eval_baboons --prepare-only --individual 1 --out evals/baboons/selection
+```
+
+Evaluation writes `selected_fixes.csv`, `source.json`, replay tracks,
+`steps.csv`, `episodes.csv`, `summary.json`, a config snapshot, performance and
+trajectory plots under a new timestamped directory in `evals/baboons/`.
+`--record` additionally exports the first episode's video/snapshots using the
+existing viewer (requires ffmpeg). Summary metrics include reward, visibility,
+drone–animal distance, modeled disturbance, tracking loss and safety violations.
+
+As in zebra evaluation, checkpoints must have been trained for one animal and
+the environment's 12-animal-feature observation layout; saved dimensions are
+checked rather than changed. Replay trajectories do not respond to the drone;
+disturbance is evaluated with the saved model parameters. This command evaluates
+an existing policy; it does not train or retune it for baboons.
+
+Regression checks:
+
+```bash
+python3 -m unittest tests.test_baboon_evaluation tests.test_zebra_sequential -v
+```
