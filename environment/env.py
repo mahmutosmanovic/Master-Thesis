@@ -31,6 +31,7 @@ class Env:
         self.drone_count = len(self.drones)
         self.max_view_range = max(d.view_range for d in self.drones)
 
+        self._init_camera_config()
         self._init_space_config()
         self._init_safety_config()
         self._init_view_sep_config()
@@ -108,6 +109,42 @@ class Env:
                     return default
                 obj = getattr(obj, key)
         return obj
+
+    def _init_camera_config(self):
+        """
+        Optional GSD-based observation quality (config block `camera`).
+
+        gsd_max is the task resolution threshold [m/px], anchored to a reference camera
+        (ref_hor_angle, ref_view_range). Each drone type's view_range must be the slant
+        distance at which its GSD reaches gsd_max, so that d / view_range == GSD / gsd_max
+        for every type. Without a `camera` block, quality is slant distance / view_range.
+        """
+        cam_cfg = self.config.get("camera", None)
+        self.gsd_max = None
+        if not cam_cfg:
+            return
+
+        sensor_px = int(cam_cfg.get("sensor_px", 3840))
+        ref_ifov = np.deg2rad(float(cam_cfg["ref_hor_angle"])) / sensor_px
+        self.gsd_max = float(cam_cfg["ref_view_range"]) * ref_ifov
+
+        for drone in self.drones:
+            gsd_at_range = drone.view_range * drone.ifov
+            if abs(gsd_at_range / self.gsd_max - 1.0) > 0.01:
+                expected = self.gsd_max / drone.ifov
+                raise ValueError(
+                    f"Drone type '{drone.drone_type}': view_range={drone.view_range} gives "
+                    f"GSD {gsd_at_range * 100:.2f} cm/px at max range, but gsd_max is "
+                    f"{self.gsd_max * 100:.2f} cm/px. Set view_range to {expected:.1f}."
+                )
+
+    def _target_quality_cost(self, d, dist_norm):
+        """Normalised observation cost in [0, 1]: GSD / gsd_max if `camera` is set, else d / view_range."""
+        if self.gsd_max is None:
+            return dist_norm
+        drone = self.drones[d]
+        gsd = np.asarray(dist_norm) * drone.view_range * drone.ifov
+        return np.clip(gsd / self.gsd_max, 0.0, 1.0)
 
     def _init_space_config(self):
         self.drone_feat_dim = int(self._cfg_get("model", "space", "drone_features", default=8))
@@ -1064,7 +1101,7 @@ class Env:
 
             if target_in_view:
                 visible_target[d] = 1.0
-                dist_term = -dist[is_target]
+                dist_term = -self._target_quality_cost(d, dist[is_target])
                 r_dist += float(np.mean(dist_term))
 
                 v_vis = np.maximum(0.0, v[is_target] - ALIGN_DEADZONE)
@@ -1170,7 +1207,7 @@ class Env:
 
             if target_in_view:
                 visible_target[d] = 1.0
-                dist_term = -dist[is_target]
+                dist_term = -self._target_quality_cost(d, dist[is_target])
                 r_dist += float(np.mean(dist_term))
 
                 v_vis = np.maximum(0.0, v[is_target] - ALIGN_DEADZONE)

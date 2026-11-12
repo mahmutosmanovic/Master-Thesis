@@ -32,7 +32,13 @@ class Drone(Entity):
         self.ver_angle = int(config["drone"][d_type]["ver_angle"])
         self.hor_angle = int(config["drone"][d_type]["hor_angle"])
         self.disturbance_mult = config["drone"][d_type]["disturbance_mult"]
-        self.view_range = int(config["drone"][d_type]["view_range"])
+        self.view_range = float(config["drone"][d_type]["view_range"])
+
+        # Camera resolution model (equidistant / f-theta lens: uniform angular pixel pitch).
+        # ifov [rad/px]; ground sample distance at slant range d is GSD = d * ifov [m/px].
+        cam_cfg = config.get("camera", None) or {}
+        self.sensor_px = int(config["drone"][d_type].get("sensor_px", cam_cfg.get("sensor_px", 3840)))
+        self.ifov = float(np.deg2rad(self.hor_angle) / self.sensor_px)
         self.max_cam_rot = int(config["drone"][d_type]["max_cam_rot"])
         self.max_altitude = int(config["drone"][d_type]["max_altitude"])
         self.view_dir = Vector(*config["drone"][d_type]["view_dir"])
